@@ -4,8 +4,9 @@ import AppShell from '@/layouts/AppShell'
 import LoginPage from '@/features/auth/LoginPage'
 import ChangePasswordPage from '@/features/auth/ChangePasswordPage'
 import DashboardPage from '@/pages/DashboardPage'
+import HandoverListPage from '@/features/handovers/HandoverListPage'
 import {
-  AdminPage, AiSearchPage, AuditPage, HandoverListPage, ImportPage, MyWorkPage,
+  AdminPage, AiSearchPage, AuditPage, ImportPage, MyWorkPage,
   NotFoundPage, NotificationPage, SchedulePage, SearchPage, SettingsPage, ShiftPage,
   StatsPage, TaskPage,
 } from '@/pages/placeholders'

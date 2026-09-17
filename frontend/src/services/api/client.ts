@@ -114,5 +114,6 @@ export const api = {
   post: <T>(path: string, body?: unknown) => request<T>(path, { method: 'POST', body }),
   patch: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PATCH', body }),
   put: <T>(path: string, body?: unknown) => request<T>(path, { method: 'PUT', body }),
-  delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
+  // 삭제는 사유가 필수인 경우가 있어 본문을 받는다(DELETE /handovers/{id} 등)
+  delete: <T>(path: string, body?: unknown) => request<T>(path, { method: 'DELETE', body }),
 }

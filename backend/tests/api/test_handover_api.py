@@ -353,7 +353,7 @@ class TestSoftDelete:
         with ApiClient(app) as analyst:
             analyst.login("analyst1", ANALYST_PW)
             assert analyst.get(f"{BASE}/{hid}").status_code == 404
-            assert analyst.get(f"{BASE}?include_deleted=true").status_code == 422
+            assert analyst.get(f"{BASE}?include_deleted=true").status_code == 403
 
     def test_manager_can_still_read_deleted(self, manager_client, company_id):
         hid = _new(manager_client, company_id)["id"]

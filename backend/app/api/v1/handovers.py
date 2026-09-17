@@ -1,107 +1,35 @@
 """인수인계 라우터. 비즈니스 규칙은 services/handover_service.py 에 있다.
 
-목록은 Phase 2 기준의 단순 조회다. Column Filter DSL / Facet / FTS 는 Phase 3 에서
-`POST /handovers/search` 로 추가하며, 그때 이 GET 은 동일 DSL 의 query 인코딩 형태가 된다.
+목록(GET)은 링크 공유용 단순 형태이고, 실제 실행은 POST /handovers/search 와 동일한
+필터 DSL 을 지난다(services/search_service.run). 두 경로의 결과가 어긋날 수 없다.
 """
 from __future__ import annotations
 
 from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, Query, Response, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.v1 import handover_serde
 from app.audit import actions
 from app.audit.recorder import record
 from app.auth.deps import get_current_user, require, require_password_changed
-from app.auth.rbac import has_permission
 from app.core.context import RequestContext, get_context
 from app.core.db import get_db
-from app.core.errors import NotFound, ValidationFailed
-from app.core.pagination import Page, PageParams
+from app.core.errors import NotFound
+from app.core.pagination import Page
 from app.core.time import today
-from app.models.handover import Handover, HandoverAcknowledgement, HandoverStar
+from app.models.handover import Handover, HandoverAcknowledgement
 from app.models.user import User
 from app.schemas.handover import (AcknowledgeRequest, AckOut, AsOfOut, DeleteRequest, DiffOut,
                                   HandoverCreate, HandoverDetail, HandoverListItem,
                                   HandoverUpdate, PinRequest, RestoreRequest, TimelineEvent,
                                   VersionDetail, VersionSummary)
-from app.services import ack_service, handover_service
+from app.search.dsl import Filter, SearchRequest, Sort
+from app.services import ack_service, handover_service, search_service
 
 router = APIRouter(tags=["handovers"], dependencies=[Depends(require_password_changed)])
-
-_SORTABLE = {
-    "registered_date": Handover.registered_date,
-    "work_date": Handover.work_date,
-    "updated_at": Handover.updated_at,
-    "created_at": Handover.created_at,
-    "title": Handover.title,
-    "id": Handover.id,
-}
-
-
-# --------------------------------------------------------------------------- 직렬화
-
-def _base_fields(h: Handover) -> dict:
-    return {
-        "id": h.id,
-        "company": h.company,
-        "title": h.title,
-        "status": h.status,
-        "priority": h.priority,
-        "registered_date": h.registered_date,
-        "work_date": h.work_date,
-        "completed_at": h.completed_at,
-        "sender": h.sender,
-        "sender_name_raw": h.sender_name_raw,
-        "assignee": h.assignee,
-        "assignee_name_raw": h.assignee_name_raw,
-        "checker": h.checker,
-        "checker_name_raw": h.checker_name_raw,
-        "is_important": h.is_important,
-        "is_pinned": h.is_pinned,
-        "is_recurring": h.is_recurring,
-        "current_version_no": h.current_version_no,
-        "ack_state_cache": h.ack_state_cache,
-        "tags": handover_service.tag_names(h),
-        "carry_count": h.carry_count,
-        "updated_at": h.updated_at,
-        "is_deleted": h.is_deleted,
-    }
-
-
-def _list_item(h: Handover, *, my_ack: str | None, starred: bool) -> HandoverListItem:
-    return HandoverListItem.model_validate(
-        {**_base_fields(h), "my_ack_state": my_ack, "is_starred": starred}
-    )
-
-
-def _detail(db: Session, h: Handover, actor: User) -> HandoverDetail:
-    acks = ack_service.list_for_handover(db, h.id)
-    mine = next((a for a in acks if a.user_id == actor.id), None)
-    return HandoverDetail.model_validate({
-        **_base_fields(h),
-        "my_ack_state": mine.state if mine else None,
-        "is_starred": handover_service.is_starred(db, h.id, actor.id),
-        "content": h.content,
-        "remark": h.remark,
-        "created_by": h.created_by,
-        "updated_by": h.updated_by,
-        "created_at": h.created_at,
-        "deleted_at": h.deleted_at,
-        "deleted_by": h.deleted_by,
-        "delete_reason": h.delete_reason,
-        "source_file": h.source_file,
-        "source_sheet": h.source_sheet,
-        "source_row": h.source_row,
-        "acknowledgements": [
-            AckOut.model_validate({
-                "user_id": a.user_id, "user": None, "state": a.state,
-                "acked_version_no": a.acked_version_no, "acked_at": a.acked_at,
-                "stale_since": a.stale_since, "stale_reason": a.stale_reason, "note": a.note,
-            }) for a in acks
-        ],
-    })
 
 
 # --------------------------------------------------------------------------- 목록 / 생성
@@ -116,6 +44,8 @@ def list_handovers(
     is_important: bool | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
+    quick: str = Query(default="", max_length=200,
+                       description="쉼표 구분 Quick Filter 토큰(TODAY,MINE,OPEN,...)"),
     include_deleted: bool = False,
     sort: str = Query(default="registered_date:desc", max_length=100),
     page: int = 1,
@@ -123,69 +53,30 @@ def list_handovers(
     db: Session = Depends(get_db),
     actor: User = Depends(require("handover:read")),
 ):
-    params = PageParams(page=page, size=size)
-    stmt = select(Handover)
-
-    if include_deleted:
-        if not has_permission(actor.role_code, "handover:read_deleted"):
-            raise ValidationFailed("삭제된 항목을 조회할 권한이 없습니다.")
-    else:
-        stmt = stmt.where(Handover.is_deleted.is_(False))
-
-    if q:
-        like = f"%{q}%"
-        stmt = stmt.where(or_(Handover.title.ilike(like), Handover.content.ilike(like),
-                              Handover.search_text.ilike(like)))
-    if company_id is not None:
-        stmt = stmt.where(Handover.company_id == company_id)
-    if status_code:
-        stmt = stmt.where(Handover.status_code == status_code)
-    if priority_code:
-        stmt = stmt.where(Handover.priority_code == priority_code)
-    if assignee_id is not None:
-        stmt = stmt.where(Handover.assignee_id == assignee_id)
-    if is_important is not None:
-        stmt = stmt.where(Handover.is_important.is_(is_important))
+    """링크 공유용 단순 조회. 내부적으로는 POST /handovers/search 와 같은 DSL 로 변환된다."""
+    filters: list[Filter] = []
+    for field, value in (("company_id", company_id), ("status_code", status_code),
+                         ("priority_code", priority_code), ("assignee_id", assignee_id),
+                         ("is_important", is_important)):
+        if value is not None and value != "":
+            filters.append(Filter(field=field, op="eq", value=value))
     if date_from is not None:
-        stmt = stmt.where(Handover.registered_date >= date_from)
+        filters.append(Filter(field="registered_date", op="gte", value=date_from.isoformat()))
     if date_to is not None:
-        stmt = stmt.where(Handover.registered_date <= date_to)
+        filters.append(Filter(field="registered_date", op="lte", value=date_to.isoformat()))
 
-    total = db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
-    total_all = db.scalar(
-        select(func.count()).select_from(Handover).where(Handover.is_deleted.is_(False))
-    ) or 0
-
-    # 상단고정은 항상 위로. 그다음 사용자가 지정한 정렬.
-    order = [Handover.is_pinned.desc()]
+    sorts = []
     for token in sort.split(","):
         name, _, direction = token.partition(":")
-        column = _SORTABLE.get(name.strip())
-        if column is None:
-            continue
-        order.append(column.desc() if direction.strip().lower() == "desc" else column.asc())
-    order.append(Handover.id.desc())
+        if name.strip():
+            sorts.append(Sort(field=name.strip(),
+                              dir="desc" if direction.strip().lower() == "desc" else "asc"))
 
-    rows = list(db.scalars(stmt.order_by(*order).offset(params.offset).limit(params.size)))
-    ids = [r.id for r in rows]
-
-    my_acks: dict[int, str] = {}
-    starred: set[int] = set()
-    if ids:
-        my_acks = {
-            hid: state for hid, state in db.execute(
-                select(HandoverAcknowledgement.handover_id, HandoverAcknowledgement.state)
-                .where(HandoverAcknowledgement.handover_id.in_(ids),
-                       HandoverAcknowledgement.user_id == actor.id)
-            )
-        }
-        starred = set(db.scalars(
-            select(HandoverStar.handover_id)
-            .where(HandoverStar.handover_id.in_(ids), HandoverStar.user_id == actor.id)
-        ))
-
-    items = [_list_item(r, my_ack=my_acks.get(r.id), starred=r.id in starred) for r in rows]
-    return Page.of(items, params, total, total_all=total_all)
+    request = SearchRequest(
+        q=q or None, filters=filters, sort=sorts,
+        quick=[t.strip() for t in quick.split(",") if t.strip()],
+        page=page, size=size, include_deleted=include_deleted)
+    return search_service.run(db, request, actor)
 
 
 @router.post("/handovers", response_model=HandoverDetail, status_code=status.HTTP_201_CREATED)
@@ -196,7 +87,7 @@ def create_handover(payload: HandoverCreate, db: Session = Depends(get_db),
     if data.get("registered_date") is None:
         data["registered_date"] = today()
     handover = handover_service.create_handover(db, data, actor, ctx)
-    return _detail(db, handover, actor)
+    return handover_serde.detail(db, handover, actor)
 
 
 # --------------------------------------------------------------------------- 단건
@@ -207,7 +98,7 @@ def get_handover(handover_id: int, as_of: datetime | None = None,
                  actor: User = Depends(require("handover:read"))):
     handover = handover_service.get_or_404(db, handover_id, actor)
     if as_of is None:
-        return _detail(db, handover, actor)
+        return handover_serde.detail(db, handover, actor)
 
     version = handover_service.as_of(db, handover_id, as_of)
     if version is None:
@@ -224,7 +115,7 @@ def update_handover(handover_id: int, payload: HandoverUpdate, db: Session = Dep
     handover, _created = handover_service.update_handover(
         db, handover_id, payload.changes(), expected_version=payload.expected_version,
         change_reason=payload.change_reason, actor=actor, ctx=ctx)
-    return _detail(db, handover, actor)
+    return handover_serde.detail(db, handover, actor)
 
 
 @router.delete("/handovers/{handover_id}", response_model=HandoverDetail)
@@ -232,7 +123,7 @@ def delete_handover(handover_id: int, payload: DeleteRequest, db: Session = Depe
                     actor: User = Depends(require("handover:delete")),
                     ctx: RequestContext = Depends(get_context)):
     handover = handover_service.soft_delete(db, handover_id, payload.reason, actor, ctx)
-    return _detail(db, handover, actor)
+    return handover_serde.detail(db, handover, actor)
 
 
 @router.post("/handovers/{handover_id}/undelete", response_model=HandoverDetail)
@@ -240,7 +131,7 @@ def undelete_handover(handover_id: int, db: Session = Depends(get_db),
                       actor: User = Depends(require("handover:undelete")),
                       ctx: RequestContext = Depends(get_context)):
     handover = handover_service.undelete(db, handover_id, actor, ctx)
-    return _detail(db, handover, actor)
+    return handover_serde.detail(db, handover, actor)
 
 
 # --------------------------------------------------------------------------- 즐겨찾기 / 고정
@@ -271,7 +162,7 @@ def set_pin(handover_id: int, payload: PinRequest, db: Session = Depends(get_db)
         db, handover_id, {"is_pinned": payload.pinned},
         expected_version=current.current_version_no,
         change_reason="상단고정 변경", actor=actor, ctx=ctx)
-    return _detail(db, handover, actor)
+    return handover_serde.detail(db, handover, actor)
 
 
 # --------------------------------------------------------------------------- Version
@@ -307,7 +198,7 @@ def restore_version(handover_id: int, version_no: int, payload: RestoreRequest,
     handover = handover_service.restore_version(
         db, handover_id, version_no, expected_version=payload.expected_version,
         change_reason=payload.change_reason, actor=actor, ctx=ctx)
-    return _detail(db, handover, actor)
+    return handover_serde.detail(db, handover, actor)
 
 
 @router.get("/handovers/{handover_id}/timeline", response_model=list[TimelineEvent])

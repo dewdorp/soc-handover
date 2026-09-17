@@ -1,0 +1,38 @@
+# 비밀/환경
+.env
+*.pem
+*.key
+*.crt
+
+# 런타임 산출물
+run/
+logs/
+data/
+backup/
+*.db
+*.db-wal
+*.db-shm
+
+# Python
+backend/.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node
+frontend/node_modules/
+frontend/dist/
+.pnpm-store/
+*.tsbuildinfo
+
+# 배포 패키지 산출물 (package.ps1)
+backend/offline-wheels/
+soc-handover_*.zip
+
+# 편집기/OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

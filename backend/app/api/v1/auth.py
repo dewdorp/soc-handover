@@ -1,0 +1,114 @@
+"""인증 라우터."""
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, Request, Response, status
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.auth.deps import get_current_user
+from app.auth.rbac import permissions_for
+from app.core.context import RequestContext, get_context
+from app.core.db import get_db
+from app.core.security import REFRESH_COOKIE, hash_token
+from app.models.common import Notification
+from app.models.handover import ACK_ACKED, HandoverAcknowledgement
+from app.models.user import RefreshToken, User
+from app.schemas.auth import (ChangePasswordRequest, LoginRequest, MeResponse,
+                              SessionInfo)
+from app.services import auth_service
+
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _me_payload(db: Session, user: User) -> MeResponse:
+    pending = db.scalar(
+        select(func.count()).select_from(HandoverAcknowledgement).where(
+            HandoverAcknowledgement.user_id == user.id,
+            HandoverAcknowledgement.state != ACK_ACKED,
+        )
+    ) or 0
+    unread = db.scalar(
+        select(func.count()).select_from(Notification).where(
+            Notification.user_id == user.id, Notification.is_read.is_(False)
+        )
+    ) or 0
+    return MeResponse(
+        id=user.id, username=user.username, display_name=user.display_name,
+        email=user.email, role_code=user.role_code, team=user.team,
+        must_change_password=user.must_change_password, last_login_at=user.last_login_at,
+        permissions=sorted(permissions_for(user.role_code)),
+        pending_ack_count=pending, unread_notification_count=unread,
+    )
+
+
+@router.post("/login", response_model=MeResponse)
+def login(payload: LoginRequest, request: Request, response: Response,
+          db: Session = Depends(get_db), ctx: RequestContext = Depends(get_context)):
+    user = auth_service.login(db, response, username=payload.username,
+                              password=payload.password, ctx=ctx)
+    return _me_payload(db, user)
+
+
+@router.post("/refresh", response_model=MeResponse)
+def refresh(request: Request, response: Response, db: Session = Depends(get_db),
+            ctx: RequestContext = Depends(get_context)):
+    user = auth_service.refresh_session(
+        db, response, raw_refresh=request.cookies.get(REFRESH_COOKIE), ctx=ctx)
+    return _me_payload(db, user)
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+def logout(request: Request, response: Response, db: Session = Depends(get_db),
+           ctx: RequestContext = Depends(get_context)):
+    user = getattr(request.state, "user", None)
+    if user is None:
+        from app.auth.deps import get_optional_user
+        user = get_optional_user(request, db)
+    auth_service.logout(db, response, raw_refresh=request.cookies.get(REFRESH_COOKIE),
+                        user=user, ctx=ctx)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/me", response_model=MeResponse)
+def me(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return _me_payload(db, user)
+
+
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(payload: ChangePasswordRequest, response: Response,
+                    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+                    ctx: RequestContext = Depends(get_context)):
+    auth_service.change_password(db, user=user, current=payload.current_password,
+                                 new=payload.new_password, ctx=ctx)
+    auth_service.clear_auth_cookies(response)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/sessions", response_model=list[SessionInfo])
+def sessions(request: Request, db: Session = Depends(get_db),
+             user: User = Depends(get_current_user)):
+    current_hash = None
+    raw = request.cookies.get(REFRESH_COOKIE)
+    if raw:
+        current_hash = hash_token(raw)
+    rows = db.scalars(
+        select(RefreshToken)
+        .where(RefreshToken.user_id == user.id, RefreshToken.revoked_at.is_(None))
+        .order_by(RefreshToken.issued_at.desc())
+    ).all()
+    return [
+        SessionInfo(id=r.id, issued_at=r.issued_at, expires_at=r.expires_at,
+                    client_ip=r.client_ip, user_agent=r.user_agent,
+                    current=(r.token_hash == current_hash))
+        for r in rows
+    ]
+
+
+@router.delete("/sessions/{session_id}", status_code=status.HTTP_204_NO_CONTENT)
+def revoke_session(session_id: int, db: Session = Depends(get_db),
+                   user: User = Depends(get_current_user)):
+    from app.core.time import now as _now
+    token = db.get(RefreshToken, session_id)
+    if token and token.user_id == user.id and token.revoked_at is None:
+        token.revoked_at = _now()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

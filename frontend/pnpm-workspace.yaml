@@ -1,0 +1,6 @@
+# pnpm 으로 설치할 때 esbuild 네이티브 바이너리 설치 스크립트를 허용한다.
+# (npm 사용 시에는 이 파일이 필요 없다)
+allowBuilds:
+  esbuild: true
+onlyBuiltDependencies:
+  - esbuild

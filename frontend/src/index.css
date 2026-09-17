@@ -1,0 +1,60 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-surface-sunken text-ink text-base antialiased;
+    font-family: 'Malgun Gothic', 'Segoe UI', system-ui, -apple-system, sans-serif;
+    /* 외부 폰트 CDN을 쓰지 않는다(오프라인 내부망 운영 전제) */
+  }
+
+  *:focus-visible {
+    @apply outline-none ring-2 ring-brand/60 ring-offset-1;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-surface border border-surface-border rounded-md;
+  }
+
+  .btn {
+    @apply inline-flex items-center gap-1.5 h-7 px-2.5 rounded border border-surface-border
+           bg-surface text-ink hover:bg-surface-sunken active:translate-y-px
+           disabled:opacity-50 disabled:pointer-events-none whitespace-nowrap;
+  }
+
+  .btn-primary {
+    @apply bg-brand text-white border-brand hover:bg-brand/90;
+  }
+
+  .btn-sm {
+    @apply h-6 px-2 text-sm;
+  }
+
+  .input {
+    @apply h-7 px-2 rounded border border-surface-border bg-surface
+           placeholder:text-ink-faint focus:border-brand;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 h-6 px-2 rounded-full border border-surface-border
+           bg-surface-sunken text-sm;
+  }
+
+  .nav-item {
+    @apply flex items-center gap-2 h-8 px-2.5 rounded text-ink-muted hover:bg-white/60
+           hover:text-ink cursor-pointer select-none;
+  }
+
+  .nav-item-active {
+    @apply bg-white text-ink font-medium shadow-sm;
+  }
+}

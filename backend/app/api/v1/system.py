@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.audit.actions import BACKUP, RESTORE
 from app.audit.recorder import record
-from app.auth.deps import get_current_user
+from app.auth.deps import require_password_changed
 from app.core.config import settings
 from app.core.context import RequestContext, get_context
 from app.core.db import dialect_name, get_db
@@ -17,6 +17,8 @@ from app.models.common import SystemSetting
 from app.models.user import User
 from app.services import settings_service
 
+# /health 는 익명, /audit/system-event 는 loopback 전용이므로 라우터 전체를 묶지 않고
+# 인증이 필요한 엔드포인트에만 비밀번호 변경 게이트를 건다.
 router = APIRouter(tags=["system"])
 
 LOOPBACK = {"127.0.0.1", "::1", "localhost", "testclient"}
@@ -68,7 +70,7 @@ def system_event(payload: SystemEvent, request: Request, db: Session = Depends(g
 
 
 @router.get("/settings/features")
-def features(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
+def features(db: Session = Depends(get_db), _: User = Depends(require_password_changed)):
     """AI 활성 여부 등 화면 구성에 필요한 플래그.
 
     AI가 꺼져 있으면 프론트는 AI 라우트를 아예 등록하지 않는다(§54).
@@ -94,7 +96,7 @@ def features(db: Session = Depends(get_db), _: User = Depends(get_current_user))
 
 
 @router.get("/settings")
-def list_settings(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def list_settings(db: Session = Depends(get_db), user: User = Depends(require_password_changed)):
     from app.auth.rbac import has_permission
     from app.core.errors import Forbidden
     if not has_permission(user.role_code, "settings:manage"):

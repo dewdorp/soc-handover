@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import actions
 from app.audit.recorder import record
-from app.auth.deps import get_current_user, require
+from app.auth.deps import get_current_user, require, require_password_changed
 from app.core.context import RequestContext, get_context
 from app.core.db import get_db
 from app.core.errors import Conflict, NotFound, ValidationFailed
@@ -16,7 +16,7 @@ from app.models.user import User
 from app.schemas.reference import (CompanyCreate, CompanyOut, CompanyUpdate, PriorityOut,
                                    ShiftOut, StatusOut, StatusUpsert, TagOut)
 
-router = APIRouter(tags=["reference"])
+router = APIRouter(tags=["reference"], dependencies=[Depends(require_password_changed)])
 
 
 # ---------------- 관계사 ----------------

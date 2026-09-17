@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.audit import actions
 from app.audit.recorder import record
-from app.auth.deps import get_current_user, require
+from app.auth.deps import get_current_user, require, require_password_changed
 from app.auth.rbac import ALL_ROLES
 from app.core.context import RequestContext, get_context
 from app.core.db import get_db
@@ -21,7 +21,7 @@ from app.models.user import RefreshToken, Role, User
 from app.schemas.auth import UserBrief
 from app.schemas.user import PasswordResetOut, UserCreate, UserOut, UserUpdate
 
-router = APIRouter(tags=["users"])
+router = APIRouter(tags=["users"], dependencies=[Depends(require_password_changed)])
 
 
 @router.get("/users/lookup", response_model=list[UserBrief])

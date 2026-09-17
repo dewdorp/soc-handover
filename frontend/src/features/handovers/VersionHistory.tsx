@@ -110,7 +110,10 @@ function VersionRow({ version, previous, isCurrent, canEdit, onCompare, onRestor
   version: VersionSummary; previous?: number; isCurrent: boolean; canEdit: boolean
   onCompare: (from: number, to: number) => void; onRestore: (no: number) => void
 }) {
-  const changed = version.changed_fields.map(fieldLabel).join(', ')
+  // 최초등록은 모든 필드가 '변경'이라 나열해봐야 정보가 없다. 무엇이 바뀌었는지가 의미 있는
+  // 것은 수정·복원부터다.
+  const changed = version.change_type === 'CREATE'
+    ? '' : version.changed_fields.map(fieldLabel).join(', ')
   return (
     <li className="flex items-center gap-2 px-2 py-1">
       <span className={`tabular-nums font-medium ${isCurrent ? 'text-brand' : ''}`}>

@@ -58,6 +58,19 @@ export default function HandoverListPage() {
   const fields = useMemo(
     () => new Map((caps?.fields ?? []).map((f) => [f.name, f])), [caps])
 
+  /**
+   * Chip 에 IN_PROGRESS 같은 내부 코드를 그대로 보여주면 안 된다.
+   * 기준정보를 이미 받아 두었으므로 사람이 읽는 이름으로 바꿔 준다.
+   */
+  const labelOf = useMemo(() => {
+    const table = new Map<string, string>()
+    companies?.forEach((c) => table.set(`company_id:${c.id}`, c.name))
+    statuses?.forEach((s) => table.set(`status_code:${s.code}`, s.name))
+    priorities?.forEach((p) => table.set(`priority_code:${p.code}`, p.name))
+    return (field: string, value: unknown) =>
+      table.get(`${field}:${String(value)}`) ?? String(value)
+  }, [companies, statuses, priorities])
+
   const star = useMutation({
     mutationFn: (row: HandoverListItem) => handoverApi.star(row.id, !row.is_starred),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['handovers'] }),
@@ -169,7 +182,7 @@ export default function HandoverListPage() {
                       onRemove={() => grid.toggleQuick(token)} />
               ))}
               {grid.state.filters.map((f, i) => (
-                <Chip key={`${f.field}-${i}`} label={chipLabel(f)}
+                <Chip key={`${f.field}-${i}`} label={chipLabel(f, labelOf)}
                       onRemove={() => grid.removeFilter(i)} />
               ))}
               <span className="flex-1" />
@@ -243,13 +256,21 @@ function Chip({ label, onRemove }: { label: string; onRemove: () => void }) {
   )
 }
 
-function chipLabel(f: Filter): string {
+const DATE_TOKEN_LABEL: Record<string, string> = {
+  TODAY: '오늘', YESTERDAY: '어제', THIS_WEEK: '이번주', LAST_WEEK: '지난주',
+  THIS_MONTH: '이번달', LAST_MONTH: '지난달', LAST_7_DAYS: '최근7일',
+  LAST_30_DAYS: '최근30일', THIS_YEAR: '올해', LAST_YEAR: '작년',
+}
+
+function chipLabel(f: Filter, labelOf: (field: string, value: unknown) => string): string {
   const name = fieldLabel(f.field)
   const op = OP_LABEL[f.op] ?? f.op
   if (f.op === 'is_null' || f.op === 'is_not_null') return `${name} ${op}`
+
+  const render = (v: unknown) => DATE_TOKEN_LABEL[String(v)] ?? labelOf(f.field, v)
   const value = Array.isArray(f.value)
-    ? (f.value as unknown[]).map(String).join(', ')
-    : String(f.value ?? '')
+    ? (f.value as unknown[]).map(render).join(f.op === 'between' ? ' ~ ' : ', ')
+    : render(f.value ?? '')
   const shown = value.length > 24 ? `${value.slice(0, 24)}…` : value
   return op ? `${name} ${op} ${shown}` : `${name}: ${shown}`
 }

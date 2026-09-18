@@ -30,6 +30,7 @@ from app.models.reference import Company, HandoverStatus, Priority, Tag
 from app.models.user import User
 from app.services import ack_service
 from app.utils.diff import field_diff
+from app.utils.fingerprint import fingerprint as make_fingerprint
 
 _DATE_FIELDS = frozenset({"registered_date", "work_date"})
 _DATETIME_FIELDS = frozenset({"completed_at"})
@@ -101,6 +102,24 @@ def build_search_text(db: Session, handover: Handover) -> str:
 
     parts.extend(tag_names(handover))
     return " ".join(p for p in parts if p).strip()
+
+
+def compute_fingerprint(db: Session, handover: Handover) -> str:
+    """Excel Import 의 중복 판정과 **같은 식**으로 지문을 만든다(utils/fingerprint.py).
+
+    UI 로 먼저 등록한 건을 나중에 Excel 로 또 올렸을 때 알아볼 수 있어야 한다.
+    """
+    company = db.get(Company, handover.company_id)
+    sender = handover.sender_name_raw
+    if not sender and handover.sender_id:
+        user = db.get(User, handover.sender_id)
+        sender = user.display_name if user else None
+    return make_fingerprint(
+        company.name if company else None,
+        handover.registered_date.isoformat() if handover.registered_date else None,
+        handover.content or handover.title,
+        sender,
+    )
 
 
 # --------------------------------------------------------------------------- 조회
@@ -214,6 +233,7 @@ def create_handover(db: Session, payload: dict[str, Any], actor: User,
 
     _apply_tags(db, handover, tags)
     handover.search_text = build_search_text(db, handover)
+    handover.fingerprint = compute_fingerprint(db, handover)
     db.flush()
 
     after = snapshot(handover)
@@ -284,6 +304,7 @@ def update_handover(db: Session, handover_id: int, changes: dict[str, Any],
     handover.current_version_no += 1
     handover.updated_by = actor.id
     handover.search_text = build_search_text(db, handover)
+    handover.fingerprint = compute_fingerprint(db, handover)
     db.flush()
 
     _add_version(db, handover, change_type=CHANGE_UPDATE,
@@ -413,6 +434,7 @@ def restore_version(db: Session, handover_id: int, version_no: int, *,
     handover.current_version_no += 1
     handover.updated_by = actor.id
     handover.search_text = build_search_text(db, handover)
+    handover.fingerprint = compute_fingerprint(db, handover)
     db.flush()
 
     _add_version(db, handover, change_type=CHANGE_RESTORE,

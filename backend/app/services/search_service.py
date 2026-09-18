@@ -63,3 +63,10 @@ def count_only(db: Session, request: SearchRequest, actor: User) -> int:
     ctx, extra = _prepare(request, actor)
     return handover_repo.count(db, request, ctx,
                                include_deleted=request.include_deleted, extra=extra)
+
+
+def iterate(db: Session, request: SearchRequest, actor: User):
+    """Export 가 쓰는 전 행 순회. 목록과 같은 검증·Quick 펼침·권한 규칙을 지난다."""
+    ctx, extra = _prepare(request, actor)
+    yield from handover_repo.iterate(db, request, ctx,
+                                     include_deleted=request.include_deleted, extra=extra)

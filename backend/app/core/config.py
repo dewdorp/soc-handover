@@ -56,6 +56,10 @@ class Settings(BaseSettings):
     DEFAULT_PAGE_SIZE: int = 50
     EXPORT_MAX_ROWS: int = 100_000
     UPLOAD_MAX_MB: int = 20
+    #: Excel Import 는 연도별 수천 행 × 여러 Sheet 라 첨부보다 크게 잡는다.
+    IMPORT_MAX_MB: int = 200
+    #: Export 다운로드 링크 유효 시간(분). 지나면 파일을 지운다.
+    EXPORT_TTL_MINUTES: int = 60
 
     # --- LLM (선택) ---
     LLM_PROVIDER: Literal["disabled", "ollama", "openai_compatible"] = "disabled"

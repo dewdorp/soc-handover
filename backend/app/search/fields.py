@@ -141,6 +141,9 @@ HANDOVER_FIELDS: Final[dict[str, FieldDef]] = {f.name: f for f in (
     _f("updated_at", "최근수정", KIND_DATETIME, Handover.updated_at, sortable=True),
     _f("is_deleted", "삭제됨", KIND_BOOL, Handover.is_deleted,
        requires_permission="handover:read_deleted"),
+    # Import 결과 화면의 '검색으로 이동' — 이번 작업이 넣은 행만 본다.
+    _f("import_job_id", "Import 작업", KIND_INT, Handover.import_job_id),
+    _f("source_file", "원본 파일", KIND_TEXT, Handover.source_file),
 )}
 
 

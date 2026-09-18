@@ -41,6 +41,11 @@ class ExcelImportJob(Base, TimestampMixin):
     error_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     skipped_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     progress: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: status=RUNNING 일 때 무엇을 하는 중인지(STAGE/PREPARE/COMMIT/ROLLBACK).
+    #: 실패하면 그대로 남겨 어디서 멈췄는지 알 수 있게 한다.
+    phase: Mapped[str | None] = mapped_column(String(20))
+    #: 완료/롤백 결과 요약. 보고서 화면과 감사 증적이 같은 숫자를 보게 한다.
+    report: Mapped[dict | None] = mapped_column(JSONType)
     started_at: Mapped[datetime | None] = mapped_column(TZDateTime)
     finished_at: Mapped[datetime | None] = mapped_column(TZDateTime)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
@@ -62,6 +67,8 @@ class ExcelImportRow(Base):
     source_row: Mapped[int] = mapped_column(Integer, nullable=False)
     raw: Mapped[dict] = mapped_column(JSONType, nullable=False)
     normalized: Mapped[dict | None] = mapped_column(JSONType)
+    #: 막지는 않지만 사용자가 알아야 하는 것(미등록 관계사, 날짜 추정 등). 오류는 errors 테이블.
+    warnings: Mapped[list | None] = mapped_column(JSONType)
     fingerprint: Mapped[str | None] = mapped_column(String(64))
     dup_type: Mapped[str] = mapped_column(String(20), nullable=False, default="NONE")
     dup_handover_id: Mapped[int | None] = mapped_column(BigInteger)

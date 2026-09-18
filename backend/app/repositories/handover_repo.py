@@ -129,3 +129,14 @@ def _apply_text_filter(pairs: list[tuple[Any, str, int]], q: str,
         pairs = [p for p in pairs if needle in str(p[1]).lower()]
     return [{"value": value, "label": label, "count": cnt}
             for value, label, cnt in pairs[:limit]]
+
+
+def iterate(db: Session, request: SearchRequest, ctx: CompileContext, *,
+            include_deleted: bool, extra: list[Filter] | None = None, chunk: int = 1000):
+    """Export 용. 화면과 **같은 조건·같은 정렬**로 전 행을 흘려보낸다(페이지 제한 없음).
+
+    yield_per 로 chunk 단위로 가져오므로 10만 행이어도 메모리가 일정하다.
+    """
+    stmt = _deleted_scope(build_statement(request, ctx, extra), include_deleted=include_deleted)
+    stmt = stmt.order_by(*compile_order(request)).execution_options(yield_per=chunk)
+    yield from db.scalars(stmt)

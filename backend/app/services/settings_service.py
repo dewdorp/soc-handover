@@ -32,6 +32,16 @@ DEFAULTS: dict[str, tuple[Any, str, str, bool]] = {
     "retention.audit_days": (365, "retention", "감사로그 보존일수", False),
     "export.max_rows": (settings.EXPORT_MAX_ROWS, "export", "Export 최대 행수", False),
     "shift.carry_forward_auto": (True, "shift", "미완료 업무를 다음 교대 Basket 후보로 자동 제시", False),
+    "import.header_aliases": (
+        {}, "import",
+        "Excel 헤더 별칭 추가분. 예) {\"content\": [\"조치내역\"]}. 코드 기본값과 합쳐진다(D-01).",
+        False,
+    ),
+    "import.status_aliases": (
+        {}, "import",
+        "Excel 진행상황 문구 → 상태 코드 추가분. 예) {\"DONE\": [\"처리끝\"]}.",
+        False,
+    ),
 }
 
 

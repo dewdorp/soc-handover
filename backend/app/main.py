@@ -25,8 +25,20 @@ async def lifespan(app: FastAPI):
              "sqlite(개발용)" if settings.is_sqlite else "postgresql")
     if settings.is_sqlite and settings.is_production:
         log.warning("운영 환경에서 SQLite를 사용하고 있습니다. PostgreSQL 사용을 권장합니다.")
+    _recover_jobs()
     yield
     log.info("%s 종료", settings.APP_NAME)
+
+
+def _recover_jobs() -> None:
+    """재기동 전에 돌던 Import 작업은 영원히 RUNNING 으로 남는다. 실패로 정리해 다시 실행할 수 있게 한다."""
+    from app.core.db import SessionLocal
+    from app.jobs.runner import recover_stale
+    try:
+        with SessionLocal() as db:
+            recover_stale(db)
+    except Exception:  # pragma: no cover - 스키마가 아직 없을 때(최초 설치) 등
+        log.warning("중단된 작업 정리를 건너뜁니다.", exc_info=True)
 
 
 def create_app() -> FastAPI:

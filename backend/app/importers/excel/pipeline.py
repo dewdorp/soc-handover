@@ -132,8 +132,8 @@ def build_lookups(db: Session, job: ExcelImportJob) -> Lookups:
     value_map = options.get("value_map") or {}
     return Lookups(
         companies=companies, statuses=statuses, priorities=priorities, users=users,
-        company_value_map=value_map.get("company") or {},
-        status_value_map=value_map.get("status") or {},
+        company_value_map={norm(k): v for k, v in (value_map.get("company") or {}).items()},
+        status_value_map={norm(k): v for k, v in (value_map.get("status") or {}).items()},
         default_status=options.get("default_status") or "DONE",
         default_year=options.get("default_year"),
     )
@@ -253,17 +253,23 @@ def _resolve_companies(db: Session, job: ExcelImportJob) -> tuple[dict[str, int]
         db.add(unspecified)
         db.flush()
 
+    # 표기만 다른 이름('A보안'/'a보안 ')이 각각 회사로 생기면 안 된다. 정규화 키로 한 번만 만든다.
+    by_norm = {norm(c.name): c.id for c in db.scalars(select(Company))}
     created: dict[str, int] = {}
     value_map = ((job.options or {}).get("value_map") or {}).get("company") or {}
     for name, target in value_map.items():
         if target != CREATE_COMPANY:
             continue
-        existing = db.scalar(select(Company).where(Company.name == name))
-        if existing is None:
-            existing = Company(name=name)
-            db.add(existing)
+        key = norm(name)
+        if key in created:
+            continue
+        company_id = by_norm.get(key)
+        if company_id is None:
+            company = Company(name=name.strip())
+            db.add(company)
             db.flush()
-        created[name] = existing.id
+            company_id = by_norm[key] = company.id
+        created[key] = company_id
     db.commit()
     return created, unspecified.id
 
@@ -308,7 +314,7 @@ def commit_rows(db: Session, job: ExcelImportJob, actor: User,
         for row in rows:
             n = row.normalized or {}
             remark = n.get("remark")
-            company_id = n.get("company_id") or created_companies.get(n.get("company_name") or "")
+            company_id = n.get("company_id") or created_companies.get(norm(n.get("company_name")))
             if company_id is None:
                 company_id = unspecified_id
                 if n.get("company_name"):

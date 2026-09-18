@@ -31,8 +31,9 @@ class Lookups:
     statuses: dict[str, str]                  # norm(별칭/이름/코드) → code
     priorities: dict[str, str]                # norm(별칭/이름/코드) → code
     users: dict[str, int]                     # norm(표시이름/계정) → id
-    company_value_map: dict[str, Any] = field(default_factory=dict)   # 원문 → id | __CREATE__
-    status_value_map: dict[str, str] = field(default_factory=dict)    # 원문 → code
+    #: 값 매핑은 **정규화한 원문**을 키로 쓴다. 'A보안' 과 'a보안 ' 은 같은 값이다.
+    company_value_map: dict[str, Any] = field(default_factory=dict)   # norm(원문) → id | __CREATE__
+    status_value_map: dict[str, str] = field(default_factory=dict)    # norm(원문) → code
     default_status: str = "DONE"
     default_year: int | None = None
 
@@ -107,7 +108,7 @@ def normalize_row(raw: dict[str, Any], mapping: dict[str, str | None], sheet_nam
     company_id: int | None = None
     company_action = "NONE"
     if company_name:
-        mapped = lk.company_value_map.get(company_name)
+        mapped = lk.company_value_map.get(norm(company_name))
         if mapped == CREATE_COMPANY:
             company_action = "CREATE"
         elif isinstance(mapped, int):
@@ -128,7 +129,7 @@ def normalize_row(raw: dict[str, Any], mapping: dict[str, str | None], sheet_nam
     status_text = clean_text(status_raw)
     status_code = lk.default_status
     if status_text:
-        status_code = (lk.status_value_map.get(status_text)
+        status_code = (lk.status_value_map.get(norm(status_text))
                        or lk.statuses.get(norm(status_text)))
         if status_code is None:
             status_code = lk.default_status

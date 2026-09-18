@@ -84,6 +84,8 @@ export interface ImportError {
 
 export interface ValueStat {
   value: string
+  /** 표기만 다른 원문들. 한 줄로 묶어 한 번에 매핑한다('A보안' / 'a보안'). */
+  variants: string[]
   count: number
   target: number | string | null
   target_label: string | null

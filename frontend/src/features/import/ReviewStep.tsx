@@ -68,6 +68,11 @@ export default function ReviewStep({ job, onWorkStarted, onRemap }: Props) {
 
   const willImport = report?.will_import ?? 0
 
+  // 행 목록에 DONE·IN_PROGRESS 같은 내부 코드를 그대로 보이지 않게 이름으로 바꾼다.
+  const { data: statuses } = useQuery({ queryKey: ['statuses'], queryFn: referenceApi.statuses })
+  const statusName = (code: unknown) =>
+    statuses?.find((s) => s.code === code)?.name ?? String(code ?? '-')
+
   return (
     <div className="space-y-3">
       <section className="card p-3">
@@ -126,7 +131,7 @@ export default function ReviewStep({ job, onWorkStarted, onRemap }: Props) {
             </tbody>
           </table>
         ) : (
-          <RowTable rows={rows?.items ?? []}
+          <RowTable rows={rows?.items ?? []} statusName={statusName}
                     onDecide={(ids, decision) => decide.mutate({ ids, decision })} />
         )}
 
@@ -200,7 +205,12 @@ function ValueMapping({ job, onApplied }: { job: ImportJob; onApplied: () => voi
             <h3 className="text-ink-muted">등록되지 않은 관계사</h3>
             {unmatchedCompanies.map((v) => (
               <div key={v.value} className="flex items-center gap-2">
-                <span className="w-32 truncate" title={v.value}>{v.value}</span>
+                <span className="w-40 truncate" title={v.variants.join(' · ')}>
+                  {v.value}
+                  {v.variants.length > 1 && (
+                    <span className="text-ink-faint text-sm"> 외 표기 {v.variants.length - 1}</span>
+                  )}
+                </span>
                 <span className="text-ink-faint tabular-nums w-12">{v.count}건</span>
                 <select className="input flex-1 h-7" value={companyDraft[v.value] ?? ''}
                         onChange={(e) => setCompanyDraft({ ...companyDraft, [v.value]: e.target.value })}>
@@ -246,8 +256,9 @@ async function waitIdle(jobId: number): Promise<void> {
   }
 }
 
-function RowTable({ rows, onDecide }: {
+function RowTable({ rows, statusName, onDecide }: {
   rows: ImportRow[]
+  statusName: (code: unknown) => string
   onDecide: (ids: number[], decision: 'IMPORT' | 'SKIP' | 'PENDING') => void
 }) {
   return (
@@ -282,7 +293,7 @@ function RowTable({ rows, onDecide }: {
               <td className="px-2 py-1 tabular-nums whitespace-nowrap">{r.sheet_name} · {r.source_row}</td>
               <td className="px-2 py-1">{String(n.company_name ?? '-')}</td>
               <td className="px-2 py-1 tabular-nums">{String(n.registered_date ?? '-')}</td>
-              <td className="px-2 py-1">{String(n.status_code ?? '-')}</td>
+              <td className="px-2 py-1">{statusName(n.status_code)}</td>
               <td className="px-2 py-1 truncate max-w-[280px]" title={String(n.content ?? '')}>
                 {String(n.title ?? '-')}
               </td>

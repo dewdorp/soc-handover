@@ -89,6 +89,8 @@ class ErrorOut(BaseModel):
 class ValueStat(BaseModel):
     """값 매핑 화면의 한 줄: 엑셀 원문, 건수, 지금 무엇으로 연결되는지."""
     value: str
+    #: 표기만 다른 원문들(대표 표기 포함). 하나로 묶어 한 번에 매핑한다.
+    variants: list[str] = []
     count: int
     target: Any = None
     target_label: str | None = None

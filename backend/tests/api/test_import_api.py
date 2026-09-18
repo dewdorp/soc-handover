@@ -367,3 +367,46 @@ class TestRecovery:
         # 같은 단계는 다시 실행할 수 있다
         assert admin_client.post(f"{JOBS}/{job['id']}/stage").status_code == 202
         assert admin_client.get(f"{JOBS}/{job['id']}").json()["status"] == "DEDUPED"
+
+
+# --------------------------------------------------------------------------- 표기 변형
+
+class TestSpellingVariants:
+    """'A보안' 과 'a보안 ' 을 따로 다루면 같은 회사가 두 개 생긴다(브라우저 확인 중 발견)."""
+
+    def test_variants_are_grouped_in_value_stats(self, admin_client):
+        job = _staged(admin_client)   # A보안·B금융 이 DB 에 없어서 전부 미등록
+        stats = admin_client.get(f"{JOBS}/{job['id']}/values?field=company").json()
+        a = next(s for s in stats if "a보안" in {v.lower().strip() for v in s["variants"]})
+        assert sorted(a["variants"]) == ["A보안", "a보안"]
+        assert a["value"] == "A보안", "가장 많이 쓰인 표기가 대표"
+        assert a["count"] == 6
+        assert not any(s["value"] == "a보안" for s in stats), "변형이 따로 줄로 나오면 안 된다"
+
+    def test_create_makes_one_company_for_all_variants(self, admin_client, db):
+        from app.utils.fingerprint import norm
+
+        job = _staged(admin_client)
+        admin_client.post(f"{JOBS}/{job['id']}/value-map",
+                          json={"field": "company", "mapping": {"A보안": "__CREATE__"}})
+        admin_client.post(f"{JOBS}/{job['id']}/commit")
+
+        made = [c for c in db.scalars(select(Company)) if norm(c.name) == norm("A보안")]
+        assert [c.name for c in made] == ["A보안"], "한 번만 만들어야 한다"
+        rows = db.scalars(select(Handover).where(Handover.import_job_id == job["id"])).all()
+        lower = next(h for h in rows if h.source_sheet == "2024년" and h.source_row == 3)
+        assert lower.company_id == made[0].id, "'a보안 ' 으로 적힌 행도 같은 회사로 간다"
+
+    def test_mapping_one_variant_to_existing_company_covers_all(self, admin_client, db):
+        db.add(Company(name="에이보안(주)"))
+        db.commit()
+        cid = db.scalar(select(Company.id).where(Company.name == "에이보안(주)"))
+        job = _staged(admin_client)
+        admin_client.post(f"{JOBS}/{job['id']}/value-map",
+                          json={"field": "company", "mapping": {"A보안": cid}})
+        stats = admin_client.get(f"{JOBS}/{job['id']}/values?field=company").json()
+        a = next(s for s in stats if s["value"] == "A보안")
+        assert a["matched"] and a["target"] == cid
+        rows = admin_client.get(f"{JOBS}/{job['id']}/rows?sheet=2024년").json()["items"]
+        lower = next(r for r in rows if r["source_row"] == 3)
+        assert lower["normalized"]["company_id"] == cid

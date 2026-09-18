@@ -222,9 +222,15 @@ def start_prepare(db: Session, job: ExcelImportJob, bg: BackgroundTasks) -> None
 
 
 def value_stats(db: Session, job: ExcelImportJob, field: str) -> list[dict[str, Any]]:
-    """값 매핑 화면 — 엑셀에 적힌 관계사/진행상황 원문별 건수와 현재 연결 대상."""
+    """값 매핑 화면 — 엑셀에 적힌 관계사/진행상황 원문별 건수와 현재 연결 대상.
+
+    표기만 다른 값('A보안', 'a보안 ')은 **한 줄로 묶는다.** 따로 보여주면 사용자가 둘 다
+    '새로 등록'을 골라 같은 회사가 두 개 생긴다. 대표 표기는 가장 많이 쓰인 것이다.
+    """
     _require_status(job, {JOB_DEDUPED, JOB_STAGED}, action="값 매핑 조회")
-    value_map = ((job.options or {}).get("value_map") or {}).get(field) or {}
+    raw_map = ((job.options or {}).get("value_map") or {}).get(field) or {}
+    value_map = {norm(k): v for k, v in raw_map.items()}
+
     if field == "company":
         name = ExcelImportRow.normalized["company_name"].as_string()
         cid = ExcelImportRow.normalized["company_id"].as_integer()
@@ -232,30 +238,45 @@ def value_stats(db: Session, job: ExcelImportJob, field: str) -> list[dict[str, 
                           .where(ExcelImportRow.job_id == job.id, name.is_not(None))
                           .group_by(name, cid)).all()
         labels = {c.id: c.name for c in db.scalars(select(Company))}
-        merged: dict[str, dict[str, Any]] = {}
-        for value, company_id, count in rows:
-            entry = merged.setdefault(value, {"value": value, "count": 0, "target": None})
-            entry["count"] += count
-            entry["target"] = value_map.get(value, company_id if company_id else entry["target"])
-        out = []
-        for entry in merged.values():
-            target = entry["target"]
-            entry["matched"] = target is not None
-            entry["target_label"] = ("신규 생성" if target == CREATE_COMPANY
-                                     else labels.get(target) if isinstance(target, int) else None)
-            out.append(entry)
+        auto = {value: company_id for value, company_id, _ in rows if company_id}
+        spellings = [(value, count) for value, _, count in rows]
+
+        def resolve(key: str, variants: list[str]):
+            if key in value_map:
+                return value_map[key]
+            return next((auto[v] for v in variants if v in auto), None)
+
+        def label(target):
+            if target == CREATE_COMPANY:
+                return "신규 생성"
+            return labels.get(target) if isinstance(target, int) else None
     else:
         raw = ExcelImportRow.normalized["status_raw"].as_string()
-        rows = db.execute(select(raw, func.count())
-                          .where(ExcelImportRow.job_id == job.id, raw.is_not(None))
-                          .group_by(raw)).all()
+        spellings = db.execute(select(raw, func.count())
+                               .where(ExcelImportRow.job_id == job.id, raw.is_not(None))
+                               .group_by(raw)).all()
         lk = pl.build_lookups(db, job)
         names = {s.code: s.name for s in db.scalars(select(HandoverStatus))}
-        out = []
-        for value, count in rows:
-            target = value_map.get(value) or lk.statuses.get(norm(value))
-            out.append({"value": value, "count": count, "target": target,
-                        "target_label": names.get(target), "matched": target is not None})
+
+        def resolve(key: str, variants: list[str]):
+            return value_map.get(key) or lk.statuses.get(key)
+
+        def label(target):
+            return names.get(target)
+
+    groups: dict[str, dict[str, Any]] = {}
+    for value, count in spellings:
+        g = groups.setdefault(norm(value), {"counts": {}, "count": 0})
+        g["counts"][value] = g["counts"].get(value, 0) + count
+        g["count"] += count
+
+    out = []
+    for key, g in groups.items():
+        variants = sorted(g["counts"], key=lambda v: -g["counts"][v])
+        target = resolve(key, variants)
+        out.append({"value": variants[0], "variants": variants, "count": g["count"],
+                    "target": target, "target_label": label(target),
+                    "matched": target is not None})
     return sorted(out, key=lambda e: (e["matched"], -e["count"]))
 
 

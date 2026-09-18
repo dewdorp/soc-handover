@@ -42,7 +42,10 @@ export default function MappingStep({ job, onStarted }: Props) {
       if (!selected.has(s.name)) continue
       for (const row of s.samples) {
         const v = row[header]
-        if (v !== null && v !== undefined && v !== '') return String(v)
+        if (v === null || v === undefined || v === '') continue
+        // 원본 보존용 ISO 표기('2025-03-02T00:00:00')는 사람이 보기 좋게 날짜만.
+        const text = String(v)
+        return /^\d{4}-\d{2}-\d{2}T00:00:00$/.test(text) ? text.slice(0, 10) : text
       }
     }
     return ''

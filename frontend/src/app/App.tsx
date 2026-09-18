@@ -5,8 +5,9 @@ import LoginPage from '@/features/auth/LoginPage'
 import ChangePasswordPage from '@/features/auth/ChangePasswordPage'
 import DashboardPage from '@/pages/DashboardPage'
 import HandoverListPage from '@/features/handovers/HandoverListPage'
+import ImportWizardPage from '@/features/import/ImportWizardPage'
 import {
-  AdminPage, AiSearchPage, AuditPage, ImportPage, MyWorkPage,
+  AdminPage, AiSearchPage, AuditPage, MyWorkPage,
   NotFoundPage, NotificationPage, SchedulePage, SearchPage, SettingsPage, ShiftPage,
   StatsPage, TaskPage,
 } from '@/pages/placeholders'
@@ -41,7 +42,7 @@ export default function App() {
             <Route path="/schedules" element={<SchedulePage />} />
             <Route path="/search" element={<SearchPage />} />
             <Route path="/ai" element={<AiSearchPage />} />
-            <Route path="/import/*" element={<ImportPage />} />
+            <Route path="/import/*" element={<ImportWizardPage />} />
             <Route path="/stats" element={<StatsPage />} />
             <Route path="/audit" element={<AuditPage />} />
             <Route path="/notifications" element={<NotificationPage />} />

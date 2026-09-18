@@ -6,8 +6,9 @@
  */
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bookmark, ChevronLeft, ChevronRight, Plus, RotateCcw, Search, X } from 'lucide-react'
+import { Bookmark, ChevronLeft, ChevronRight, Download, Plus, RotateCcw, Search, X } from 'lucide-react'
 import CreateHandoverDialog from '@/features/handovers/CreateHandoverDialog'
+import ExportDialog from '@/features/handovers/ExportDialog'
 import HandoverDrawer from '@/features/handovers/HandoverDrawer'
 import HandoverGrid from '@/features/handovers/HandoverGrid'
 import { fieldLabel } from '@/features/handovers/VersionHistory'
@@ -32,6 +33,7 @@ export default function HandoverListPage() {
   const grid = useGridState()
   const [draftQ, setDraftQ] = useState(grid.state.q)
   const [creating, setCreating] = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   const { data: caps } = useQuery({
     queryKey: ['search-fields'], queryFn: searchApi.capabilities, staleTime: 10 * 60_000,
@@ -113,6 +115,9 @@ export default function HandoverListPage() {
             <span className="flex-1" />
             <button className="btn btn-primary" onClick={() => setCreating(true)}>
               <Plus size={12} /> 인수인계
+            </button>
+            <button className="btn" onClick={() => setExporting(true)}>
+              <Download size={12} /> Export
             </button>
             <button className="btn" onClick={() => {
               const name = window.prompt('현재 조건을 저장할 이름을 입력하십시오.')
@@ -230,6 +235,10 @@ export default function HandoverListPage() {
                         companies={companies ?? []} statuses={statuses ?? []}
                         priorities={priorities ?? []}
                         onClose={() => grid.patch({ selectedId: null }, { keepPage: true })} />
+      )}
+
+      {exporting && (
+        <ExportDialog request={grid.request} total={total} onClose={() => setExporting(false)} />
       )}
 
       {creating && (

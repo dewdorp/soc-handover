@@ -18,7 +18,7 @@ const FIELD_LABELS: Record<string, string> = {
   assignee_id: '담당자', checker_id: '확인자', is_important: '중요',
   is_pinned: '상단고정', is_recurring: '반복', tags: '태그', is_deleted: '삭제됨',
   sender_name_raw: '전달자(원본)', assignee_name_raw: '담당자(원본)',
-  checker_name_raw: '확인자(원본)',
+  checker_name_raw: '확인자(원본)', import_job_id: 'Import 작업', source_file: '원본 파일',
 }
 
 const CHANGE_LABELS: Record<string, string> = {

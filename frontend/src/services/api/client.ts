@@ -109,6 +109,36 @@ async function safeJson(response: Response): Promise<ApiError & Record<string, u
   }
 }
 
+/**
+ * 파일 업로드(multipart). Content-Type 은 브라우저가 boundary 와 함께 정하게 비워 둔다.
+ * CSRF 헤더는 JSON 요청과 똑같이 붙인다.
+ */
+export async function upload<T>(path: string, form: FormData): Promise<T> {
+  const headers: Record<string, string> = { Accept: 'application/json' }
+  const csrf = readCookie(CSRF_COOKIE)
+  if (csrf) headers[CSRF_HEADER] = decodeURIComponent(csrf)
+
+  const send = () => fetch(`${BASE}${path}`, {
+    method: 'POST', headers, credentials: 'same-origin', body: form,
+  })
+  let response = await send()
+  if (response.status === 401 && (await tryRefresh())) response = await send()
+
+  const payload = await safeJson(response)
+  if (!response.ok) throw new ApiRequestError(response.status, payload)
+  return payload as T
+}
+
+/** 서버가 만든 파일을 내려받는다. 같은 출처라 쿠키가 따라가므로 링크 클릭으로 충분하다. */
+export function downloadUrl(path: string): void {
+  const a = document.createElement('a')
+  a.href = `${BASE}${path}`
+  a.rel = 'noopener'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
 export const api = {
   get: <T>(path: string, signal?: AbortSignal) => request<T>(path, { method: 'GET', signal }),
   post: <T>(path: string, body?: unknown) => request<T>(path, { method: 'POST', body }),

@@ -10,6 +10,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Trash2, X } from 'lucide-react'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import LinkedSchedules from '@/features/calendar/LinkedSchedules'
 import { useMe } from '@/hooks/useAuth'
 import { ApiRequestError } from '@/services/api/client'
 import { referenceApi } from '@/services/api/reference'
@@ -202,6 +203,7 @@ export default function TaskDrawer({ taskId, onClose }: { taskId: number; onClos
         </section>
 
         <Checklist task={task} canEdit={canEdit} onChanged={refresh} />
+        <LinkedSchedules task={{ id: task.id, title: task.title }} canCreate={!!me?.permissions.includes('schedule:create')} />
         <Comments taskId={task.id} onChanged={refresh} />
       </div>
 

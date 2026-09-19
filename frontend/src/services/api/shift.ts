@@ -96,7 +96,7 @@ export interface AppNotification {
   type: string
   title: string
   body: string | null
-  link_type: 'HANDOVER' | 'SHIFT' | 'TASK' | null
+  link_type: 'HANDOVER' | 'SHIFT' | 'TASK' | 'SCHEDULE' | null
   link_id: number | null
   is_read: boolean
   created_at: string

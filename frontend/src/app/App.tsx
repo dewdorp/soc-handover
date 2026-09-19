@@ -10,9 +10,10 @@ import NotificationPage from '@/features/notifications/NotificationPage'
 import ShiftPage from '@/features/shift/ShiftPage'
 import MyWorkPage from '@/features/mywork/MyWorkPage'
 import TaskPage from '@/features/tasks/TaskPage'
+import CalendarPage from '@/features/calendar/CalendarPage'
 import {
   AdminPage, AiSearchPage, AuditPage,
-  NotFoundPage, SchedulePage, SearchPage, SettingsPage,
+  NotFoundPage, SearchPage, SettingsPage,
   StatsPage,
 } from '@/pages/placeholders'
 
@@ -43,7 +44,7 @@ export default function App() {
             <Route path="/shift/*" element={<ShiftPage />} />
             <Route path="/my-work" element={<MyWorkPage />} />
             <Route path="/tasks/*" element={<TaskPage />} />
-            <Route path="/schedules" element={<SchedulePage />} />
+            <Route path="/schedules" element={<CalendarPage />} />
             <Route path="/search" element={<SearchPage />} />
             <Route path="/ai" element={<AiSearchPage />} />
             <Route path="/import/*" element={<ImportWizardPage />} />

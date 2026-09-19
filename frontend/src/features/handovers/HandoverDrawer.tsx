@@ -11,6 +11,7 @@ import { Check, Pin, Plus, Star, Trash2, X } from 'lucide-react'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import ConflictDialog from '@/features/handovers/ConflictDialog'
 import TaskCreateDialog from '@/features/tasks/TaskCreateDialog'
+import LinkedSchedules from '@/features/calendar/LinkedSchedules'
 import VersionHistory, { fieldLabel } from '@/features/handovers/VersionHistory'
 import { ApiRequestError } from '@/services/api/client'
 import { handoverApi } from '@/services/api/handovers'
@@ -19,7 +20,7 @@ import { useMe } from '@/hooks/useAuth'
 import type { Company, HandoverStatus, Priority } from '@/types/api'
 import type { VersionConflictDetail } from '@/types/handover'
 
-type Tab = 'detail' | 'tasks' | 'versions' | 'timeline'
+type Tab = 'detail' | 'tasks' | 'schedules' | 'versions' | 'timeline'
 
 interface Props {
   handoverId: number
@@ -178,6 +179,7 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
       {/* 탭 */}
       <nav className="flex gap-1 px-3 pt-2 border-b border-surface-border" role="tablist">
         {([['detail', '상세'], ['tasks', `할일${row.task_count ? ` ${row.task_count}` : ''}`],
+           ['schedules', `일정${row.schedule_count ? ` ${row.schedule_count}` : ''}`],
            ['versions', '변경이력'], ['timeline', '전체 이력']] as [Tab, string][])
           .map(([key, label]) => (
             <button key={key} role="tab" aria-selected={tab === key}
@@ -312,6 +314,11 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
                          onCreate={() => setCreatingTask(true)} />
         )}
 
+        {tab === 'schedules' && (
+          <LinkedSchedules handover={{ id: row.id, title: row.title }}
+                           canCreate={!!me?.permissions.includes('schedule:create') && !row.is_deleted} />
+        )}
+
         {tab === 'timeline' && <Timeline handoverId={handoverId} />}
       </div>
 
@@ -384,7 +391,7 @@ function Timeline({ handoverId }: { handoverId: number }) {
   })
   const KIND_LABEL: Record<string, string> = {
     VERSION: '버전', ACK: '확인', REACK_REQUIRED: '재확인 필요', COMMENT: '댓글',
-    TRANSFER: '교대 인계', TASK: '할일', TASK_DONE: '할일 완료',
+    TRANSFER: '교대 인계', TASK: '할일', TASK_DONE: '할일 완료', SCHEDULE: '일정',
   }
   return (
     <ul className="space-y-1">

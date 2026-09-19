@@ -31,9 +31,14 @@ export default function ConfirmDialog({ title, children, confirmLabel, danger, b
   useEffect(() => {
     // 입력 칸이 있으면 거기에 바로 쓸 수 있게, 없으면 '취소'에
     ;(inputRef.current ?? cancelRef.current)?.focus()
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') latestCancel.current() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    // 뒤에 열린 창·패널까지 Esc 로 닫히지 않게 먼저 받아서 멈춘다(capture)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      latestCancel.current()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
   }, [])
 
   return (

@@ -96,10 +96,10 @@ export interface Board {
 
 export type MyWorkBucket = 'all' | 'today' | 'overdue' | 'this_week' | 'upcoming'
   | 'need_ack' | 'waiting' | 'done'
-export type MyWorkSource = 'all' | 'task' | 'handover' | 'ack'
+export type MyWorkSource = 'all' | 'task' | 'handover' | 'ack' | 'schedule'
 
 export interface MyWorkItem {
-  kind: 'TASK' | 'HANDOVER' | 'ACK'
+  kind: 'TASK' | 'HANDOVER' | 'ACK' | 'SCHEDULE'
   id: number
   title: string
   company: string | null
@@ -114,6 +114,10 @@ export interface MyWorkItem {
   session_id: number | null
   checklist_total: number | null
   checklist_done: number | null
+  start_at: string | null
+  end_at: string | null
+  all_day: boolean | null
+  recurring: boolean | null
 }
 
 export interface MyWork {

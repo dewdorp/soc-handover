@@ -1,19 +1,24 @@
 /**
- * 내 업무 (FR-D-01·02, UI_STRUCTURE §6) — 내 할일 + 내 담당 인수인계 + 내가 확인할 인수인계.
+ * 내 업무 (FR-D-01·02, UI_STRUCTURE §6) — 내 할일 + 내 담당 인수인계 + 내가 확인할 인수인계 + 내 일정.
  *
  * 버킷 규칙은 서버(ASSUMPTIONS B-12)가 정한다. 여기서는 건수 탭과 목록만 그린다.
- * 할일은 이 화면에서 바로 열고, 인수인계는 인수인계 화면, 확인할 건은 인수 확인함으로 보낸다.
+ * 할일·일정은 이 화면에서 바로 열고, 인수인계는 인수인계 화면, 확인할 건은 인수 확인함으로 보낸다.
+ * 보기: 목록 · 보드(내 할일) · 달력(내 일정·마감·수행일).
  */
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import { format, parseISO } from 'date-fns'
 import { CalendarDays, CheckCircle2, ClipboardList, FileText, Plus } from 'lucide-react'
+import CalendarView from '@/features/calendar/CalendarView'
+import ScheduleDialog, { type ScheduleDefaults } from '@/features/calendar/ScheduleDialog'
 import TaskBoard from '@/features/tasks/TaskBoard'
 import TaskCreateDialog from '@/features/tasks/TaskCreateDialog'
 import TaskDrawer from '@/features/tasks/TaskDrawer'
 import {
   STATUS_LABEL, taskApi, type MyWorkBucket, type MyWorkItem, type MyWorkSource, type TaskStatus,
 } from '@/services/api/tasks'
+import { EVENT_TYPE_LABEL, type EventType } from '@/services/api/schedules'
 
 const BUCKETS: { key: MyWorkBucket; label: string; tone?: string }[] = [
   { key: 'all', label: '전체' },
@@ -28,11 +33,13 @@ const BUCKETS: { key: MyWorkBucket; label: string; tone?: string }[] = [
 const SOURCES: { key: MyWorkSource; label: string }[] = [
   { key: 'all', label: '전체' }, { key: 'task', label: '할일' },
   { key: 'handover', label: '담당 인수인계' }, { key: 'ack', label: '확인할 인수인계' },
+  { key: 'schedule', label: '일정' },
 ]
 const KIND = {
   TASK: { label: '할일', icon: ClipboardList, tone: 'text-brand' },
   HANDOVER: { label: '인수인계', icon: FileText, tone: 'text-ink-muted' },
   ACK: { label: '확인', icon: CheckCircle2, tone: 'text-state-check' },
+  SCHEDULE: { label: '일정', icon: CalendarDays, tone: 'text-state-progress' },
 } as const
 
 export default function MyWorkPage() {
@@ -40,9 +47,11 @@ export default function MyWorkPage() {
   const [params, setParams] = useSearchParams()
   const bucket = (params.get('bucket') as MyWorkBucket | null) ?? 'all'
   const source = (params.get('source') as MyWorkSource | null) ?? 'all'
-  const view = params.get('view') === 'board' ? 'board' : 'list'
+  const view = params.get('view') === 'board' ? 'board' : params.get('view') === 'calendar' ? 'calendar' : 'list'
   const openId = params.get('task') ? Number(params.get('task')) : null
+  const scheduleId = params.get('schedule') ? Number(params.get('schedule')) : null
   const [creating, setCreating] = useState(false)
+  const [newSchedule, setNewSchedule] = useState<ScheduleDefaults | null>(null)
 
   const setParam = (key: string, value: string | null) => {
     const next = new URLSearchParams(params)
@@ -58,6 +67,7 @@ export default function MyWorkPage() {
 
   const open = (item: MyWorkItem) => {
     if (item.kind === 'TASK') setParam('task', String(item.id))
+    else if (item.kind === 'SCHEDULE') setParam('schedule', String(item.id))
     else if (item.kind === 'ACK') navigate('/shift/inbox')
     else navigate(`/handovers?id=${item.id}`)
   }
@@ -72,15 +82,17 @@ export default function MyWorkPage() {
                     onClick={() => setParam('view', null)}>목록</button>
             <button role="radio" aria-checked={view === 'board'} className={`btn btn-sm ${view === 'board' ? 'btn-primary' : ''}`}
                     onClick={() => setParam('view', 'board')}>보드</button>
-            <button className="btn btn-sm" disabled title="일정·달력은 Phase 7 에서 추가됩니다">
-              <CalendarDays size={12} /> 달력
-            </button>
+            <button role="radio" aria-checked={view === 'calendar'} className={`btn btn-sm ${view === 'calendar' ? 'btn-primary' : ''}`}
+                    onClick={() => setParam('view', 'calendar')}><CalendarDays size={12} /> 달력</button>
           </div>
           <span className="flex-1" />
           <button className="btn btn-sm btn-primary" onClick={() => setCreating(true)}><Plus size={12} /> 할일</button>
         </div>
 
-        {view === 'board' ? (
+        {view === 'calendar' ? (
+          <CalendarView mine onOpenSchedule={(id) => setParam('schedule', String(id))}
+                        onCreate={(start, allDay) => setNewSchedule({ start, allDay })} />
+        ) : view === 'board' ? (
           <TaskBoard assignee="me" onOpen={(id) => setParam('task', String(id))} />
         ) : (
           <div className="flex-1 min-h-0 flex flex-col p-3 gap-2">
@@ -139,16 +151,21 @@ export default function MyWorkPage() {
                         </td>
                         <td className="px-2 py-1">{item.company ?? '-'}</td>
                         <td className={`px-2 py-1 tabular-nums ${item.is_overdue ? 'text-state-urgent font-medium' : ''}`}>
-                          {item.due ?? '-'}{item.is_overdue && ' 지연'}
+                          {item.kind === 'SCHEDULE' && item.start_at
+                            ? format(parseISO(item.start_at), item.all_day ? 'yyyy-MM-dd' : 'yyyy-MM-dd HH:mm')
+                            : item.due ?? '-'}
+                          {item.is_overdue && ' 지연'}
                         </td>
                         <td className="px-2 py-1">
                           {item.kind === 'ACK'
                             ? <span className="text-state-check">{item.ack_state === 'REACK_REQUIRED' ? '재확인' : '확인 대기'}</span>
-                            : item.kind === 'TASK' ? STATUS_LABEL[item.status_code as TaskStatus] ?? item.status : item.status}
+                            : item.kind === 'TASK' ? STATUS_LABEL[item.status_code as TaskStatus] ?? item.status
+                              : item.kind === 'SCHEDULE' ? EVENT_TYPE_LABEL[item.status_code as EventType] ?? item.status : item.status}
                         </td>
                         <td className="px-2 py-1 text-ink-muted">
-                          {item.kind === 'ACK' ? `${item.from_user ?? '-'} 인계` : item.kind === 'TASK'
-                            ? (item.handover_id ? `인수인계 #${item.handover_id}` : '직접') : '담당'}
+                          {item.kind === 'ACK' ? `${item.from_user ?? '-'} 인계`
+                            : item.kind === 'SCHEDULE' ? (item.recurring ? '반복 일정' : '일정')
+                              : item.kind === 'TASK' ? (item.handover_id ? `인수인계 #${item.handover_id}` : '직접') : '담당'}
                         </td>
                       </tr>
                     )
@@ -161,6 +178,8 @@ export default function MyWorkPage() {
       </div>
 
       {openId != null && <TaskDrawer taskId={openId} onClose={() => setParam('task', null)} />}
+      {scheduleId != null && <ScheduleDialog key={scheduleId} scheduleId={scheduleId} onClose={() => setParam('schedule', null)} />}
+      {newSchedule && <ScheduleDialog defaults={newSchedule} onClose={() => setNewSchedule(null)} />}
       {creating && <TaskCreateDialog onClose={() => setCreating(false)} onCreated={(t) => setParam('task', String(t.id))} />}
     </div>
   )

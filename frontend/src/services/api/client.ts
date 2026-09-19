@@ -62,20 +62,25 @@ interface RequestOptions {
   retryOnUnauthorized?: boolean
 }
 
+/**
+ * 상태 변경 요청의 CSRF 헤더는 **보낼 때마다** 쿠키에서 새로 읽는다.
+ * 401 → refresh 는 CSRF 쿠키도 새로 발급하므로, 처음 만든 헤더로 다시 보내면 403 이 난다
+ * (15분 넘게 쉬었다가 처음 저장할 때마다 '보안 토큰이 유효하지 않습니다'가 뜨던 원인).
+ */
+function csrfHeader(headers: Record<string, string>): Record<string, string> {
+  const csrf = readCookie(CSRF_COOKIE)
+  return csrf ? { ...headers, [CSRF_HEADER]: decodeURIComponent(csrf) } : headers
+}
+
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const method = options.method ?? 'GET'
-  const headers: Record<string, string> = { Accept: 'application/json' }
-
-  if (options.body !== undefined) headers['Content-Type'] = 'application/json'
-  if (!SAFE_METHODS.has(method)) {
-    const csrf = readCookie(CSRF_COOKIE)
-    if (csrf) headers[CSRF_HEADER] = decodeURIComponent(csrf)
-  }
+  const base: Record<string, string> = { Accept: 'application/json' }
+  if (options.body !== undefined) base['Content-Type'] = 'application/json'
 
   const send = () =>
     fetch(`${BASE}${path}`, {
       method,
-      headers,
+      headers: SAFE_METHODS.has(method) ? base : csrfHeader(base),
       credentials: 'same-origin',
       signal: options.signal,
       body: options.body === undefined ? undefined : JSON.stringify(options.body),
@@ -114,12 +119,8 @@ async function safeJson(response: Response): Promise<ApiError & Record<string, u
  * CSRF 헤더는 JSON 요청과 똑같이 붙인다.
  */
 export async function upload<T>(path: string, form: FormData): Promise<T> {
-  const headers: Record<string, string> = { Accept: 'application/json' }
-  const csrf = readCookie(CSRF_COOKIE)
-  if (csrf) headers[CSRF_HEADER] = decodeURIComponent(csrf)
-
   const send = () => fetch(`${BASE}${path}`, {
-    method: 'POST', headers, credentials: 'same-origin', body: form,
+    method: 'POST', headers: csrfHeader({ Accept: 'application/json' }), credentials: 'same-origin', body: form,
   })
   let response = await send()
   if (response.status === 401 && (await tryRefresh())) response = await send()

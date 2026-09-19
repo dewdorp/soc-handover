@@ -20,14 +20,6 @@ export const ShiftPage = () => (
   ]} />
 )
 
-export const SchedulePage = () => (
-  <PhasePlaceholder title="일정" phase="Phase 7" items={[
-    '월/주/일 캘린더',
-    '일정 유형(일반·작업예정·점검·회의·보안작업·반복업무)',
-    '인수인계/할일 연계 및 원본 이동',
-  ]} />
-)
-
 export const SearchPage = () => (
   <PhasePlaceholder title="통합검색" phase="Phase 3" items={[
     '제목·내용·비고·관계사·인명·태그 통합 검색',

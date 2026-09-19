@@ -6,6 +6,7 @@
  */
 import { AlertTriangle } from 'lucide-react'
 import { fieldLabel } from '@/features/handovers/VersionHistory'
+import { useEscape } from '@/hooks/useHotkeys'
 import type { VersionConflictDetail } from '@/types/handover'
 
 interface Props {
@@ -17,6 +18,7 @@ interface Props {
 }
 
 export default function ConflictDialog({ detail, mine, onReload, onCancel }: Props) {
+  useEscape(onCancel)
   const conflicting = detail.conflicting_fields ?? []
   const changedSince = detail.changed_since ?? []
 

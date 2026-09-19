@@ -4,7 +4,7 @@
  * 그리드 상태는 전부 URL 에 있다(useGridState). 주소를 복사해 보내면 같은 화면이 뜨고,
  * 새로고침해도 보던 조건이 유지된다.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bookmark, ChevronLeft, ChevronRight, Download, Plus, RotateCcw, Search, X } from 'lucide-react'
 import CreateHandoverDialog from '@/features/handovers/CreateHandoverDialog'
@@ -13,6 +13,9 @@ import HandoverDrawer from '@/features/handovers/HandoverDrawer'
 import HandoverGrid from '@/features/handovers/HandoverGrid'
 import { fieldLabel } from '@/features/handovers/VersionHistory'
 import { useGridState, type Density } from '@/hooks/useGridState'
+import { useHotkeys } from '@/hooks/useHotkeys'
+import { ApiRequestError } from '@/services/api/client'
+import { shiftApi } from '@/services/api/shift'
 import { handoverApi, savedViewApi, searchApi } from '@/services/api/handovers'
 import { referenceApi } from '@/services/api/reference'
 import type { Filter, HandoverListItem } from '@/types/handover'
@@ -57,6 +60,54 @@ export default function HandoverListPage() {
     queryKey: ['handovers', grid.request],
     queryFn: () => handoverApi.search(grid.request),
     placeholderData: (prev) => prev,
+  })
+
+  // 키보드(UI_STRUCTURE §10): j/k 행 이동 · Enter 상세 · e 수정 · a 확인 · b Basket 에 담기.
+  // 상세가 열려 있으면 그 건, 아니면 j/k 로 고른 행(cursor)이 대상이다.
+  const [cursor, setCursor] = useState<number | null>(null)
+  const [editNonce, setEditNonce] = useState(0)
+  const [flash, setFlash] = useState<{ text: string; bad?: boolean } | null>(null)
+  const flashTimer = useRef<number>()
+  const say = (text: string, bad = false) => {
+    setFlash({ text, bad })
+    window.clearTimeout(flashTimer.current)
+    flashTimer.current = window.setTimeout(() => setFlash(null), 2500)
+  }
+  const fail = (err: unknown) => say(err instanceof ApiRequestError ? err.message : '처리하지 못했습니다.', true)
+  const rows = page?.items ?? []
+  const target = grid.state.selectedId ?? cursor
+  const open = (id: number) => grid.patch({ selectedId: id }, { keepPage: true })
+  const moveBy = (step: 1 | -1) => {
+    if (!rows.length) return
+    const at = rows.findIndex((r) => r.id === target)
+    const next = rows[at < 0 ? (step > 0 ? 0 : rows.length - 1) : Math.min(rows.length - 1, Math.max(0, at + step))]
+    setCursor(next.id)
+    if (grid.state.selectedId != null) open(next.id)
+    requestAnimationFrame(() => document.querySelector(`[data-row-id="${next.id}"]`)?.scrollIntoView({ block: 'nearest' }))
+  }
+  const ackRow = useMutation({
+    mutationFn: (id: number) => handoverApi.acknowledge(id),
+    onSuccess: (_res, id) => {
+      say(`#${id} 확인했습니다.`)
+      for (const key of ['handovers', 'handover', 'me', 'inbox', 'my-work', 'timeline']) qc.invalidateQueries({ queryKey: [key] })
+    },
+    onError: fail,
+  })
+  const basketRow = useMutation({
+    mutationFn: (id: number) => shiftApi.addItems([id]),
+    onSuccess: (res, id) => {
+      say(res.added.length ? `#${id} 을(를) 다음 교대 인계 Basket 에 담았습니다.` : `#${id} 은(는) 이미 Basket 에 있거나 담을 수 없습니다.`, !res.added.length)
+      for (const key of ['basket', 'cockpit']) qc.invalidateQueries({ queryKey: [key] })
+    },
+    onError: fail,
+  })
+  useHotkeys({
+    KeyJ: () => moveBy(1),
+    KeyK: () => moveBy(-1),
+    Enter: () => { if (cursor != null && grid.state.selectedId == null) open(cursor) },
+    KeyE: () => { if (target == null) return; if (grid.state.selectedId !== target) open(target); setEditNonce((n) => n + 1) },
+    KeyA: () => { if (target != null) ackRow.mutate(target) },
+    KeyB: () => { if (target != null) basketRow.mutate(target) },
   })
 
   const fields = useMemo(
@@ -225,9 +276,9 @@ export default function HandoverListPage() {
         </div>
 
         <HandoverGrid rows={page?.items ?? []} fields={fields} state={grid.state}
-                      request={grid.request} selectedId={grid.state.selectedId}
+                      request={grid.request} selectedId={grid.state.selectedId} cursorId={cursor}
                       isLoading={isLoading}
-                      onSelect={(id) => grid.patch({ selectedId: id }, { keepPage: true })}
+                      onSelect={(id) => { setCursor(id); open(id) }}
                       onToggleStar={(row) => star.mutate(row)}
                       onSort={grid.toggleSort} onSetFilter={grid.setFilter} />
       </div>
@@ -235,8 +286,15 @@ export default function HandoverListPage() {
       {grid.state.selectedId != null && (
         <HandoverDrawer handoverId={grid.state.selectedId}
                         companies={companies ?? []} statuses={statuses ?? []}
-                        priorities={priorities ?? []}
+                        priorities={priorities ?? []} editNonce={editNonce}
                         onClose={() => grid.patch({ selectedId: null }, { keepPage: true })} />
+      )}
+
+      {flash && (
+        <p role="status" className={`fixed bottom-4 left-1/2 -translate-x-1/2 z-40 card shadow-lg px-3 py-1.5 text-sm
+                                      ${flash.bad ? 'text-state-check border-amber-200 bg-amber-50' : 'text-state-done'}`}>
+          {flash.text}
+        </p>
       )}
 
       {exporting && (

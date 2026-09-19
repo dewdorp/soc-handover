@@ -1,12 +1,20 @@
 import { useEffect, useState } from 'react'
-import { Navigate, Outlet, useLocation } from 'react-router-dom'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import ShortcutHelp from '@/components/ui/ShortcutHelp'
+import CreateHandoverDialog from '@/features/handovers/CreateHandoverDialog'
 import CommandPalette from '@/features/search/CommandPalette'
+import TaskCreateDialog from '@/features/tasks/TaskCreateDialog'
 import Sidebar from '@/layouts/Sidebar'
 import Topbar from '@/layouts/Topbar'
-import { useMe } from '@/hooks/useAuth'
+import { useCan, useMe } from '@/hooks/useAuth'
+import { isTyping, keyCode, modalOpen } from '@/hooks/useHotkeys'
+import { referenceApi } from '@/services/api/reference'
 
 /** 이보다 좁으면 메뉴를 접는다 — 펼친 메뉴(216px)가 본문을 짓눌러 표가 글자 단위로 꺾인다. */
 const NARROW = '(max-width: 1023px)'
+
+type Overlay = 'palette' | 'help' | 'new-handover' | 'new-task' | null
 
 export default function AppShell() {
   const [collapsed, setCollapsed] = useState(() => window.matchMedia(NARROW).matches)
@@ -18,24 +26,43 @@ export default function AppShell() {
     return () => mq.removeEventListener('change', onChange)
   }, [])
 
-  // 통합검색(UI_STRUCTURE §10): Ctrl+K(맥 Cmd+K) 는 어디서든 팔레트, '/' 는 목록 검색창이 있으면
-  // 거기로, 없으면 팔레트. 입력 중인 칸에서는 '/' 를 가로채지 않는다.
-  const [paletteOpen, setPaletteOpen] = useState(false)
+  const navigate = useNavigate()
+  const qc = useQueryClient()
+  const can = useCan()
+  const [overlay, setOverlay] = useState<Overlay>(null)
+  const close = () => setOverlay(null)
+
+  // 어디서나 쓰는 단축키(UI_STRUCTURE §10). 키 위치(e.code)로 본다 — 한글 입력 상태에서도 같게.
+  //   Ctrl/Cmd+K 통합검색 · '/' 목록 검색창 또는 통합검색 · '?' 도움말 · Alt+N 새 인수인계 · Alt+T 새 할일
+  //   (Ctrl+N · Ctrl+Shift+T 는 브라우저가 새 창·닫은 탭으로 가져가서 페이지에 오지 않는다)
+  const allow = { handover: can('handover:create'), task: can('task:create') }
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === 'k') {
-        e.preventDefault()
-        setPaletteOpen(true)
+      if (modalOpen()) return
+      const code = keyCode(e)
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && code === 'KeyK') {
+        e.preventDefault(); setOverlay('palette'); return
+      }
+      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        if (code === 'KeyN' && allow.handover) { e.preventDefault(); setOverlay('new-handover') }
+        else if (code === 'KeyT' && allow.task) { e.preventDefault(); setOverlay('new-task') }
         return
       }
-      if (e.key !== '/' || e.ctrlKey || e.metaKey || e.altKey || isTyping(e.target)) return
+      if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing || isTyping(e.target) || code !== 'Slash') return
       e.preventDefault()
+      if (e.shiftKey || e.key === '?') { setOverlay('help'); return }      // Shift+/ = '?'
       const gridSearch = document.querySelector<HTMLInputElement>('[data-grid-search]')
-      if (gridSearch) { gridSearch.focus(); gridSearch.select() } else setPaletteOpen(true)
+      if (gridSearch) { gridSearch.focus(); gridSearch.select() } else setOverlay('palette')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [])
+  }, [allow.handover, allow.task])
+
+  const needRefs = overlay === 'new-handover'
+  const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: referenceApi.companies, staleTime: 5 * 60_000, enabled: needRefs })
+  const { data: statuses } = useQuery({ queryKey: ['statuses'], queryFn: referenceApi.statuses, staleTime: 5 * 60_000, enabled: needRefs })
+  const { data: priorities } = useQuery({ queryKey: ['priorities'], queryFn: referenceApi.priorities, staleTime: 5 * 60_000, enabled: needRefs })
+
   const { data: me, isLoading } = useMe()
   const location = useLocation()
 
@@ -58,19 +85,28 @@ export default function AppShell() {
 
   return (
     <div className="h-full flex flex-col">
-      <Topbar onToggleSidebar={() => setCollapsed((v) => !v)} onOpenSearch={() => setPaletteOpen(true)} />
+      <Topbar onToggleSidebar={() => setCollapsed((v) => !v)} onOpenSearch={() => setOverlay('palette')}
+              onOpenHelp={() => setOverlay('help')} />
       <div className="flex-1 flex min-h-0">
         <Sidebar collapsed={collapsed} />
         <main className="flex-1 min-w-0 overflow-auto">
           <Outlet />
         </main>
       </div>
-      {paletteOpen && <CommandPalette onClose={() => setPaletteOpen(false)} />}
+      {overlay === 'palette' && <CommandPalette onClose={close} />}
+      {overlay === 'help' && <ShortcutHelp onClose={close} />}
+      {overlay === 'new-task' && (
+        <TaskCreateDialog onClose={close} onCreated={(t) => navigate(`/tasks?id=${t.id}`)} />
+      )}
+      {overlay === 'new-handover' && companies && statuses && priorities && (
+        <CreateHandoverDialog companies={companies} statuses={statuses} priorities={priorities}
+                              onClose={close}
+                              onCreated={(id) => {
+                                close()
+                                qc.invalidateQueries({ queryKey: ['handovers'] })
+                                navigate(`/handovers?id=${id}`)
+                              }} />
+      )}
     </div>
   )
-}
-
-function isTyping(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null
-  return !!el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(el.tagName))
 }

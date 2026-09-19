@@ -60,6 +60,8 @@ interface Props {
   state: { sort: Sort[]; filters: Filter[]; density: Density; hidden: string[] }
   request: SearchRequest
   selectedId: number | null
+  /** j/k 로 고른 행(상세는 아직 안 연 상태) */
+  cursorId?: number | null
   isLoading: boolean
   onSelect: (id: number) => void
   onToggleStar: (row: HandoverListItem) => void
@@ -97,7 +99,7 @@ export default function HandoverGrid(props: Props) {
           {props.rows.map((row) => (
             <Row key={row.id} row={row} columns={columns}
                  density={props.state.density}
-                 selected={row.id === props.selectedId}
+                 selected={row.id === props.selectedId} cursor={row.id === props.cursorId}
                  onSelect={props.onSelect} onToggleStar={props.onToggleStar} />
           ))}
         </tbody>
@@ -163,14 +165,15 @@ Props & {
   )
 }
 
-function Row({ row, columns, density, selected, onSelect, onToggleStar }: {
-  row: HandoverListItem; columns: ColumnDef[]; density: Density; selected: boolean
+function Row({ row, columns, density, selected, cursor, onSelect, onToggleStar }: {
+  row: HandoverListItem; columns: ColumnDef[]; density: Density; selected: boolean; cursor: boolean
   onSelect: (id: number) => void; onToggleStar: (row: HandoverListItem) => void
 }) {
   return (
-    <tr onClick={() => onSelect(row.id)}
+    <tr onClick={() => onSelect(row.id)} data-row-id={row.id} aria-current={cursor || selected || undefined}
         className={`${ROW_HEIGHT[density]} cursor-pointer border-b border-surface-border/70
                     ${selected ? 'bg-brand-soft' : 'hover:bg-surface-sunken'}
+                    ${cursor && !selected ? 'outline outline-2 -outline-offset-2 outline-brand/60' : ''}
                     ${row.is_deleted ? 'opacity-50 line-through' : ''}`}>
       {columns.map((col) => (
         <td key={col.key}

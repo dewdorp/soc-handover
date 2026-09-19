@@ -8,6 +8,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { X } from 'lucide-react'
 import { useMe } from '@/hooks/useAuth'
+import { useEscape } from '@/hooks/useHotkeys'
 import { ApiRequestError } from '@/services/api/client'
 import { referenceApi } from '@/services/api/reference'
 import { TASK_QUERY_KEYS, taskApi, type TaskDetail, type TaskInput } from '@/services/api/tasks'
@@ -19,6 +20,7 @@ interface Props {
 }
 
 export default function TaskCreateDialog({ handover, onClose, onCreated }: Props) {
+  useEscape(onClose)
   const qc = useQueryClient()
   const { data: me } = useMe()
   const { data: users } = useQuery({ queryKey: ['user-lookup'], queryFn: () => referenceApi.userLookup(), staleTime: 60_000 })

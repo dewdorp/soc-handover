@@ -5,6 +5,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { Download, X } from 'lucide-react'
+import { useEscape } from '@/hooks/useHotkeys'
 import { ApiRequestError } from '@/services/api/client'
 import { exportApi } from '@/services/api/imports'
 import type { SearchRequest } from '@/types/handover'
@@ -16,6 +17,7 @@ interface Props {
 }
 
 export default function ExportDialog({ request, total, onClose }: Props) {
+  useEscape(onClose)
   const { data: columns } = useQuery({ queryKey: ['export-columns'], queryFn: exportApi.columns })
   const [format, setFormat] = useState<'xlsx' | 'csv'>('xlsx')
   const [picked, setPicked] = useState<Set<string> | null>(null)

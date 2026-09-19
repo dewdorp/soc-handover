@@ -2,6 +2,7 @@
 import { FormEvent, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { X } from 'lucide-react'
+import { useEscape } from '@/hooks/useHotkeys'
 import { ApiRequestError } from '@/services/api/client'
 import { handoverApi } from '@/services/api/handovers'
 import { referenceApi } from '@/services/api/reference'
@@ -18,6 +19,7 @@ interface Props {
 export default function CreateHandoverDialog(
   { companies, statuses, priorities, onClose, onCreated }: Props,
 ) {
+  useEscape(onClose)
   const [form, setForm] = useState({
     company_id: companies[0]?.id ?? 0,
     title: '', content: '', remark: '',

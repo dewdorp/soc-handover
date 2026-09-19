@@ -4,7 +4,7 @@
  * 목록 컨텍스트를 유지한 채 우측에서 열린다. 수정은 인라인 편집 + 변경 사유이고,
  * 저장은 expected_version 을 함께 보낸다 → 충돌 시 409 를 받아 다이얼로그를 띄운다.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Check, Pin, Plus, Star, Trash2, X } from 'lucide-react'
@@ -28,9 +28,11 @@ interface Props {
   statuses: HandoverStatus[]
   priorities: Priority[]
   onClose: () => void
+  /** 목록에서 'e' 를 누를 때마다 1씩 오른다 — 수정 모드로 연다 */
+  editNonce?: number
 }
 
-export default function HandoverDrawer({ handoverId, companies, statuses, priorities, onClose }: Props) {
+export default function HandoverDrawer({ handoverId, companies, statuses, priorities, onClose, editNonce = 0 }: Props) {
   const qc = useQueryClient()
   const { data: me } = useMe()
   const [tab, setTab] = useState<Tab>('detail')
@@ -65,6 +67,15 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
     if (me.permissions.includes('handover:update_any')) return true
     return row.created_by === me.id || row.assignee?.id === me.id
   }, [row, me])
+
+  // 'e' 단축키: 이 건이 불러와진 뒤에 한 번만 처리한다(목록에서 행을 바꾸며 누르면 새 건이 올 때까지 기다린다)
+  const handledEdit = useRef(0)
+  useEffect(() => {
+    if (!editNonce || editNonce === handledEdit.current || !row || row.id !== handoverId || !me) return
+    handledEdit.current = editNonce
+    if (canEdit && !row.is_deleted) { setTab('detail'); setEditing(true) }
+    else setError('이 인수인계는 수정할 수 없습니다. 작성자 · 담당자 · 관리자만 고칠 수 있습니다.')
+  }, [editNonce, row, me, canEdit, handoverId])
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['handover', handoverId] })

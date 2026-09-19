@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Bell, LogOut, Menu, Search, ShieldAlert } from 'lucide-react'
+import { Bell, Keyboard, LogOut, Menu, Search, ShieldAlert } from 'lucide-react'
 import { useFeatures, useLogout, useMe } from '@/hooks/useAuth'
 import { notificationApi } from '@/services/api/shift'
 
@@ -10,7 +10,9 @@ const ROLE_LABEL: Record<string, string> = {
   ANALYST: 'SOC 근무자',
 }
 
-export default function Topbar({ onToggleSidebar, onOpenSearch }: { onToggleSidebar: () => void; onOpenSearch: () => void }) {
+export default function Topbar({ onToggleSidebar, onOpenSearch, onOpenHelp }: {
+  onToggleSidebar: () => void; onOpenSearch: () => void; onOpenHelp: () => void
+}) {
   const { data: me } = useMe()
   const { data: features } = useFeatures()
   const logout = useLogout()
@@ -53,6 +55,10 @@ export default function Topbar({ onToggleSidebar, onOpenSearch }: { onToggleSide
           <span className="whitespace-nowrap hidden sm:inline">개발용 DB</span>
         </span>
       )}
+
+      <button className="btn btn-sm hidden sm:inline-flex" onClick={onOpenHelp} aria-label="키보드 단축키 (?)" title="키보드 단축키 (?)">
+        <Keyboard size={15} />
+      </button>
 
       <button className="btn btn-sm relative" onClick={() => navigate('/notifications')}
               aria-label={`알림${unreadCount ? ` (안 읽음 ${unreadCount}건)` : ''}`}>

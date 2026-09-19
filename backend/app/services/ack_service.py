@@ -47,9 +47,13 @@ def recompute_cache(db: Session, handover: Handover) -> str:
     return new_state
 
 
-def invalidate_on_change(db: Session, handover: Handover,
-                         changed_fields: list[str]) -> list[str]:
+def invalidate_on_change(db: Session, handover: Handover, changed_fields: list[str],
+                         actor_id: int | None = None) -> list[str]:
     """재확인 대상 필드가 바뀌면 기존 확인을 REACK_REQUIRED 로 되돌린다(FR-C-06).
+
+    **고친 사람 본인의 확인은 되돌리지 않는다.** 본인이 방금 바꾼 내용을 '다시 확인하라'고
+    하면 알림이 소음이 되고, 소음이 된 알림은 아무도 보지 않는다. 대신 본인의 확인을
+    새 버전으로 올려 '확인 후 변경'으로 보이지 않게 한다.
 
     Returns: 재확인을 유발한 필드 목록(없으면 빈 목록).
     """
@@ -64,12 +68,29 @@ def invalidate_on_change(db: Session, handover: Handover,
         )
     ).all()
     stamp = now()
+    own = [a for a in acked if actor_id is not None and a.user_id == actor_id]
+    for ack in own:
+        ack.acked_version_no = handover.current_version_no
+        ack.acked_at = stamp
+    acked = [a for a in acked if a not in own]
     for ack in acked:
         ack.state = ACK_REACK
         ack.stale_since = stamp
         ack.stale_reason = triggers
-    if acked:
+    if acked or own:
         db.flush()
+    if acked:
+        # 확인한 사람이 모르면 재확인 상태도 의미가 없다. 같은 건은 알림 하나로 갱신한다.
+        from app.services import notification_service
+        from app.services.handover_service import FIELD_NAMES
+        changed = ", ".join(FIELD_NAMES.get(f, f) for f in triggers)
+        for ack in acked:
+            notification_service.notify(
+                db, user_id=ack.user_id, type_=notification_service.T_REACK,
+                title=f"확인한 인수인계 #{handover.id} 의 내용이 바뀌었습니다",
+                body=f"{handover.title} — 변경: {changed}. 다시 확인해 주십시오.",
+                link_type="HANDOVER", link_id=handover.id,
+                dedup_key=f"reack:{handover.id}")
     recompute_cache(db, handover)
     return triggers
 

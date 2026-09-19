@@ -267,6 +267,15 @@ class TestAcknowledgement:
         mine = next(a for a in acks if a["user_id"] == users["analyst"]["id"])
         assert mine["state"] == ACK_ACKED
 
+    def test_own_edit_keeps_own_ack_current(self, admin_client, company_id, users):
+        """본인이 확인한 건을 본인이 고치면 '다시 확인하라'가 아니라 확인이 새 버전으로 오른다."""
+        hid = _new(admin_client, company_id)["id"]
+        admin_client.post(f"{BASE}/{hid}/acknowledge", json={})
+        admin_client.patch(f"{BASE}/{hid}", json={"expected_version": 1, "title": "내가 고침"})
+        acks = admin_client.get(f"{BASE}/{hid}/acknowledgements").json()
+        mine = next(a for a in acks if a["user_id"] == users["admin"]["id"])
+        assert (mine["state"], mine["acked_version_no"]) == (ACK_ACKED, 2)
+
     def test_ack_state_cache_follows_worst_state(self, admin_client, company_id):
         hid = _new(admin_client, company_id)["id"]
         assert admin_client.get(f"{BASE}/{hid}").json()["ack_state_cache"] == ACK_NONE

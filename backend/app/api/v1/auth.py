@@ -11,7 +11,7 @@ from app.core.context import RequestContext, get_context
 from app.core.db import get_db
 from app.core.security import REFRESH_COOKIE, hash_token
 from app.models.common import Notification
-from app.models.handover import ACK_ACKED, HandoverAcknowledgement
+from app.services import ack_service
 from app.models.user import RefreshToken, User
 from app.schemas.auth import (ChangePasswordRequest, LoginRequest, MeResponse,
                               SessionInfo)
@@ -21,12 +21,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 def _me_payload(db: Session, user: User) -> MeResponse:
-    pending = db.scalar(
-        select(func.count()).select_from(HandoverAcknowledgement).where(
-            HandoverAcknowledgement.user_id == user.id,
-            HandoverAcknowledgement.state != ACK_ACKED,
-        )
-    ) or 0
+    # 배너 숫자는 '확인필요' 목록과 같은 기준이어야 한다(삭제된 건 제외).
+    # 여기서 따로 세면 배너는 3건인데 목록은 2건인 일이 생긴다.
+    pending = ack_service.pending_count(db, user.id)
     unread = db.scalar(
         select(func.count()).select_from(Notification).where(
             Notification.user_id == user.id, Notification.is_read.is_(False)

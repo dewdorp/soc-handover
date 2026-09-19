@@ -1,8 +1,8 @@
 """v1 라우터 집합. main.py 는 이 하나만 등록한다."""
 from fastapi import APIRouter
 
-from app.api.v1 import (auth, exports, handovers, imports, reference, saved_views, search,
-                        system, users)
+from app.api.v1 import (auth, exports, handovers, imports, notifications, reference,
+                        saved_views, search, shift, system, users)
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(system.router)
@@ -16,5 +16,7 @@ api_router.include_router(handovers.router)
 api_router.include_router(saved_views.router)
 api_router.include_router(imports.router)
 api_router.include_router(exports.router)
+api_router.include_router(shift.router)
+api_router.include_router(notifications.router)
 
 __all__ = ["api_router"]

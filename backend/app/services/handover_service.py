@@ -32,6 +32,15 @@ from app.services import ack_service
 from app.utils.diff import field_diff
 from app.utils.fingerprint import fingerprint as make_fingerprint
 
+#: 알림·감사 문구에 쓰는 필드 이름(화면의 fieldLabel 과 같은 뜻)
+FIELD_NAMES: dict[str, str] = {
+    "company_id": "관계사", "title": "제목", "content": "내용", "remark": "비고",
+    "status_code": "상태", "priority_code": "중요도", "registered_date": "등록일",
+    "work_date": "수행일", "completed_at": "완료시각", "sender_id": "전달자",
+    "assignee_id": "담당자", "checker_id": "확인자", "is_important": "중요",
+    "is_pinned": "상단고정", "is_recurring": "반복", "tags": "태그",
+}
+
 _DATE_FIELDS = frozenset({"registered_date", "work_date"})
 _DATETIME_FIELDS = frozenset({"completed_at"})
 _USER_FIELDS = frozenset({"sender_id", "assignee_id", "checker_id"})
@@ -310,7 +319,7 @@ def update_handover(db: Session, handover_id: int, changes: dict[str, Any],
     _add_version(db, handover, change_type=CHANGE_UPDATE,
                  before_data={f: before[f] for f in changed}, after_data=after,
                  changed_fields=changed, change_reason=change_reason, actor=actor, ctx=ctx)
-    reack = ack_service.invalidate_on_change(db, handover, changed)
+    reack = ack_service.invalidate_on_change(db, handover, changed, actor.id)
     record(db, action=actions.HANDOVER_UPDATE, ctx=ctx, user=actor,
            resource_type="HANDOVER", resource_id=handover.id,
            before={f: before[f] for f in changed}, after={f: after[f] for f in changed},
@@ -441,7 +450,7 @@ def restore_version(db: Session, handover_id: int, version_no: int, *,
                  before_data={f: before[f] for f in changed}, after_data=after,
                  changed_fields=changed, change_reason=change_reason.strip(),
                  actor=actor, ctx=ctx, restored_from=version_no)
-    reack = ack_service.invalidate_on_change(db, handover, changed)
+    reack = ack_service.invalidate_on_change(db, handover, changed, actor.id)
     record(db, action=actions.HANDOVER_RESTORE, ctx=ctx, user=actor,
            resource_type="HANDOVER", resource_id=handover.id,
            before={f: before[f] for f in changed}, after={f: after[f] for f in changed},

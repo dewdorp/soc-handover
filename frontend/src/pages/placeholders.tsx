@@ -20,22 +20,6 @@ export const ShiftPage = () => (
   ]} />
 )
 
-export const MyWorkPage = () => (
-  <PhasePlaceholder title="내 업무" phase="Phase 6" items={[
-    '오늘/지연/이번주/예정/대기/완료 버킷',
-    '담당 인수인계 + 내 Task + 확인 대기 + 내 일정 통합',
-    'List / Board / Calendar 전환',
-  ]} />
-)
-
-export const TaskPage = () => (
-  <PhasePlaceholder title="할일" phase="Phase 6" items={[
-    'Task CRUD · Checklist · Comment',
-    'Kanban Board Drag&Drop 상태 변경(변경은 감사 기록)',
-    '인수인계에서 Quick Add(관계사·연관 인수인계 자동 채움)',
-  ]} />
-)
-
 export const SchedulePage = () => (
   <PhasePlaceholder title="일정" phase="Phase 7" items={[
     '월/주/일 캘린더',

@@ -6,6 +6,7 @@ import { notificationApi, type AppNotification } from '@/services/api/shift'
 
 const TYPE_LABEL: Record<string, string> = {
   HANDOVER_TRANSFER: '인계 받음', HANDOVER_REACK: '재확인 필요', HANDOVER_ASSIGNED: '담당 지정',
+  TASK_ASSIGNED: '할일 배정', TASK_COMMENT: '할일 댓글',
 }
 
 export default function NotificationPage() {
@@ -27,6 +28,7 @@ export default function NotificationPage() {
     }
     if (n.link_type === 'HANDOVER' && n.link_id) navigate(`/handovers?id=${n.link_id}`)
     else if (n.link_type === 'SHIFT' && n.link_id) navigate(`/shift/history?session=${n.link_id}`)
+    else if (n.link_type === 'TASK' && n.link_id) navigate(`/tasks?id=${n.link_id}`)
   }
 
   const unread = (data ?? []).filter((n) => !n.is_read).length

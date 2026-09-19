@@ -116,7 +116,8 @@ export default function DashboardPage() {
             <li>✔ Phase 3 — Data Grid · 컬럼 필터 · 검색 · 저장된 보기</li>
             <li>✔ Phase 4 — Excel Import/Export</li>
             <li>✔ Phase 5 — 교대 인수인계 · 확인 · Carry Forward</li>
-            <li className="text-ink-faint">· Phase 6~10 — Task · 일정 · 감사 UI · AI(선택) · 안정화</li>
+            <li>✔ Phase 6 — 할일 · 체크리스트 · 보드 · 내 업무</li>
+            <li className="text-ink-faint">· Phase 7~10 — 일정 · 감사 UI · AI(선택) · 안정화</li>
           </ul>
         </section>
       </div>

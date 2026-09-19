@@ -85,7 +85,7 @@ def detail(db: Session, h: Handover, actor: User) -> HandoverDetail:
         "task_count": task_service.count_for_handover(db, h.id),
         "acknowledgements": [
             AckOut.model_validate({
-                "user_id": a.user_id, "user": None, "state": a.state,
+                "user_id": a.user_id, "user": db.get(User, a.user_id), "state": a.state,
                 "acked_version_no": a.acked_version_no, "acked_at": a.acked_at,
                 "stale_since": a.stale_since, "stale_reason": a.stale_reason, "note": a.note,
             }) for a in acks

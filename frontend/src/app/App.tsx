@@ -8,10 +8,12 @@ import HandoverListPage from '@/features/handovers/HandoverListPage'
 import ImportWizardPage from '@/features/import/ImportWizardPage'
 import NotificationPage from '@/features/notifications/NotificationPage'
 import ShiftPage from '@/features/shift/ShiftPage'
+import MyWorkPage from '@/features/mywork/MyWorkPage'
+import TaskPage from '@/features/tasks/TaskPage'
 import {
-  AdminPage, AiSearchPage, AuditPage, MyWorkPage,
+  AdminPage, AiSearchPage, AuditPage,
   NotFoundPage, SchedulePage, SearchPage, SettingsPage,
-  StatsPage, TaskPage,
+  StatsPage,
 } from '@/pages/placeholders'
 
 const queryClient = new QueryClient({

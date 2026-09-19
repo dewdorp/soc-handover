@@ -34,6 +34,7 @@ export interface HandoverListItem {
 
 export interface Acknowledgement {
   user_id: number
+  user: { id: number; display_name: string } | null
   state: AckState
   acked_version_no: number | null
   acked_at: string | null
@@ -43,6 +44,7 @@ export interface Acknowledgement {
 }
 
 export interface HandoverDetail extends HandoverListItem {
+  task_count: number
   content: string
   remark: string | null
   created_by: number | null

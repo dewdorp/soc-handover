@@ -6,16 +6,20 @@
  */
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Check, Pin, Star, Trash2, X } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Check, Pin, Plus, Star, Trash2, X } from 'lucide-react'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import ConflictDialog from '@/features/handovers/ConflictDialog'
+import TaskCreateDialog from '@/features/tasks/TaskCreateDialog'
 import VersionHistory, { fieldLabel } from '@/features/handovers/VersionHistory'
 import { ApiRequestError } from '@/services/api/client'
 import { handoverApi } from '@/services/api/handovers'
+import { STATUS_LABEL, STATUS_TONE, taskApi } from '@/services/api/tasks'
 import { useMe } from '@/hooks/useAuth'
 import type { Company, HandoverStatus, Priority } from '@/types/api'
 import type { VersionConflictDetail } from '@/types/handover'
 
-type Tab = 'detail' | 'versions' | 'timeline'
+type Tab = 'detail' | 'tasks' | 'versions' | 'timeline'
 
 interface Props {
   handoverId: number
@@ -34,6 +38,8 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
   const [reason, setReason] = useState('')
   const [conflict, setConflict] = useState<VersionConflictDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [creatingTask, setCreatingTask] = useState(false)
 
   const { data: row, isLoading } = useQuery({
     queryKey: ['handover', handoverId],
@@ -47,11 +53,11 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !conflict) onClose()
+      if (e.key === 'Escape' && !conflict && !confirmDelete && !creatingTask) onClose()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [onClose, conflict])
+  }, [onClose, conflict, confirmDelete, creatingTask])
 
   const canEdit = useMemo(() => {
     if (!row || !me) return false
@@ -107,7 +113,8 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
 
   if (isLoading || !row) {
     return (
-      <aside className="w-[520px] shrink-0 border-l border-surface-border bg-surface
+      <aside className="w-full lg:w-[520px] max-lg:fixed max-lg:inset-x-0 max-lg:top-12 max-lg:bottom-0 max-lg:z-30 max-lg:shadow-xl
+                      shrink-0 border-l border-surface-border bg-surface
                         grid place-items-center text-ink-faint">
         불러오는 중…
       </aside>
@@ -121,7 +128,8 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
   const myAck = row.acknowledgements.find((a) => a.user_id === me?.id)
 
   return (
-    <aside className="w-[520px] shrink-0 border-l border-surface-border bg-surface
+    <aside className="w-full lg:w-[520px] max-lg:fixed max-lg:inset-x-0 max-lg:top-12 max-lg:bottom-0 max-lg:z-30 max-lg:shadow-xl
+                      shrink-0 border-l border-surface-border bg-surface
                       flex flex-col min-h-0" aria-label="인수인계 상세">
       {/* 헤더 */}
       <div className="px-3 py-2 border-b border-surface-border space-y-1">
@@ -145,10 +153,7 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
           )}
           {me?.permissions.includes('handover:delete') && !editing && (
             <button className="btn btn-sm text-state-urgent"
-                    onClick={() => {
-                      const why = window.prompt('삭제 사유를 입력하십시오. (필수)')
-                      if (why && why.trim()) remove.mutate(why.trim())
-                    }} aria-label="삭제"><Trash2 size={12} /></button>
+                    onClick={() => setConfirmDelete(true)} aria-label="삭제"><Trash2 size={12} /></button>
           )}
           <button className="text-ink-faint hover:text-ink" onClick={onClose} aria-label="닫기">
             <X size={16} />
@@ -172,7 +177,8 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
 
       {/* 탭 */}
       <nav className="flex gap-1 px-3 pt-2 border-b border-surface-border" role="tablist">
-        {([['detail', '상세'], ['versions', '변경이력'], ['timeline', '전체 이력']] as const)
+        {([['detail', '상세'], ['tasks', `할일${row.task_count ? ` ${row.task_count}` : ''}`],
+           ['versions', '변경이력'], ['timeline', '전체 이력']] as [Tab, string][])
           .map(([key, label]) => (
             <button key={key} role="tab" aria-selected={tab === key}
                     onClick={() => setTab(key)}
@@ -269,7 +275,7 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
               <ul className="space-y-0.5">
                 {row.acknowledgements.map((a) => (
                   <li key={a.user_id} className="flex items-center gap-2">
-                    <span className="tabular-nums text-ink-muted">#{a.user_id}</span>
+                    <span className="text-ink-muted">{a.user?.display_name ?? `#${a.user_id}`}</span>
                     {a.state === 'ACKED' && (
                       <span className="text-state-done">✔ v{a.acked_version_no} 확인</span>
                     )}
@@ -299,6 +305,11 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
         {tab === 'versions' && (
           <VersionHistory handoverId={handoverId}
                           currentVersion={row.current_version_no} canEdit={canEdit} />
+        )}
+
+        {tab === 'tasks' && (
+          <HandoverTasks handoverId={handoverId} canCreate={!!me?.permissions.includes('task:create') && !row.is_deleted}
+                         onCreate={() => setCreatingTask(true)} />
         )}
 
         {tab === 'timeline' && <Timeline handoverId={handoverId} />}
@@ -331,6 +342,20 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
         )}
       </div>
 
+      {confirmDelete && (
+        <ConfirmDialog title={`인수인계 #${row.id} 을(를) 삭제합니다`} confirmLabel="삭제" danger
+                       busy={remove.isPending} input={{ label: '삭제 사유', required: true, placeholder: '예: 중복 등록' }}
+                       onCancel={() => setConfirmDelete(false)}
+                       onConfirm={(why) => { setConfirmDelete(false); remove.mutate(why) }}>
+          <p>목록에서 사라지고, 관리자는 복구할 수 있습니다. 사유는 기록으로 남습니다.</p>
+        </ConfirmDialog>
+      )}
+
+      {creatingTask && (
+        <TaskCreateDialog handover={{ id: row.id, title: row.title, company: row.company?.name }}
+                          onClose={() => setCreatingTask(false)} onCreated={() => setTab('tasks')} />
+      )}
+
       {conflict && (
         <ConflictDialog detail={conflict} mine={draft}
                         onCancel={() => setConflict(null)}
@@ -359,6 +384,7 @@ function Timeline({ handoverId }: { handoverId: number }) {
   })
   const KIND_LABEL: Record<string, string> = {
     VERSION: '버전', ACK: '확인', REACK_REQUIRED: '재확인 필요', COMMENT: '댓글',
+    TRANSFER: '교대 인계', TASK: '할일', TASK_DONE: '할일 완료',
   }
   return (
     <ul className="space-y-1">
@@ -375,5 +401,38 @@ function Timeline({ handoverId }: { handoverId: number }) {
       ))}
       {data?.length === 0 && <li className="text-ink-faint">이력이 없습니다.</li>}
     </ul>
+  )
+}
+
+/** 이 인수인계에 딸린 할일(FR-D-06). 누르면 할일 화면에서 연다. */
+function HandoverTasks({ handoverId, canCreate, onCreate }: { handoverId: number; canCreate: boolean; onCreate: () => void }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['handover-tasks', handoverId], queryFn: () => taskApi.forHandover(handoverId),
+  })
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center">
+        <p className="text-ink-muted text-sm flex-1">인수인계는 사실 기록, 할일은 해야 할 일입니다. 할일을 바꿔도 인수인계 버전은 그대로입니다.</p>
+        {canCreate && <button className="btn btn-sm btn-primary shrink-0" onClick={onCreate}><Plus size={12} /> 할일 만들기</button>}
+      </div>
+      <ul className="space-y-1">
+        {(data ?? []).map((t) => (
+          <li key={t.id}>
+            <Link to={`/tasks?id=${t.id}`} className="card px-2 py-1.5 flex items-center gap-2 hover:border-brand/50">
+              <span className={`text-sm shrink-0 ${STATUS_TONE[t.status]}`}>{STATUS_LABEL[t.status]}</span>
+              <span className="flex-1 truncate">{t.title}</span>
+              <span className="text-xs text-ink-muted shrink-0">{t.assignee?.display_name ?? '(미지정)'}</span>
+              {t.due_date && (
+                <span className={`text-xs tabular-nums shrink-0 ${t.is_overdue ? 'text-state-urgent font-medium' : 'text-ink-muted'}`}>
+                  {t.due_date.slice(5).replace('-', '/')}
+                </span>
+              )}
+              {t.checklist_total > 0 && <span className="text-xs tabular-nums text-ink-faint shrink-0">{t.checklist_done}/{t.checklist_total}</span>}
+            </Link>
+          </li>
+        ))}
+        {!isLoading && data?.length === 0 && <li className="text-ink-faint">연결된 할일이 없습니다.</li>}
+      </ul>
+    </div>
   )
 }

@@ -6,9 +6,11 @@ import ChangePasswordPage from '@/features/auth/ChangePasswordPage'
 import DashboardPage from '@/pages/DashboardPage'
 import HandoverListPage from '@/features/handovers/HandoverListPage'
 import ImportWizardPage from '@/features/import/ImportWizardPage'
+import NotificationPage from '@/features/notifications/NotificationPage'
+import ShiftPage from '@/features/shift/ShiftPage'
 import {
   AdminPage, AiSearchPage, AuditPage, MyWorkPage,
-  NotFoundPage, NotificationPage, SchedulePage, SearchPage, SettingsPage, ShiftPage,
+  NotFoundPage, SchedulePage, SearchPage, SettingsPage,
   StatsPage, TaskPage,
 } from '@/pages/placeholders'
 

@@ -221,9 +221,9 @@ function Cell({ col, row, onToggleStar }: {
       return (
         <span className="flex items-center gap-1 min-w-0">
           {row.is_pinned && <Pin size={11} className="text-brand shrink-0" aria-label="상단고정" />}
-          {row.carry_count > 0 && (
-            <span className="chip h-4 px-1 text-xs shrink-0"
-                  title={`${row.carry_count}교대째 인계 중`}>↻{row.carry_count}</span>
+          {row.carry_count > 1 && (
+            <span className="chip h-4 px-1 text-xs shrink-0 text-state-check"
+                  title={`${row.carry_count}교대째 이어서 인계 중`}>↻{row.carry_count}</span>
           )}
           <span className="truncate">{row.title}</span>
         </span>

@@ -1,6 +1,8 @@
+import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Bell, LogOut, Menu, Search, ShieldAlert } from 'lucide-react'
 import { useFeatures, useLogout, useMe } from '@/hooks/useAuth'
+import { notificationApi } from '@/services/api/shift'
 
 const ROLE_LABEL: Record<string, string> = {
   ADMIN: '관리자',
@@ -13,6 +15,12 @@ export default function Topbar({ onToggleSidebar }: { onToggleSidebar: () => voi
   const { data: features } = useFeatures()
   const logout = useLogout()
   const navigate = useNavigate()
+  // 알림은 WebSocket 없이 30초 폴링으로 본다(ASSUMPTIONS F-04).
+  const { data: unread } = useQuery({
+    queryKey: ['unread-count'], queryFn: notificationApi.unreadCount,
+    enabled: Boolean(me), refetchInterval: 30_000,
+  })
+  const unreadCount = unread?.unread ?? me?.unread_notification_count ?? 0
 
   return (
     <header className="h-12 shrink-0 border-b border-surface-border bg-surface flex items-center gap-3 px-3">
@@ -47,12 +55,12 @@ export default function Topbar({ onToggleSidebar }: { onToggleSidebar: () => voi
       )}
 
       <button className="btn btn-sm relative" onClick={() => navigate('/notifications')}
-              aria-label="알림">
+              aria-label={`알림${unreadCount ? ` (안 읽음 ${unreadCount}건)` : ''}`}>
         <Bell size={15} />
-        {(me?.unread_notification_count ?? 0) > 0 && (
+        {unreadCount > 0 && (
           <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full
                            bg-state-urgent text-white text-xs leading-4 text-center">
-            {me?.unread_notification_count}
+            {unreadCount}
           </span>
         )}
       </button>

@@ -55,7 +55,7 @@ export default function DashboardPage() {
           <span className="text-sm">
             확인하지 않은 인수인계 <b>{me?.pending_ack_count}건</b>이 있습니다.
           </span>
-          <button className="btn btn-sm ml-auto" onClick={() => navigate(listUrl({ quick: ['NEED_ACK'] }))}>
+          <button className="btn btn-sm ml-auto" onClick={() => navigate('/shift/inbox')}>
             확인하러 가기
           </button>
         </div>
@@ -115,7 +115,7 @@ export default function DashboardPage() {
             <li>✔ Phase 2 — 인수인계 CRUD · Version · Diff · 복원</li>
             <li>✔ Phase 3 — Data Grid · 컬럼 필터 · 검색 · 저장된 보기</li>
             <li>✔ Phase 4 — Excel Import/Export</li>
-            <li className="text-ink-faint">· Phase 5 — 교대 인수인계 · 확인 · Carry Forward</li>
+            <li>✔ Phase 5 — 교대 인수인계 · 확인 · Carry Forward</li>
             <li className="text-ink-faint">· Phase 6~10 — Task · 일정 · 감사 UI · AI(선택) · 안정화</li>
           </ul>
         </section>

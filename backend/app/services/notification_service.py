@@ -15,6 +15,8 @@ from app.models.common import Notification
 T_TRANSFER = "HANDOVER_TRANSFER"          # 인수인계가 나에게 전달됨
 T_REACK = "HANDOVER_REACK"                # 내가 확인한 건의 내용이 바뀜
 T_ASSIGNED = "HANDOVER_ASSIGNED"          # 담당자로 지정됨
+T_TASK_ASSIGNED = "TASK_ASSIGNED"         # 할일 담당자로 지정됨
+T_TASK_COMMENT = "TASK_COMMENT"           # 내 할일에 댓글
 
 
 def notify(db: Session, *, user_id: int, type_: str, title: str, body: str | None = None,

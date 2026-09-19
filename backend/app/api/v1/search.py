@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.auth.deps import require, require_password_changed
+from app.auth.rbac import has_permission
 from app.core.config import settings
 from app.core.db import get_db
 from app.core.pagination import Page
@@ -70,7 +71,7 @@ def global_search(payload: GlobalSearchRequest, db: Session = Depends(get_db),
                   actor: User = Depends(require("search:use"))):
     """Ctrl+K 팔레트. 타입별 상위 N + 총 건수.
 
-    Task / Schedule / Attachment scope 는 해당 Phase 에서 같은 형식으로 덧붙인다.
+    Schedule / Attachment scope 는 해당 Phase 에서 같은 형식으로 덧붙인다.
     """
     request = SearchRequest(q=payload.q, size=payload.limit, page=1)
     dsl.validate(request, permissions=frozenset())
@@ -90,7 +91,24 @@ def global_search(payload: GlobalSearchRequest, db: Session = Depends(get_db),
             date=h.registered_date,
         ) for h in rows
     ]
-    return GlobalSearchResponse(q=payload.q, hits=hits, totals={"handover": total})
+    totals = {"handover": total}
+    if "handover" not in payload.scope:
+        hits, totals = [], {}
+
+    if "task" in payload.scope and has_permission(actor.role_code, "task:read"):
+        from app.schemas.task import TaskSearchRequest
+        from app.services import task_service
+
+        tasks, task_total = task_service.search(db, actor, TaskSearchRequest(
+            q=payload.q, include_closed=True, sort="updated_at", size=payload.limit))
+        hits += [
+            GlobalHit(type="task", id=t.id, title=t.title,
+                      snippet=_snippet(t.description, payload.q),
+                      company=t.company.name if t.company else None, date=t.due_date)
+            for t in tasks
+        ]
+        totals["task"] = task_total
+    return GlobalSearchResponse(q=payload.q, hits=hits, totals=totals)
 
 
 def _snippet(text: str | None, term: str, width: int = 80) -> str | None:

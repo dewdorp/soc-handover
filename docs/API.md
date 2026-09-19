@@ -115,14 +115,22 @@ POST   /shift-handovers/{id}/close                         전원 확인 시 수
 ## 5. Task / My Work / 일정
 
 ```
-POST   /tasks/search        (DSL)          POST /tasks         GET/PATCH/DELETE /tasks/{id}
+POST   /tasks/search        {q, status[], include_closed, assignee: me|all|unassigned|<id>,
+                             company_id, handover_id, due: overdue|today|this_week|none, sort, page, size}
+                             (인수인계 DSL 이 아니라 정해진 조건 — ASSUMPTIONS B-11)
+GET    /tasks/board?assignee=me|all|<id>&company_id=   → {columns: {TODO, IN_PROGRESS, WAITING, DONE(14일)}, counts}
+POST   /tasks               GET/PATCH/DELETE /tasks/{id}      (PATCH 는 expected_version 필수, 어긋나면 409)
 POST   /tasks/{id}/checklists   PATCH /checklists/{id}   DELETE /checklists/{id}
-GET/POST /tasks/{id}/comments
-PATCH  /tasks/{id}/move     {status, board_order}      ← Kanban DnD (Audit 기록)
-POST   /handovers/{id}/tasks  Quick Add (관계사/연관/내용 자동 채움)
+GET/POST /tasks/{id}/comments     DELETE /task-comments/{id}   (본인 것 또는 MANAGER+)
+PATCH  /tasks/{id}/move     {expected_version, status, after_id|null}  ← 보드 끌어놓기
+                             (after_id = 바로 앞 카드, null = 맨 위. 상태가 바뀔 때만 Audit)
+GET    /handovers/{id}/tasks   연결된 할일
+POST   /handovers/{id}/tasks   Quick Add (비운 칸은 관계사·제목·내용 앞 500자·중요도로 채움)
 
-GET    /my-work/summary      → {today, overdue, this_week, need_ack, waiting, done_today}
-GET    /my-work?bucket=today|overdue|this_week|upcoming|waiting|done&source=all|handover|task|ack|schedule
+GET    /my-work?bucket=all|today|overdue|this_week|upcoming|need_ack|waiting|done
+               &source=all|task|handover|ack|schedule
+       → {counts: {버킷별 건수}, items: [{kind: TASK|HANDOVER|ACK, ...}]}   (버킷 규칙 ASSUMPTIONS B-12)
+       건수가 응답에 같이 오므로 /my-work/summary 는 두지 않는다.
 
 POST   /schedules/search    GET /schedules?from=&to=&type=&company_id=
 POST   /schedules           PATCH /schedules/{id}     DELETE /schedules/{id}

@@ -39,12 +39,20 @@ class Task(Base, TimestampMixin):
     due_date: Mapped[date | None] = mapped_column(Date)
     completed_at: Mapped[datetime | None] = mapped_column(TZDateTime)
     board_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: 낙관적 잠금(§26). 수정·보드 이동마다 1씩 오른다. 체크리스트·댓글은 따로 센다.
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False, default=1,
+                                            server_default="1")
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(TZDateTime)
     deleted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
 
     checklists = relationship("TaskChecklist", cascade="all, delete-orphan",
                               order_by="TaskChecklist.sort_order", lazy="selectin")
+    company = relationship("Company", lazy="joined")
+    priority = relationship("Priority", lazy="joined")
+    assignee = relationship("User", foreign_keys=[assignee_id], lazy="joined")
+    creator = relationship("User", foreign_keys=[creator_id], lazy="joined")
+    handover = relationship("Handover", lazy="joined")
 
 
 class TaskChecklist(Base, TimestampMixin):

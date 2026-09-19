@@ -49,7 +49,8 @@ class SearchCapabilities(BaseModel):
 
 class GlobalSearchRequest(BaseModel):
     q: str = Field(min_length=1, max_length=200)
-    scope: list[Literal["handover"]] = Field(default_factory=lambda: ["handover"])
+    scope: list[Literal["handover", "task"]] = Field(
+        default_factory=lambda: ["handover", "task"])
     limit: int = Field(default=8, ge=1, le=50)
 
 

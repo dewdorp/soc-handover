@@ -495,9 +495,9 @@ def is_starred(db: Session, handover_id: int, user_id: int) -> bool:
 # --------------------------------------------------------------------------- Timeline
 
 def timeline(db: Session, handover_id: int) -> list[dict[str, Any]]:
-    """Version + Ack + Comment 를 시간순으로 합친다(FR-B-07).
+    """Version + Ack + Comment + 교대 인계 + 할일을 시간순으로 합친다(FR-B-07).
 
-    Transfer / Task / Attachment 항목은 해당 Phase 에서 같은 형식으로 덧붙인다.
+    Attachment 항목은 해당 Phase 에서 같은 형식으로 덧붙인다.
 
     시계 해상도 때문에 서로 다른 사건이 같은 시각을 가질 수 있으므로, 동점일 때의 순서를
     _seq 로 고정한다(같은 시각이면 버전 → 확인 → 댓글 순). 화면 순서가 새로고침마다
@@ -556,6 +556,54 @@ def timeline(db: Session, handover_id: int) -> list[dict[str, Any]]:
             "title": "댓글",
             "detail": {"body": comment.body, "is_edited": comment.is_edited},
         })
+
+    # 교대 인계 — 몇 번째 버전이 누구에게서 누구에게 넘어갔는지
+    from app.models.shift import ShiftHandover, ShiftHandoverItem
+    from app.models.task import TASK_DONE, Task
+    from app.models.user import User
+
+    transfers = db.execute(
+        select(ShiftHandoverItem, ShiftHandover)
+        .join(ShiftHandover, ShiftHandover.id == ShiftHandoverItem.session_id)
+        .where(ShiftHandoverItem.handover_id == handover_id,
+               ShiftHandover.sent_at.is_not(None))).all()
+    for item, session in transfers:
+        receiver = db.get(User, session.to_user_id) if session.to_user_id else None
+        events.append({
+            "kind": "TRANSFER",
+            "_seq": 4_000_000 + item.id,
+            "at": session.sent_at,
+            "actor_id": session.from_user_id,
+            "title": f"교대 인계 v{item.version_no_at_transfer} → "
+                     f"{receiver.display_name if receiver else '-'}",
+            "detail": {"session_id": session.id, "to_user_id": session.to_user_id,
+                       "version_no_at_transfer": item.version_no_at_transfer,
+                       "item_note": item.item_note, "carried": item.is_carry_forward},
+        })
+
+    # 할일 — 만들어진 때와 끝난 때
+    tasks = db.scalars(select(Task).where(Task.handover_id == handover_id,
+                                          Task.is_deleted.is_(False))).all()
+    for task in tasks:
+        events.append({
+            "kind": "TASK",
+            "_seq": 5_000_000 + task.id,
+            "at": task.created_at,
+            "actor_id": task.creator_id,
+            "title": f"할일 추가: {task.title}",
+            "detail": {"task_id": task.id, "status": task.status,
+                       "assignee_id": task.assignee_id,
+                       "due_date": task.due_date.isoformat() if task.due_date else None},
+        })
+        if task.status == TASK_DONE and task.completed_at is not None:
+            events.append({
+                "kind": "TASK_DONE",
+                "_seq": 6_000_000 + task.id,
+                "at": task.completed_at,
+                "actor_id": task.assignee_id,
+                "title": f"할일 완료: {task.title}",
+                "detail": {"task_id": task.id},
+            })
 
     events.sort(key=lambda e: (e["at"], e["_seq"]), reverse=True)
     for event in events:

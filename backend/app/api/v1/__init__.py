@@ -2,7 +2,7 @@
 from fastapi import APIRouter
 
 from app.api.v1 import (auth, exports, handovers, imports, notifications, reference,
-                        saved_views, search, shift, system, users)
+                        saved_views, search, shift, system, tasks, users)
 
 api_router = APIRouter(prefix="/api/v1")
 api_router.include_router(system.router)
@@ -18,5 +18,6 @@ api_router.include_router(imports.router)
 api_router.include_router(exports.router)
 api_router.include_router(shift.router)
 api_router.include_router(notifications.router)
+api_router.include_router(tasks.router)
 
 __all__ = ["api_router"]

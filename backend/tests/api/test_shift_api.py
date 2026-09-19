@@ -147,6 +147,7 @@ class TestScenarioE:
         assert set(inbox) == {a, b, c}
         assert inbox[a]["from_user"] == "홍길동" and inbox[a]["version_no_at_transfer"] == 2
         assert inbox[a]["state"] == "PENDING"
+        assert inbox[a]["summary_note"] == "주간 특이사항 없음", "교대 총평도 받는 쪽에 보인다"
         assert kim.get("/api/v1/auth/me").json()["pending_ack_count"] == 3
 
         # 전달 뒤에 홍길동이 A 를 또 고친다 → 확인 전이라 PENDING 그대로, 전달 후 변경 표시
@@ -231,6 +232,43 @@ class TestCarryForwardSetting:
         assert item["is_carry_forward"] and item["carry_depth"] == 2
 
 
+class TestCarryForwardOnce:
+    def test_received_items_are_carried_only_into_the_next_basket(self, people, cid):
+        """받은 인계를 넘긴 뒤 새 Basket 에 같은 건이 다시 자동으로 담기면 안 된다."""
+        hong, kim = people["hong"], people["kim"]
+        a, b = _mk(hong, cid, "A"), _mk(hong, cid, "B")
+        hong.post(f"{P}/basket/items", json={"handover_ids": [a, b]})
+        hong.post(f"{P}/basket/send", json={"to_user_id": people["ids"]["analyst2"]["id"]})
+
+        first = _basket(kim)
+        assert first["auto_added"] == 2
+        dropped = next(i for i in first["items"] if i["handover_id"] == b)
+        kim.delete(f"{P}/basket/items/{dropped['item_id']}")          # B 는 이번에 넘기지 않기로
+        sent = kim.post(f"{P}/basket/send", json={"to_user_id": people["ids"]["manager"]["id"]})
+        assert sent.status_code == 200
+
+        again = _basket(kim)
+        assert again["id"] != first["id"]
+        assert again["auto_added"] == 0 and again["items"] == [],             "넘긴 A 가 다시 담기거나 일부러 뺀 B 가 되살아나면 안 된다"
+        assert again["carry_candidates"] == 0
+        assert kim.get(f"{P}/basket/carry-forward-candidates").json() == []
+
+    def test_new_handover_after_passing_on_is_carried_again(self, people, cid):
+        """다음 교대에 또 받으면 그 인계는 다시 이어 넘길 수 있다."""
+        hong, kim = people["hong"], people["kim"]
+        kim_id = people["ids"]["analyst2"]["id"]
+        a = _mk(hong, cid, "A")
+        hong.post(f"{P}/basket/items", json={"handover_ids": [a]})
+        hong.post(f"{P}/basket/send", json={"to_user_id": kim_id})
+        _basket(kim)
+        kim.post(f"{P}/basket/send", json={"to_user_id": people["ids"]["manager"]["id"]})
+
+        c = _mk(hong, cid, "C")
+        hong.post(f"{P}/basket/items", json={"handover_ids": [c]})
+        hong.post(f"{P}/basket/send", json={"to_user_id": kim_id})
+        assert [i["handover_id"] for i in _basket(kim)["items"]] == [c]
+
+
 # --------------------------------------------------------------------------- Cockpit
 
 class TestCockpit:
@@ -299,6 +337,7 @@ class TestHistoryNotificationsBanner:
         assert hong.post(f"/api/v1/notifications/{notes[0]['id']}/read").status_code == 404, \
             "남의 알림은 읽음 처리할 수 없다"
         assert kim.post(f"/api/v1/notifications/{notes[0]['id']}/read").status_code == 204
+        assert kim.post(f"/api/v1/notifications/{notes[0]['id']}/read").status_code == 204,             "이미 읽은 알림을 다시 읽음 처리해도 같은 결과"
         assert kim.get("/api/v1/notifications/unread-count").json()["unread"] == 0
 
     def test_banner_count_matches_list_after_delete(self, people, cid):

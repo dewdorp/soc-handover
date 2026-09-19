@@ -85,6 +85,7 @@ export interface InboxItem {
   session_id: number | null
   sent_at: string | null
   from_user: string | null
+  summary_note: string | null
   version_no_at_transfer: number | null
   item_note: string | null
   carry_depth: number | null

@@ -7,6 +7,7 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, Upload } from 'lucide-react'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { ApiRequestError } from '@/services/api/client'
 import { importApi, type ImportJob, type ImportRow, type RowKind } from '@/services/api/imports'
 import { referenceApi } from '@/services/api/reference'
@@ -34,6 +35,7 @@ export default function ReviewStep({ job, onWorkStarted, onRemap }: Props) {
   const [tab, setTab] = useState<RowKind>('import')
   const [page, setPage] = useState(1)
   const [error, setError] = useState<string | null>(null)
+  const [confirming, setConfirming] = useState(false)
 
   const { data: report } = useQuery({
     queryKey: ['import-report', job.id, job.status], queryFn: () => importApi.report(job.id),
@@ -147,14 +149,17 @@ export default function ReviewStep({ job, onWorkStarted, onRemap }: Props) {
       <div className="flex justify-between">
         <button className="btn" onClick={onRemap}>← 컬럼 매핑 다시</button>
         <button className="btn btn-primary" disabled={commit.isPending || willImport === 0}
-                onClick={() => {
-                  if (window.confirm(`${willImport.toLocaleString()}건을 인수인계로 가져옵니다. `
-                    + '가져온 뒤에도 관리자는 작업 단위로 되돌릴 수 있습니다. 진행할까요?')) {
-                    commit.mutate()
-                  }
-                }}>
+                onClick={() => setConfirming(true)}>
           <Upload size={12} /> ⑦ {willImport.toLocaleString()}건 가져오기
         </button>
+        {confirming && (
+          <ConfirmDialog title={`${willImport.toLocaleString()}건을 인수인계로 가져옵니다`}
+                         confirmLabel="가져오기" busy={commit.isPending}
+                         onCancel={() => setConfirming(false)}
+                         onConfirm={() => { setConfirming(false); commit.mutate() }}>
+            <p>가져온 뒤에도 관리자는 작업 단위로 되돌릴 수 있습니다.</p>
+          </ConfirmDialog>
+        )}
       </div>
     </div>
   )

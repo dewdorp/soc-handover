@@ -53,12 +53,15 @@ def list_for(db: Session, user_id: int, *, unread_only: bool = False,
 
 
 def mark_read(db: Session, user_id: int, notification_id: int) -> bool:
-    result = db.execute(update(Notification)
-                        .where(Notification.id == notification_id,
-                               Notification.user_id == user_id,
-                               Notification.is_read.is_(False))
-                        .values(is_read=True, read_at=now()))
-    return result.rowcount == 1
+    """내 알림이면 True(이미 읽었어도 — 두 번 눌러도 같은 결과). 남의 것·없는 것은 False."""
+    note = db.scalar(select(Notification).where(Notification.id == notification_id,
+                                                Notification.user_id == user_id))
+    if note is None:
+        return False
+    if not note.is_read:
+        note.is_read, note.read_at = True, now()
+        db.flush()
+    return True
 
 
 def mark_all_read(db: Session, user_id: int) -> int:

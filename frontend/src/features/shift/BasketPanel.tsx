@@ -4,9 +4,10 @@
  * 처음 열면 직전 교대에서 넘어온 미완료가 자동으로 담긴다. 빼는 것은 사람이 한다 —
  * 무엇을 넘겼는지는 사람의 명시적 선택이어야 증적으로서 의미가 있다(B-06).
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ArrowDown, ArrowUp, Send, X } from 'lucide-react'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { useMe } from '@/hooks/useAuth'
 import { ApiRequestError } from '@/services/api/client'
 import { referenceApi } from '@/services/api/reference'
@@ -16,6 +17,29 @@ interface Props {
   nextShiftLabel: string
 }
 
+/**
+ * 입력을 멈추고 잠시 뒤 저장한다. 포커스를 잃을 때만 저장하면 새로고침·창 닫기에
+ * 적던 총평·메모가 날아간다. 사용자가 입력했을 때만 동작하므로 불러온 값을 되쓰지 않는다.
+ */
+function useAutosave(save: (value: string) => void, delay = 800) {
+  const latest = useRef(save)
+  latest.current = save
+  const timer = useRef<number>()
+  const pending = useRef<string | null>(null)
+  const flush = () => {
+    window.clearTimeout(timer.current)
+    if (pending.current !== null) latest.current(pending.current)
+    pending.current = null
+  }
+  useEffect(() => flush, [])  // eslint-disable-line react-hooks/exhaustive-deps -- 화면을 떠날 때 남은 입력 저장
+  const schedule = (value: string) => {
+    pending.current = value
+    window.clearTimeout(timer.current)
+    timer.current = window.setTimeout(flush, delay)
+  }
+  return { schedule, flush }
+}
+
 export default function BasketPanel({ nextShiftLabel }: Props) {
   const qc = useQueryClient()
   const { data: me } = useMe()
@@ -23,6 +47,7 @@ export default function BasketPanel({ nextShiftLabel }: Props) {
   const [error, setError] = useState<string | null>(null)
   const [sentMessage, setSentMessage] = useState<string | null>(null)
   const [carryNotice, setCarryNotice] = useState<number>(0)
+  const [confirming, setConfirming] = useState(false)
 
   const { data: basket } = useQuery({ queryKey: ['basket'], queryFn: shiftApi.basket })
   const { data: users } = useQuery({
@@ -44,6 +69,9 @@ export default function BasketPanel({ nextShiftLabel }: Props) {
   const note = useMutation({
     mutationFn: ({ id, text }: { id: number; text: string }) => shiftApi.noteItem(id, text || null),
     onSuccess: refresh,
+  })
+  const summarySave = useAutosave((value) => {
+    if (value !== (basket?.summary_note ?? '')) patch.mutate({ summary_note: value || null })
   })
   const send = useMutation({
     mutationFn: () => shiftApi.send({ to_user_id: basket!.to_user_id!, summary_note: summary || null }),
@@ -71,7 +99,7 @@ export default function BasketPanel({ nextShiftLabel }: Props) {
   const recipients = (users ?? []).filter((u) => u.id !== me?.id)
 
   return (
-    <aside className="w-[380px] shrink-0 border-l border-surface-border bg-surface flex flex-col min-h-0"
+    <aside className="w-full lg:w-[380px] shrink-0 max-lg:border-t lg:border-l border-surface-border bg-surface flex flex-col lg:min-h-0"
            aria-label="다음 교대 인계 Basket">
       <div className="px-3 py-2 border-b border-surface-border flex items-center gap-2">
         <h2 className="font-medium flex-1">다음 교대 인계 Basket</h2>
@@ -118,8 +146,8 @@ export default function BasketPanel({ nextShiftLabel }: Props) {
           <span className="text-ink-muted">교대 총평</span>
           <textarea className="input w-full h-20 py-1 resize-y" value={summary}
                     placeholder="이번 근무 전체 상황을 한두 줄로"
-                    onChange={(e) => setSummary(e.target.value)}
-                    onBlur={() => summary !== (basket?.summary_note ?? '') && patch.mutate({ summary_note: summary || null })} />
+                    onChange={(e) => { setSummary(e.target.value); summarySave.schedule(e.target.value) }}
+                    onBlur={summarySave.flush} />
         </label>
 
         {error && (
@@ -132,13 +160,19 @@ export default function BasketPanel({ nextShiftLabel }: Props) {
       <div className="p-3 border-t border-surface-border">
         <button className="btn btn-primary w-full justify-center h-8"
                 disabled={!items.length || !basket?.to_user_id || send.isPending}
-                onClick={() => {
-                  const who = recipients.find((u) => u.id === basket?.to_user_id)?.display_name
-                  if (window.confirm(`${who} 님에게 ${items.length}건을 인계합니다. `
-                    + '항목마다 지금 버전이 기록되고, 받는 사람이 확인해야 끝납니다.')) send.mutate()
-                }}>
+                onClick={() => setConfirming(true)}>
           <Send size={13} /> 다음 근무자에게 인계
         </button>
+        {confirming && (
+          <ConfirmDialog
+            title={`${recipients.find((u) => u.id === basket?.to_user_id)?.display_name ?? '받는 사람'} 님에게 ${items.length}건을 인계합니다`}
+            confirmLabel="인계" busy={send.isPending}
+            onCancel={() => setConfirming(false)}
+            onConfirm={() => { setConfirming(false); send.mutate() }}>
+            <p>항목마다 지금 버전이 기록되고, 받는 사람이 확인해야 끝납니다.</p>
+            {!summary.trim() && <p className="text-state-check">교대 총평이 비어 있습니다.</p>}
+          </ConfirmDialog>
+        )}
         {!basket?.to_user_id && items.length > 0 && (
           <p className="text-xs text-ink-faint mt-1 text-center">받는 사람을 먼저 고르십시오.</p>
         )}
@@ -153,6 +187,7 @@ function BasketItem({ item, onUp, onDown, onRemove, onNote }: {
 }) {
   const [text, setText] = useState(item.item_note ?? '')
   useEffect(() => setText(item.item_note ?? ''), [item.item_note])
+  const noteSave = useAutosave((value) => { if (value !== (item.item_note ?? '')) onNote(value) })
 
   return (
     <li className="border border-surface-border rounded px-2 py-1.5 space-y-1">
@@ -179,8 +214,8 @@ function BasketItem({ item, onUp, onDown, onRemove, onNote }: {
         <button onClick={onRemove} aria-label="빼기" className="text-ink-faint hover:text-state-urgent"><X size={13} /></button>
       </div>
       <input className="input w-full h-6 text-sm" placeholder="메모 (예: 02시 재점검 필요)" value={text}
-             onChange={(e) => setText(e.target.value)}
-             onBlur={() => text !== (item.item_note ?? '') && onNote(text)} />
+             onChange={(e) => { setText(e.target.value); noteSave.schedule(e.target.value) }}
+             onBlur={noteSave.flush} />
     </li>
   )
 }

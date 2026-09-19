@@ -117,6 +117,7 @@ class InboxItem(BaseModel):
     session_id: int | None
     sent_at: datetime | None
     from_user: str | None
+    summary_note: str | None      # 보낸 사람의 교대 총평
     version_no_at_transfer: int | None
     item_note: str | None
     carry_depth: int | None

@@ -24,6 +24,9 @@ export default function InboxView() {
   const [picked, setPicked] = useState<Set<number>>(new Set())
   const { data } = useQuery({ queryKey: ['inbox'], queryFn: shiftApi.inbox, refetchInterval: 30_000 })
   const rows = data ?? []
+  // 보낸 사람의 교대 총평 — 항목만 보고 확인하면 교대 전체 상황을 놓친다
+  const summaries = [...new Map(rows.filter((r) => r.session_id && r.summary_note)
+    .map((r) => [r.session_id, r])).values()]
 
   const ack = useMutation({
     mutationFn: (ids: number[]) => shiftApi.bulkAck(ids),
@@ -54,9 +57,16 @@ export default function InboxView() {
         </button>
       </div>
 
+      {summaries.map((r) => (
+        <div key={r.session_id} className="text-sm bg-surface-sunken border border-surface-border rounded px-2 py-1.5">
+          <span className="text-ink-faint mr-2">교대 총평 · {r.from_user} · {when(r.sent_at)}</span>
+          {r.summary_note}
+        </div>
+      ))}
+
       {rows.length > 0 && (
         <table className="w-full text-base border border-surface-border rounded">
-          <thead className="bg-surface-sunken text-ink-muted">
+          <thead className="bg-surface-sunken text-ink-muted whitespace-nowrap">
             <tr>
               <th className="w-8 px-2 py-1">
                 <input type="checkbox" aria-label="전체 선택" checked={rows.every((r) => picked.has(r.handover_id))}
@@ -90,7 +100,7 @@ function Row({ r, picked, onToggle, onOpen, onAck, busy }: {
       <td className="px-2 py-1.5 text-center">
         <input type="checkbox" checked={picked} onChange={onToggle} aria-label={`#${r.handover_id} 선택`} />
       </td>
-      <td className="px-2 py-1.5 max-w-[420px]">
+      <td className="px-2 py-1.5 min-w-[12rem] max-w-[420px]">
         <button className="text-left hover:underline" onClick={onOpen}>
           <span className="tabular-nums text-ink-faint mr-1">#{r.handover_id}</span>
           {r.priority_code === 'URGENT' && <span className="text-state-urgent mr-1">⛔</span>}
@@ -109,10 +119,18 @@ function Row({ r, picked, onToggle, onOpen, onAck, busy }: {
         )}
       </td>
       <td className="px-2 py-1.5 whitespace-nowrap">
-        {r.from_user ?? '-'} → 나
-        <div className="text-xs text-ink-faint">{when(r.sent_at)}</div>
+        {r.session_id ? (
+          <>
+            {r.from_user} → 나
+            <div className="text-xs text-ink-faint">{when(r.sent_at)}</div>
+          </>
+        ) : (
+          <span className="text-ink-faint" title="교대 인계로 받은 것이 아니라, 전에 확인한 인수인계가 바뀐 것">
+            전에 확인한 건
+          </span>
+        )}
       </td>
-      <td className="px-2 py-1.5">
+      <td className="px-2 py-1.5 min-w-[9rem]">
         {r.state === 'REACK_REQUIRED' ? (
           <span className="text-state-check font-medium">
             ⚠ 확인 후 변경됨 (v{r.acked_version_no} 확인)

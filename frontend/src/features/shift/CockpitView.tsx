@@ -58,8 +58,8 @@ export default function CockpitView() {
   const nextLabel = next ? `${next.name} ${hhmm(next.start_at)}~` : '다음 교대'
 
   return (
-    <div className="flex-1 flex min-h-0">
-      <div className="flex-1 min-w-0 flex flex-col min-h-0 p-3 gap-2">
+    <div className="flex-1 flex flex-col lg:flex-row min-h-0 max-lg:overflow-y-auto">
+      <div className="lg:flex-1 min-w-0 flex flex-col min-h-[460px] lg:min-h-0 p-3 gap-2">
         {data && (
           <p className="text-ink-muted">
             <b className="text-ink">{data.window.shift_date} {data.window.name}</b>
@@ -82,7 +82,7 @@ export default function CockpitView() {
           ))}
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <h2 className="font-medium">{current?.label}</h2>
           {current && current.total > rows.length && (
             <span className="text-sm text-ink-faint">상위 {rows.length}건 표시</span>
@@ -100,7 +100,7 @@ export default function CockpitView() {
         </div>
 
         <div className="flex-1 min-h-0 overflow-auto border border-surface-border rounded">
-          <table className="w-full text-base">
+          <table className="w-full text-base whitespace-nowrap">
             <thead className="sticky top-0 bg-surface-sunken text-ink-muted">
               <tr>
                 <th className="w-8 px-2 py-1">

@@ -11,6 +11,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, RotateCcw, Search, Upload } from 'lucide-react'
 import MappingStep from '@/features/import/MappingStep'
 import ReviewStep from '@/features/import/ReviewStep'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { useCan } from '@/hooks/useAuth'
 import { ApiRequestError } from '@/services/api/client'
 import { importApi, type ImportJob, type JobStatus } from '@/services/api/imports'
@@ -190,6 +191,7 @@ function ResultStep({ job, onChanged }: { job: ImportJob; onChanged: () => void 
     queryKey: ['import-report', job.id, job.status], queryFn: () => importApi.report(job.id),
   })
   const rollback = useMutation({ mutationFn: () => importApi.rollback(job.id), onSuccess: onChanged })
+  const [confirmRollback, setConfirmRollback] = useState(false)
 
   const imported = report?.imported ?? job.success_rows
   const skipped = (report?.total ?? 0) - imported
@@ -233,12 +235,17 @@ function ResultStep({ job, onChanged }: { job: ImportJob; onChanged: () => void 
         <span className="flex-1" />
         {job.status === 'COMPLETED' && can('import:rollback') && (
           <button className="btn text-state-urgent" disabled={rollback.isPending}
-                  onClick={() => {
-                    if (window.confirm('이 작업으로 들어온 인수인계를 삭제 처리합니다. '
-                      + '가져온 뒤 누군가 수정한 건은 남겨 둡니다. 진행할까요?')) rollback.mutate()
-                  }}>
+                  onClick={() => setConfirmRollback(true)}>
             <RotateCcw size={12} /> 이 Import 되돌리기
           </button>
+        )}
+        {confirmRollback && (
+          <ConfirmDialog title="이 작업으로 들어온 인수인계를 삭제 처리합니다" confirmLabel="되돌리기" danger
+                         busy={rollback.isPending}
+                         onCancel={() => setConfirmRollback(false)}
+                         onConfirm={() => { setConfirmRollback(false); rollback.mutate() }}>
+            <p>가져온 뒤 누군가 수정한 건은 남겨 둡니다.</p>
+          </ConfirmDialog>
         )}
       </div>
     </section>

@@ -192,10 +192,23 @@ def last_received(db: Session, user_id: int) -> ShiftHandover | None:
                      .limit(1))
 
 
+def _passed_on_since(db: Session, actor: User, received: ShiftHandover) -> bool:
+    """받은 인계 뒤에 내가 이미 인계를 보냈는가."""
+    return db.scalar(select(ShiftHandover.id).where(
+        ShiftHandover.from_user_id == actor.id,
+        ShiftHandover.status.in_((SESSION_SENT, SESSION_CLOSED)),
+        ShiftHandover.sent_at > received.sent_at).limit(1)) is not None
+
+
 def carry_candidates(db: Session, actor: User) -> list[tuple[ShiftHandoverItem, Handover]]:
-    """직전 교대에서 나에게 넘어온 것 중 아직 끝나지 않은 것(B-06)."""
+    """직전 교대에서 나에게 넘어온 것 중 아직 끝나지 않은 것(B-06).
+
+    받은 인계는 **한 번만** 이어 넘긴다. 이미 인계를 보냈다면 그때 넘긴 것은 넘어갔고
+    뺀 것은 사람이 뺀 것이다 — 다음 Basket 에 다시 담으면 같은 건이 두 번 넘어가거나
+    일부러 뺀 건이 되살아난다.
+    """
     previous = last_received(db, actor.id)
-    if previous is None:
+    if previous is None or _passed_on_since(db, actor, previous):
         return []
     rows = db.execute(
         select(ShiftHandoverItem, Handover)
@@ -495,6 +508,7 @@ def inbox(db: Session, actor: User) -> list[dict[str, Any]]:
             "session_id": session.id if session else None,
             "sent_at": session.sent_at if session else None,
             "from_user": sender.display_name if sender else None,
+            "summary_note": session.summary_note if session else None,
             "version_no_at_transfer": item.version_no_at_transfer if item else None,
             "item_note": item.item_note if item else None,
             "carry_depth": chain_depth(db, item) if item else None,

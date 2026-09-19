@@ -53,7 +53,7 @@ export default function HistoryView() {
           ))}
         </div>
         <table className="w-full text-base border border-surface-border rounded">
-          <thead className="bg-surface-sunken text-ink-muted">
+          <thead className="bg-surface-sunken text-ink-muted whitespace-nowrap">
             <tr>
               <th className="text-left font-medium px-2 py-1">전달 시각</th>
               <th className="text-left font-medium px-2 py-1">보낸 사람 → 받은 사람</th>
@@ -69,7 +69,7 @@ export default function HistoryView() {
             {(data ?? []).map((s) => (
               <tr key={s.id} onClick={() => select(s.id)}
                   className={`border-t border-surface-border/60 cursor-pointer ${selected === s.id ? 'bg-brand-soft' : 'hover:bg-surface-sunken'}`}>
-                <td className="px-2 py-1 tabular-nums">{when(s.sent_at)}</td>
+                <td className="px-2 py-1 tabular-nums whitespace-nowrap">{when(s.sent_at)}</td>
                 <td className="px-2 py-1">{s.from_user} → {s.to_user}</td>
                 <td className="px-2 py-1 text-right tabular-nums">{s.item_count}</td>
                 <td className="px-2 py-1 tabular-nums">
@@ -104,10 +104,10 @@ function SessionDetail({ id, onClose }: { id: number; onClose: () => void }) {
     onError: (err) => setError(err instanceof ApiRequestError ? err.message : '종료하지 못했습니다.'),
   })
 
-  if (!s) return <aside className="w-[520px] border-l border-surface-border grid place-items-center text-ink-faint">불러오는 중…</aside>
+  if (!s) return <aside className="w-full lg:w-[520px] max-lg:fixed max-lg:inset-x-0 max-lg:top-12 max-lg:bottom-0 max-lg:z-30 max-lg:shadow-xl border-l border-surface-border bg-surface grid place-items-center text-ink-faint">불러오는 중…</aside>
 
   return (
-    <aside className="w-[520px] shrink-0 border-l border-surface-border bg-surface flex flex-col min-h-0"
+    <aside className="w-full lg:w-[520px] max-lg:fixed max-lg:inset-x-0 max-lg:top-12 max-lg:bottom-0 max-lg:z-30 max-lg:shadow-xl shrink-0 border-l border-surface-border bg-surface flex flex-col min-h-0"
            aria-label="인계 상세">
       <div className="px-3 py-2 border-b border-surface-border">
         <div className="flex items-center gap-2">

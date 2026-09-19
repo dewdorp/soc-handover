@@ -132,9 +132,15 @@ GET    /my-work?bucket=all|today|overdue|this_week|upcoming|need_ack|waiting|don
        → {counts: {버킷별 건수}, items: [{kind: TASK|HANDOVER|ACK, ...}]}   (버킷 규칙 ASSUMPTIONS B-12)
        건수가 응답에 같이 오므로 /my-work/summary 는 두지 않는다.
 
-POST   /schedules/search    GET /schedules?from=&to=&type=&company_id=
-POST   /schedules           PATCH /schedules/{id}     DELETE /schedules/{id}
-PATCH  /schedules/{id}/move {start_at, end_at}        ← 달력 DnD (Audit 기록)
+GET    /calendar?start=&end=&layers=schedule,task,handover&mine=   (기간 ≤ 100일, 끝 미포함)
+       → {events: [{key, kind: SCHEDULE|TASK|HANDOVER, id, title, start/end | day, all_day,
+                    recurring, can_move, version_no, ...}], truncated}
+       반복 일정은 기간 안의 회차로 펼쳐 온다(회차마다 key 가 다르다). 할일은 마감일, 인수인계는 수행일.
+POST   /schedules           {title?, start_at, end_at?, is_all_day, event_type, owner_id?, company_id?,
+                             handover_id?, task_id?, recurrence_rule?, color?}   (규칙 ASSUMPTIONS B-13)
+GET    /schedules/{id}      PATCH /schedules/{id} (expected_version 필수)    DELETE /schedules/{id} {reason?}
+PATCH  /schedules/{id}/move {expected_version, start_at, end_at?}   ← 달력 끌어놓기(길이 유지, Audit via=drag)
+GET    /handovers/{id}/schedules      GET /tasks/{id}/schedules
 ```
 
 ## 6. 검색 / 저장된 보기

@@ -17,6 +17,7 @@ T_REACK = "HANDOVER_REACK"                # 내가 확인한 건의 내용이 �
 T_ASSIGNED = "HANDOVER_ASSIGNED"          # 담당자로 지정됨
 T_TASK_ASSIGNED = "TASK_ASSIGNED"         # 할일 담당자로 지정됨
 T_TASK_COMMENT = "TASK_COMMENT"           # 내 할일에 댓글
+T_SCHEDULE_ASSIGNED = "SCHEDULE_ASSIGNED" # 일정 담당자로 지정됨
 
 
 def notify(db: Session, *, user_id: int, type_: str, title: str, body: str | None = None,

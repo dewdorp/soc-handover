@@ -1,6 +1,7 @@
 """내 업무(My Work, FR-D-01·02) — 내 할일 + 내 담당 인수인계 + 내가 확인할 인수인계.
 
-일정(Schedule)은 Phase 7 에서 같은 형식으로 덧붙인다(source=schedule 은 지금 빈 목록).
++ 내가 담당인 일정(Phase 7): 오늘부터 30일 안에서 일정마다 가장 가까운 회차 하나.
+  매일 반복 일정이 목록을 30줄로 채우지 않게 한다. 일정은 지나면 목록에서 빠진다(지연·완료 없음).
 
 버킷 규칙(ASSUMPTIONS B-12)
 - 기준일: 할일은 마감일(due_date), 인수인계는 수행일(work_date). 확인할 건은 날짜가 없다.
@@ -23,12 +24,13 @@ from app.models.handover import Handover
 from app.models.reference import HandoverStatus, Priority
 from app.models.task import TASK_CANCELED, TASK_CLOSED_STATES, TASK_DONE, TASK_WAITING, Task
 from app.models.user import User
-from app.services import shift_service
+from app.services import schedule_service, shift_service
 
 BUCKETS = ("all", "today", "overdue", "this_week", "upcoming", "need_ack", "waiting", "done")
 DONE_DAYS = 7
 LIMIT = 500
-_KIND_ORDER = {"ACK": 0, "TASK": 1, "HANDOVER": 2}
+_KIND_ORDER = {"ACK": 0, "SCHEDULE": 1, "TASK": 2, "HANDOVER": 3}
+SCHEDULE_DAYS = 30
 
 
 def _buckets(kind: str, due: date | None, *, waiting: bool, done: bool,
@@ -109,10 +111,29 @@ def collect(db: Session, actor: User, source: str = "all") -> tuple[list[dict[st
                 "_buckets": _buckets("ACK", None, waiting=False, done=False, t0=t0, week_end=week_end),
             })
 
+    if source in ("all", "schedule"):
+        window_from = datetime.combine(t0, time.min, tzinfo=KST)
+        window_to = window_from + timedelta(days=SCHEDULE_DAYS)
+        for s, a, b in schedule_service.next_occurrences(db, actor.id, window_from, window_to):
+            day = a.astimezone(KST).date()
+            rows.append({
+                "kind": "SCHEDULE", "id": s.id, "title": s.title,
+                "company": s.company.name if s.company else None,
+                "due": max(day, t0), "status": s.event_type, "status_code": s.event_type,
+                "priority_code": None, "is_overdue": False, "handover_id": s.handover_id,
+                "start_at": a, "end_at": b, "all_day": s.is_all_day,
+                "recurring": bool(s.recurrence_rule),
+                "_buckets": _buckets("SCHEDULE", max(day, t0), waiting=False, done=False,
+                                     t0=t0, week_end=week_end),
+                "_start": a,
+            })
+
     counts = {b: sum(1 for r in rows if b in r["_buckets"]) for b in BUCKETS}
 
     def order(r: dict[str, Any]):
+        start = r.get("_start")
         return (not r["is_overdue"], r["due"] is None, r["due"] or date.max,
+                _KIND_ORDER[r["kind"]] if start else 9, start.timestamp() if start else 0,
                 levels.get(r["priority_code"] or "", 9), _KIND_ORDER[r["kind"]], r["id"])
 
     rows.sort(key=order)

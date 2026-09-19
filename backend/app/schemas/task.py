@@ -193,8 +193,8 @@ MyWorkSource = Literal["all", "task", "handover", "ack", "schedule"]
 
 
 class MyWorkItem(BaseModel):
-    kind: Literal["TASK", "HANDOVER", "ACK"]
-    id: int                                 # TASK → task id, 나머지 → handover id
+    kind: Literal["TASK", "HANDOVER", "ACK", "SCHEDULE"]
+    id: int                                 # TASK → task id, SCHEDULE → schedule id, 나머지 → handover id
     title: str
     company: str | None
     due: date | None                        # 할일 마감 / 인수인계 수행일
@@ -208,6 +208,10 @@ class MyWorkItem(BaseModel):
     session_id: int | None = None
     checklist_total: int | None = None
     checklist_done: int | None = None
+    start_at: datetime | None = None        # SCHEDULE: 이 회차의 시작
+    end_at: datetime | None = None
+    all_day: bool | None = None
+    recurring: bool | None = None
 
 
 class MyWorkOut(BaseModel):

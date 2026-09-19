@@ -3,8 +3,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, Index, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, TZDateTime
 
@@ -34,3 +34,14 @@ class Schedule(Base, TimestampMixin):
     recurrence_rule: Mapped[str | None] = mapped_column(String(200))
     color: Mapped[str | None] = mapped_column(String(7))
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    #: 낙관적 잠금(§26) — 수정·달력 이동마다 1씩 오른다.
+    version_no: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
+    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    deleted_at: Mapped[datetime | None] = mapped_column(TZDateTime)
+    deleted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+
+    company = relationship("Company", lazy="joined")
+    owner = relationship("User", foreign_keys=[owner_id], lazy="joined")
+    creator = relationship("User", foreign_keys=[created_by], lazy="joined")
+    handover = relationship("Handover", lazy="joined")
+    task = relationship("Task", lazy="joined")

@@ -71,7 +71,7 @@ def global_search(payload: GlobalSearchRequest, db: Session = Depends(get_db),
                   actor: User = Depends(require("search:use"))):
     """Ctrl+K 팔레트. 타입별 상위 N + 총 건수.
 
-    Schedule / Attachment scope 는 해당 Phase 에서 같은 형식으로 덧붙인다.
+    Attachment scope 는 해당 Phase 에서 같은 형식으로 덧붙인다.
     """
     request = SearchRequest(q=payload.q, size=payload.limit, page=1)
     dsl.validate(request, permissions=frozenset())
@@ -108,6 +108,27 @@ def global_search(payload: GlobalSearchRequest, db: Session = Depends(get_db),
             for t in tasks
         ]
         totals["task"] = task_total
+
+    if "schedule" in payload.scope and has_permission(actor.role_code, "schedule:read"):
+        from sqlalchemy import func, or_, select
+
+        from app.models.schedule import Schedule
+        from app.core.time import KST
+
+        term = payload.q.strip()
+        cond = (Schedule.is_deleted.is_(False),
+                or_(Schedule.title.icontains(term, autoescape=True),
+                    Schedule.description.icontains(term, autoescape=True)))
+        found = db.scalars(select(Schedule).where(*cond)
+                           .order_by(Schedule.start_at.desc()).limit(payload.limit)).all()
+        hits += [
+            GlobalHit(type="schedule", id=s.id, title=s.title,
+                      snippet=_snippet(s.description, payload.q),
+                      company=s.company.name if s.company else None,
+                      date=s.start_at.astimezone(KST).date())
+            for s in found
+        ]
+        totals["schedule"] = db.scalar(select(func.count()).select_from(Schedule).where(*cond)) or 0
     return GlobalSearchResponse(q=payload.q, hits=hits, totals=totals)
 
 

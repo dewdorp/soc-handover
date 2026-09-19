@@ -294,4 +294,4 @@ class TestSearch:
         _handover(people["hong"], cid, "DDoS 탐지")
         body = people["hong"].post("/api/v1/search/global", json={"q": "DDoS"}).json()
         assert {h["type"] for h in body["hits"]} == {"handover", "task"}
-        assert body["totals"] == {"handover": 1, "task": 1}
+        assert (body["totals"]["handover"], body["totals"]["task"]) == (1, 1)

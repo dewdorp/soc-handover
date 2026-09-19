@@ -22,7 +22,7 @@ from app.auth.rbac import can_edit_handover, has_permission
 from app.core.context import RequestContext
 from app.core.db import dialect_name
 from app.core.errors import Conflict, Forbidden, NotFound, ValidationFailed, VersionConflict
-from app.core.time import now
+from app.core.time import KST, now
 from app.models.handover import (CHANGE_CREATE, CHANGE_DELETE, CHANGE_RESTORE, CHANGE_UNDELETE,
                                  CHANGE_UPDATE, VERSIONED_FIELDS, Handover,
                                  HandoverComment, HandoverStar, HandoverTag, HandoverVersion)
@@ -495,7 +495,7 @@ def is_starred(db: Session, handover_id: int, user_id: int) -> bool:
 # --------------------------------------------------------------------------- Timeline
 
 def timeline(db: Session, handover_id: int) -> list[dict[str, Any]]:
-    """Version + Ack + Comment + 교대 인계 + 할일을 시간순으로 합친다(FR-B-07).
+    """Version + Ack + Comment + 교대 인계 + 할일 + 일정을 시간순으로 합친다(FR-B-07).
 
     Attachment 항목은 해당 Phase 에서 같은 형식으로 덧붙인다.
 
@@ -604,6 +604,25 @@ def timeline(db: Session, handover_id: int) -> list[dict[str, Any]]:
                 "title": f"할일 완료: {task.title}",
                 "detail": {"task_id": task.id},
             })
+
+    # 일정 — 언제 무엇이 잡혔는지(만든 때 기준으로 이력에 둔다)
+    from app.models.schedule import Schedule
+    from app.services.recurrence import describe
+
+    for sched in db.scalars(select(Schedule).where(Schedule.handover_id == handover_id,
+                                                   Schedule.is_deleted.is_(False))):
+        start = sched.start_at.astimezone(KST)
+        when = start.strftime("%m/%d") if sched.is_all_day else start.strftime("%m/%d %H:%M")
+        repeat = describe(sched.recurrence_rule)
+        events.append({
+            "kind": "SCHEDULE",
+            "_seq": 7_000_000 + sched.id,
+            "at": sched.created_at,
+            "actor_id": sched.created_by,
+            "title": f"일정 추가: {sched.title} ({when}{' · ' + repeat if repeat else ''})",
+            "detail": {"schedule_id": sched.id, "start_at": start.isoformat(),
+                       "event_type": sched.event_type},
+        })
 
     events.sort(key=lambda e: (e["at"], e["_seq"]), reverse=True)
     for event in events:

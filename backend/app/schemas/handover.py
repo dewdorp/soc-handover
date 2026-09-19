@@ -156,6 +156,7 @@ class HandoverDetail(HandoverListItem):
     source_row: int | None
     acknowledgements: list[AckOut] = []
     task_count: int = 0                   # 연결된 할일(삭제 제외)
+    schedule_count: int = 0               # 연결된 일정(삭제 제외)
 
 
 class VersionSummary(BaseModel):

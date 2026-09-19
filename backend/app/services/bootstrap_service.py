@@ -37,10 +37,10 @@ PRIORITIES = [
 ]
 
 # (code, name, start, end, crosses_midnight, sort) — ASSUMPTIONS B-01
+# 운영 확인: 주간·야간 2교대. 관리자가 PATCH /shifts 로 바꿀 수 있다.
 SHIFTS = [
-    ("DAY", "주간", time(8, 0), time(16, 0), False, 10),
-    ("SWING", "오후", time(16, 0), time(0, 0), True, 20),
-    ("NIGHT", "야간", time(0, 0), time(8, 0), False, 30),
+    ("DAY", "주간", time(9, 0), time(18, 0), False, 10),
+    ("NIGHT", "야간", time(18, 0), time(9, 0), True, 20),
 ]
 
 

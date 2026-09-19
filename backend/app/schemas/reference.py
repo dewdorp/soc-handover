@@ -88,3 +88,20 @@ class TagOut(BaseModel):
     usage_count: int
 
     model_config = {"from_attributes": True}
+
+
+class ShiftCreate(BaseModel):
+    code: str = Field(min_length=1, max_length=20, pattern=r"^[A-Z0-9_]+$")
+    name: str = Field(min_length=1, max_length=30)
+    start_time: time
+    end_time: time
+    sort_order: int = 100
+
+
+class ShiftUpdate(BaseModel):
+    """시각을 바꾸면 자정을 넘는지는 서버가 계산한다(종료 <= 시작이면 넘는다)."""
+    name: str | None = Field(default=None, min_length=1, max_length=30)
+    start_time: time | None = None
+    end_time: time | None = None
+    sort_order: int | None = None
+    is_active: bool | None = None

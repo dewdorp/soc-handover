@@ -93,7 +93,7 @@ INDEX `(is_active, sort_order, name)`
 `code PK (URGENT|HIGH|NORMAL|LOW)`, `name(긴급/높음/보통/낮음)`, `level SMALLINT(0=최상)`, `color`, `icon`, `is_active`
 
 ### shifts (§27)
-`id PK`, `code VARCHAR(20) UNIQUE(DAY|SWING|NIGHT)`, `name`, `start_time TIME`, `end_time TIME`, `crosses_midnight BOOLEAN`, `sort_order`, `is_active`
+`id PK`, `code VARCHAR(20) UNIQUE(DAY|NIGHT, 구 SWING 은 비활성)`, `name`, `start_time TIME`, `end_time TIME`, `crosses_midnight BOOLEAN`, `sort_order`, `is_active`
 
 ### tags
 `id PK`, `name VARCHAR(50) UNIQUE`, `color`, `usage_count INT DEFAULT 0`, `created_by`

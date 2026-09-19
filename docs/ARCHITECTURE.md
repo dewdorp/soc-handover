@@ -222,8 +222,8 @@ handover_versions    ← append-only 스냅샷 (수정 금지, 삭제 금지)
 ### 4.1 모델
 
 ```
-shifts               DAY(08:00-16:00) / SWING(16:00-00:00) / NIGHT(00:00-08:00)
-                     crosses_midnight 플래그, 관리자 편집 가능
+shifts               DAY 주간(09:00-18:00) / NIGHT 야간(18:00-09:00, crosses_midnight)
+                     관리자 편집 가능 — 24시간 빈틈·겹침 없이 덮어야 저장
 
 shift_handovers      (세션) shift_date, shift_id, from_user_id, to_user_id | to_shift_id,
                      status: DRAFT → SENT → (CLOSED), sent_at, note, ack_summary

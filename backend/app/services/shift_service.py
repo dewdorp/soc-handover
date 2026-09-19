@@ -81,6 +81,36 @@ def describe(db: Session, window: ShiftWindow) -> dict[str, Any]:
             "start_at": window.start_at.isoformat(), "end_at": window.end_at.isoformat()}
 
 
+def _minutes(t) -> int:
+    return t.hour * 60 + t.minute
+
+
+def validate_coverage(rows: list[tuple[str, Any, Any]]) -> None:
+    """활성 교대가 하루 24시간을 **빈틈도 겹침도 없이** 덮는지 검사한다.
+
+    빈틈이 있으면 그 시각에는 '현재 교대'가 없어 Cockpit·인계가 멈추고, 겹치면 같은
+    시각이 두 교대에 속해 누가 인계받는지 모호해진다. 저장 전에 막는다.
+    rows: (이름, 시작 time, 종료 time) — 종료 <= 시작이면 자정을 넘는 교대.
+    """
+    if not rows:
+        raise ValidationFailed("활성 교대가 하나도 없습니다. 최소 하나는 있어야 합니다.")
+    cover = [[] for _ in range(24 * 60)]
+    for name, start, end in rows:
+        s, e = _minutes(start), _minutes(end)
+        span = list(range(s, e)) if e > s else list(range(s, 1440)) + list(range(0, e))
+        for m in span:
+            cover[m].append(name)
+    fmt = lambda m: f"{m // 60:02d}:{m % 60:02d}"  # noqa: E731
+    gap = next((m for m, who in enumerate(cover) if not who), None)
+    if gap is not None:
+        raise ValidationFailed(f"{fmt(gap)} 에 해당하는 교대가 없습니다. 교대가 하루 24시간을 빈틈없이 덮어야 합니다.",
+                               detail={"gap_at": fmt(gap)})
+    overlap = next((m for m, who in enumerate(cover) if len(who) > 1), None)
+    if overlap is not None:
+        raise ValidationFailed(f"{fmt(overlap)} 이 {', '.join(cover[overlap])} 에 겹칩니다.",
+                               detail={"overlap_at": fmt(overlap), "shifts": cover[overlap]})
+
+
 # --------------------------------------------------------------------------- Cockpit
 
 AREAS: list[tuple[str, str]] = [

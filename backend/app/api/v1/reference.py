@@ -14,7 +14,8 @@ from app.core.errors import Conflict, NotFound, ValidationFailed
 from app.models.reference import Company, HandoverStatus, Priority, Shift, Tag
 from app.models.user import User
 from app.schemas.reference import (CompanyCreate, CompanyOut, CompanyUpdate, PriorityOut,
-                                   ShiftOut, StatusOut, StatusUpsert, TagOut)
+                                   ShiftCreate, ShiftOut, ShiftUpdate, StatusOut, StatusUpsert,
+                                   TagOut)
 
 router = APIRouter(tags=["reference"], dependencies=[Depends(require_password_changed)])
 
@@ -118,8 +119,89 @@ def list_priorities(db: Session = Depends(get_db), _: User = Depends(get_current
 
 
 @router.get("/shifts", response_model=list[ShiftOut])
-def list_shifts(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    return list(db.scalars(select(Shift).order_by(Shift.sort_order)))
+def list_shifts(include_inactive: bool = False, db: Session = Depends(get_db),
+                _: User = Depends(get_current_user)):
+    """기본은 운영 중인 교대만. 비활성 교대는 과거 기록 참조용으로 남아 있다."""
+    stmt = select(Shift)
+    if not include_inactive:
+        stmt = stmt.where(Shift.is_active.is_(True))
+    return list(db.scalars(stmt.order_by(Shift.sort_order)))
+
+
+def _check_schedule(db: Session) -> None:
+    from app.services.shift_service import validate_coverage
+    db.flush()
+    rows = db.scalars(select(Shift).where(Shift.is_active.is_(True))).all()
+    validate_coverage([(r.name, r.start_time, r.end_time) for r in rows])
+
+
+@router.post("/shifts", response_model=ShiftOut, status_code=status.HTTP_201_CREATED)
+def create_shift(payload: ShiftCreate, db: Session = Depends(get_db),
+                 actor: User = Depends(require("shift:manage")),
+                 ctx: RequestContext = Depends(get_context)):
+    if db.scalar(select(Shift).where(Shift.code == payload.code)):
+        raise Conflict(f"이미 있는 교대 코드입니다: {payload.code}")
+    shift = Shift(**payload.model_dump(), is_active=True,
+                  crosses_midnight=payload.end_time <= payload.start_time)
+    db.add(shift)
+    _check_schedule(db)   # 새 교대가 기존 교대와 겹치면 저장하지 않는다
+    record(db, action=actions.SETTING_CHANGE, ctx=ctx, user=actor, resource_type="SHIFT",
+           resource_id=shift.code, after=payload.model_dump(mode="json"))
+    return shift
+
+
+@router.patch("/shifts/{shift_id}", response_model=ShiftOut)
+def update_shift(shift_id: int, payload: ShiftUpdate, db: Session = Depends(get_db),
+                 actor: User = Depends(require("shift:manage")),
+                 ctx: RequestContext = Depends(get_context)):
+    """교대 시간 변경. 바꾼 결과가 하루 24시간을 빈틈·겹침 없이 덮어야 저장된다.
+
+    여러 교대를 함께 바꿔야 할 때(주간을 줄이고 야간을 늘리는 등)는 중간 상태가
+    검사에 걸리므로 PUT /shifts 로 한 번에 보낸다.
+    """
+    shift = db.get(Shift, shift_id)
+    if shift is None:
+        raise NotFound("교대를 찾을 수 없습니다.")
+    changes = payload.model_dump(exclude_unset=True)
+    before = {k: str(getattr(shift, k)) for k in changes}
+    for key, value in changes.items():
+        setattr(shift, key, value)
+    shift.crosses_midnight = shift.end_time <= shift.start_time
+    _check_schedule(db)
+    record(db, action=actions.SETTING_CHANGE, ctx=ctx, user=actor, resource_type="SHIFT",
+           resource_id=shift.code, before=before,
+           after={k: str(v) for k, v in changes.items()})
+    return shift
+
+
+@router.put("/shifts", response_model=list[ShiftOut])
+def replace_schedule(payload: list[ShiftCreate], db: Session = Depends(get_db),
+                     actor: User = Depends(require("shift:manage")),
+                     ctx: RequestContext = Depends(get_context)):
+    """교대표 전체를 한 번에 바꾼다. 목록에 없는 교대는 지우지 않고 비활성화한다
+    (과거 인계 기록이 그 교대를 가리키고 있을 수 있다)."""
+    wanted = {p.code: p for p in payload}
+    if len(wanted) != len(payload):
+        raise ValidationFailed("교대 코드가 중복되었습니다.")
+    before = [{"code": s.code, "start": str(s.start_time), "end": str(s.end_time),
+               "active": s.is_active} for s in db.scalars(select(Shift))]
+    for shift in db.scalars(select(Shift)).all():
+        spec = wanted.pop(shift.code, None)
+        if spec is None:
+            shift.is_active = False
+            continue
+        shift.name, shift.start_time, shift.end_time = spec.name, spec.start_time, spec.end_time
+        shift.sort_order, shift.is_active = spec.sort_order, True
+        shift.crosses_midnight = spec.end_time <= spec.start_time
+    for spec in wanted.values():
+        db.add(Shift(**spec.model_dump(), is_active=True,
+                     crosses_midnight=spec.end_time <= spec.start_time))
+    _check_schedule(db)
+    record(db, action=actions.SETTING_CHANGE, ctx=ctx, user=actor, resource_type="SHIFT",
+           resource_id="schedule", before={"shifts": before},
+           after={"shifts": [p.model_dump(mode="json") for p in payload]})
+    return list(db.scalars(select(Shift).where(Shift.is_active.is_(True))
+                           .order_by(Shift.sort_order)))
 
 
 @router.get("/tags", response_model=list[TagOut])

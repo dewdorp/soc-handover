@@ -1,6 +1,6 @@
 """교대 인수인계 통합 테스트 — Cockpit · Basket · 전달 · 확인 · 재확인 · Carry Forward.
 
-시나리오 E: 홍길동(주간) → 김철수(오후) → 김관리(야간)로 미완료가 이어서 넘어가는 동안
+시나리오 E: 홍길동(주간) → 김철수(야간) → 김관리(다음날 주간)로 미완료가 이어서 넘어가는 동안
 무엇을 언제 어느 버전으로 넘겼고 누가 어느 버전을 확인했는지가 끝까지 남는지 본다.
 """
 from __future__ import annotations
@@ -179,7 +179,7 @@ class TestScenarioE:
         # 김철수가 B 를 끝낸다 → 다음 교대로 넘어갈 후보에서 빠져야 한다
         kim.patch(f"{H}/{b}", json={"expected_version": 1, "status_code": "DONE"})
 
-        # 오후 김철수: Basket 을 열면 직전 교대에서 받은 미완료(A, C)가 자동으로 담긴다
+        # 야간 김철수: Basket 을 열면 직전 교대에서 받은 미완료(A, C)가 자동으로 담긴다
         basket = _basket(kim)
         assert basket["auto_added"] == 2
         assert {i["handover_id"] for i in basket["items"]} == {a, c}
@@ -191,7 +191,7 @@ class TestScenarioE:
         db.expire_all()
         assert db.get(Handover, a).carry_count == 2, "2교대째 인계 중"
 
-        # 야간 김관리: 받은 것을 또 넘기면 3교대째
+        # 다음날 주간 김관리: 받은 것을 또 넘기면 3교대째
         basket3 = _basket(mgr)
         assert {i["carry_depth"] for i in basket3["items"]} == {3}
 
@@ -238,7 +238,7 @@ class TestCockpit:
         body = people["hong"].get(f"{P}/cockpit").json()
         assert list(body["areas"]) == ["new_in_shift", "in_progress", "need_ack",
                                        "planned_next", "important", "overdue"]
-        assert body["window"]["code"] in {"DAY", "SWING", "NIGHT"}
+        assert body["window"]["code"] in {"DAY", "NIGHT"}
 
     def test_area_counts_equal_the_list(self, people, cid):
         """Cockpit 숫자와 '목록으로 보기'의 건수가 어긋나면 안 된다."""
@@ -314,15 +314,66 @@ class TestHistoryNotificationsBanner:
         assert [i["handover_id"] for i in kim.get(f"{P}/inbox").json()] == [b]
 
 
-@pytest.mark.parametrize("hour,expected", [(9, "DAY"), (17, "SWING"), (3, "NIGHT")])
-def test_current_window_boundaries(db, hour, expected):
+@pytest.mark.parametrize("at,code,shift_date,next_code,next_date", [
+    # 운영 2교대: 주간 09:00~18:00 / 야간 18:00~다음날 09:00
+    ("2026-09-16T09:00", "DAY", "2026-09-16", "NIGHT", "2026-09-16"),
+    ("2026-09-16T17:59", "DAY", "2026-09-16", "NIGHT", "2026-09-16"),
+    ("2026-09-16T18:00", "NIGHT", "2026-09-16", "DAY", "2026-09-17"),
+    ("2026-09-16T23:30", "NIGHT", "2026-09-16", "DAY", "2026-09-17"),
+    # 자정을 넘긴 새벽은 전날 야간이다(근무일은 시작일 기준)
+    ("2026-09-17T03:00", "NIGHT", "2026-09-16", "DAY", "2026-09-17"),
+    ("2026-09-17T08:59", "NIGHT", "2026-09-16", "DAY", "2026-09-17"),
+])
+def test_two_shift_boundaries(db, at, code, shift_date, next_code, next_date):
     from app.core.time import KST
     from app.services.shift_service import current_window, next_window
 
-    at = datetime(2026, 9, 16, hour, 0, tzinfo=KST)
-    window = current_window(db, at)
-    assert window.code == expected
+    window = current_window(db, datetime.fromisoformat(at).replace(tzinfo=KST))
+    assert (window.code, window.shift_date.isoformat()) == (code, shift_date)
     following = next_window(db, window)
-    assert following.code == {"DAY": "SWING", "SWING": "NIGHT", "NIGHT": "DAY"}[expected]
-    if expected == "SWING":
-        assert following.shift_date.isoformat() == "2026-09-17", "자정을 넘는 다음 교대는 다음 날"
+    assert (following.code, following.shift_date.isoformat()) == (next_code, next_date)
+
+
+# --------------------------------------------------------------------------- 교대 시간 관리
+
+class TestShiftSchedule:
+    def test_default_is_two_shifts(self, admin_client):
+        rows = admin_client.get("/api/v1/shifts").json()
+        assert [(r["code"], r["start_time"][:5], r["end_time"][:5], r["crosses_midnight"])
+                for r in rows] == [("DAY", "09:00", "18:00", False),
+                                   ("NIGHT", "18:00", "09:00", True)]
+
+    def test_gap_is_rejected(self, admin_client):
+        day = admin_client.get("/api/v1/shifts").json()[0]
+        resp = admin_client.patch(f"/api/v1/shifts/{day['id']}", json={"end_time": "17:00"})
+        assert resp.status_code == 422
+        assert resp.json()["detail"]["gap_at"] == "17:00", "빈 시각을 알려준다"
+        # 거절된 변경은 저장되지 않았다
+        assert admin_client.get("/api/v1/shifts").json()[0]["end_time"][:5] == "18:00"
+
+    def test_overlap_is_rejected(self, admin_client):
+        day = admin_client.get("/api/v1/shifts").json()[0]
+        resp = admin_client.patch(f"/api/v1/shifts/{day['id']}", json={"end_time": "19:00"})
+        assert resp.status_code == 422
+        assert resp.json()["detail"]["overlap_at"] == "18:00"
+
+    def test_whole_schedule_can_be_replaced_at_once(self, admin_client):
+        """주간을 줄이고 야간을 늘리는 것처럼 둘을 함께 바꿔야 할 때."""
+        resp = admin_client.put("/api/v1/shifts", json=[
+            {"code": "DAY", "name": "주간", "start_time": "08:30", "end_time": "18:30", "sort_order": 10},
+            {"code": "NIGHT", "name": "야간", "start_time": "18:30", "end_time": "08:30", "sort_order": 20},
+        ])
+        assert resp.status_code == 200, resp.text
+        assert [r["start_time"][:5] for r in resp.json()] == ["08:30", "18:30"]
+
+    def test_dropped_shift_is_deactivated_not_deleted(self, admin_client):
+        admin_client.put("/api/v1/shifts", json=[
+            {"code": "ALL", "name": "상시", "start_time": "00:00", "end_time": "00:00"}])
+        assert [r["code"] for r in admin_client.get("/api/v1/shifts").json()] == ["ALL"]
+        everything = admin_client.get("/api/v1/shifts?include_inactive=true").json()
+        assert {r["code"] for r in everything} == {"ALL", "DAY", "NIGHT"},             "과거 인계 기록이 가리킬 수 있어 지우지 않는다"
+
+    def test_only_admin_can_change(self, manager_client):
+        day = manager_client.get("/api/v1/shifts").json()[0]
+        assert manager_client.patch(f"/api/v1/shifts/{day['id']}",
+                                    json={"name": "주간근무"}).status_code == 403

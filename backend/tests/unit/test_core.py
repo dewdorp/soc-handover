@@ -130,3 +130,24 @@ class TestShiftResolution:
     def test_boundary_end_exclusive(self):
         w = resolve_shift(SHIFT_DEFS, datetime(2026, 9, 16, 16, 0, tzinfo=KST))
         assert w.code == "SWING"
+
+
+class TestTwoShiftSchedule:
+    """운영 2교대(주간 09~18 / 야간 18~다음날 09) — 15시간짜리 야간이 자정을 넘는다."""
+    DEFS = [
+        {"code": "DAY", "start_time": "09:00", "end_time": "18:00"},
+        {"code": "NIGHT", "start_time": "18:00", "end_time": "09:00", "crosses_midnight": True},
+    ]
+
+    def test_evening_belongs_to_that_days_night(self):
+        w = resolve_shift(self.DEFS, datetime(2026, 9, 16, 22, 0, tzinfo=KST))
+        assert (w.code, w.shift_date) == ("NIGHT", date(2026, 9, 16))
+        assert w.end_at == datetime(2026, 9, 17, 9, 0, tzinfo=KST)
+
+    def test_early_morning_belongs_to_previous_night(self):
+        w = resolve_shift(self.DEFS, datetime(2026, 9, 17, 8, 59, tzinfo=KST))
+        assert (w.code, w.shift_date) == ("NIGHT", date(2026, 9, 16))
+
+    def test_nine_oclock_is_day(self):
+        w = resolve_shift(self.DEFS, datetime(2026, 9, 17, 9, 0, tzinfo=KST))
+        assert (w.code, w.shift_date) == ("DAY", date(2026, 9, 17))

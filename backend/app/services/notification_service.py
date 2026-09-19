@@ -18,6 +18,9 @@ T_ASSIGNED = "HANDOVER_ASSIGNED"          # 담당자로 지정됨
 T_TASK_ASSIGNED = "TASK_ASSIGNED"         # 할일 담당자로 지정됨
 T_TASK_COMMENT = "TASK_COMMENT"           # 내 할일에 댓글
 T_SCHEDULE_ASSIGNED = "SCHEDULE_ASSIGNED" # 일정 담당자로 지정됨
+T_IMPORTANT = "IMPORTANT_HANDOVER"        # 중요 · 긴급 인수인계(관리자에게)
+T_TASK_DUE_SOON = "TASK_DUE_SOON"         # 내 할일 마감이 오늘·내일
+T_TASK_OVERDUE = "TASK_OVERDUE"           # 내 할일 마감이 지남
 
 
 def notify(db: Session, *, user_id: int, type_: str, title: str, body: str | None = None,
@@ -39,6 +42,16 @@ def notify(db: Session, *, user_id: int, type_: str, title: str, body: str | Non
     db.add(note)
     db.flush()
     return note
+
+
+def notify_once(db: Session, *, user_id: int, dedup_key: str, **kwargs) -> Notification | None:
+    """같은 키로 **한 번이라도** 보낸 적이 있으면(읽었어도) 다시 보내지 않는다 — 주기 알림용.
+    notify() 는 읽지 않은 것만 갱신하므로, 읽은 뒤 30분마다 같은 알림이 다시 쌓인다."""
+    sent = db.scalar(select(Notification.id).where(Notification.user_id == user_id,
+                                                   Notification.dedup_key == dedup_key).limit(1))
+    if sent is not None:
+        return None
+    return notify(db, user_id=user_id, dedup_key=dedup_key, **kwargs)
 
 
 def unread_count(db: Session, user_id: int) -> int:

@@ -60,6 +60,13 @@ class Settings(BaseSettings):
     IMPORT_MAX_MB: int = 200
     #: Export 다운로드 링크 유효 시간(분). 지나면 파일을 지운다.
     EXPORT_TTL_MINUTES: int = 60
+    #: 첨부 백신 연동(FR-I-04 확장점). 비우면 검사하지 않는다. {path} 자리에 파일 경로가 들어간다.
+    #: 예) "C:\Program Files\Windows Defender\MpCmdRun.exe" -Scan -ScanType 3 -File {path} -DisableRemediation
+    #: 종료코드 0 = 깨끗, 그 밖 = 위험으로 보고 거절한다. 실행 자체가 실패해도 거절한다(안전한 쪽).
+    ATTACHMENT_SCAN_COMMAND: str = ""
+    ATTACHMENT_SCAN_TIMEOUT_SEC: int = 120
+    #: 할일 마감 알림(임박·지연)을 몇 분마다 돌릴지. 0 이면 끈다(테스트는 0).
+    REMINDER_INTERVAL_MIN: int = 30
 
     # --- LLM (선택) ---
     LLM_PROVIDER: Literal["disabled", "ollama", "openai_compatible"] = "disabled"

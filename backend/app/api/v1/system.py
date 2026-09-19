@@ -111,6 +111,40 @@ def list_settings(db: Session = Depends(get_db), user: User = Depends(require_pa
             "description": r.description,
             "is_secret": r.is_secret,
             "updated_at": r.updated_at,
+            "spec": settings_service.spec_for(r.key),     # 화면 입력칸 · 서버 검사 규칙(없으면 읽기 전용)
         }
         for r in rows
     ]
+
+
+@router.get("/backups")
+def list_backups(user: User = Depends(require_password_changed)):
+    """백업 현황(관리자) — backup.ps1 이 만든 파일 목록과 마지막 백업 시각.
+
+    웹에서 백업 · 복구를 실행하지는 않는다. 복구는 서버를 멈추고 하는 작업이고, 백업은 예약 작업
+    (작업 스케줄러 + backup.ps1)으로 돌리는 것이 운영 기준이다(INSTALL_WINDOWS.md).
+    """
+    from datetime import datetime, timezone
+
+    from app.auth.rbac import has_permission
+    if not has_permission(user.role_code, "system:maintain"):
+        raise Forbidden()
+    files = []
+    root = settings.BACKUP_DIR
+    if root.exists():
+        for p in sorted(root.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+            if p.is_file() and p.suffix.lower() in {".db", ".dump", ".zip", ".sql", ".backup"}:
+                st = p.stat()
+                files.append({"name": p.name, "size": st.st_size,
+                              "modified_at": datetime.fromtimestamp(st.st_mtime, tz=timezone.utc)})
+    latest = files[0]["modified_at"] if files else None
+    hours = round((datetime.now(timezone.utc) - latest).total_seconds() / 3600, 1) if latest else None
+    attachments = [p for p in settings.attachments_dir.rglob("*") if p.is_file()]         if settings.attachments_dir.exists() else []
+    return {
+        "backup_dir": str(root), "files": files[:100], "latest_at": latest, "hours_since_latest": hours,
+        #: 일 1회 백업(NFR-08) — 하루가 넘으면 화면에 경고
+        "stale": hours is None or hours > 26,
+        "database": dialect_name(),
+        "attachments": {"count": len(attachments), "bytes": sum(p.stat().st_size for p in attachments)},
+    }
+

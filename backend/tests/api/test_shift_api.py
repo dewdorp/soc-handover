@@ -142,7 +142,9 @@ class TestScenarioE:
         assert pinned == {a: 2, b: 1, c: 1}, "전달 당시 버전을 항목마다 고정한다"
 
         # 김철수: 받은 알림 · 확인함
-        assert kim.get("/api/v1/notifications/unread-count").json()["unread"] == 1
+        # 담당 지정 3건(A·B·C 를 김철수 담당으로 만들었다) + 인계 받음 1건
+        types = sorted(n["type"] for n in kim.get("/api/v1/notifications").json())
+        assert types == ["HANDOVER_ASSIGNED"] * 3 + ["HANDOVER_TRANSFER"]
         inbox = {i["handover_id"]: i for i in kim.get(f"{P}/inbox").json()}
         assert set(inbox) == {a, b, c}
         assert inbox[a]["from_user"] == "홍길동" and inbox[a]["version_no_at_transfer"] == 2

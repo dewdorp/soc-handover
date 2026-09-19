@@ -26,8 +26,21 @@ async def lifespan(app: FastAPI):
     if settings.is_sqlite and settings.is_production:
         log.warning("운영 환경에서 SQLite를 사용하고 있습니다. PostgreSQL 사용을 권장합니다.")
     _recover_jobs()
+    reminders = _start_reminders()
     yield
+    if reminders:
+        reminders.stop()
     log.info("%s 종료", settings.APP_NAME)
+
+
+def _start_reminders():
+    """할일 마감 알림(임박·지연)을 주기적으로. 테스트와 REMINDER_INTERVAL_MIN=0 에서는 끈다."""
+    if settings.APP_ENV == "test" or settings.REMINDER_INTERVAL_MIN <= 0:
+        return None
+    from app.jobs.reminders import ReminderLoop
+    loop = ReminderLoop(settings.REMINDER_INTERVAL_MIN)
+    loop.start()
+    return loop
 
 
 def _recover_jobs() -> None:

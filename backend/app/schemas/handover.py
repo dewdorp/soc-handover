@@ -157,6 +157,8 @@ class HandoverDetail(HandoverListItem):
     acknowledgements: list[AckOut] = []
     task_count: int = 0                   # 연결된 할일(삭제 제외)
     schedule_count: int = 0               # 연결된 일정(삭제 제외)
+    comment_count: int = 0
+    attachment_count: int = 0
 
 
 class VersionSummary(BaseModel):

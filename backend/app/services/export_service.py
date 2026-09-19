@@ -120,11 +120,7 @@ def export(db: Session, request, actor: User, ctx: RequestContext) -> dict[str, 
         written = _write_xlsx(path, columns, rows_iter, request)
         file_name = f"{base}.xlsx"
 
-    expires = stamp + timedelta(minutes=settings.EXPORT_TTL_MINUTES)
-    _meta_path(token).write_text(json.dumps({
-        "owner": actor.id, "file": path.name, "name": file_name,
-        "expires": expires.isoformat(), "rows": written,
-    }, ensure_ascii=False), encoding="utf-8")
+    expires = register_download(token, path, file_name, actor, written)
 
     # 어떤 조건으로 몇 건을 가져갔는지가 감사의 핵심이다(UI_STRUCTURE §8 예시).
     record(db, action=actions.EXCEL_EXPORT, ctx=ctx, user=actor,
@@ -187,6 +183,21 @@ def _write_csv(path: Path, columns: list[str], rows) -> int:
             writer.writerow([safe_cell(COLUMNS[k][1](handover)) for k in columns])
             written += 1
     return written
+
+
+def new_token() -> str:
+    _purge_expired()
+    return secrets.token_urlsafe(24)
+
+
+def register_download(token: str, path: Path, file_name: str, actor: User, rows: int):
+    """만든 파일을 요청자 본인만 · 유효시간 안에서만 받을 수 있게 등록한다. 만료 시각을 돌려준다."""
+    expires = now() + timedelta(minutes=settings.EXPORT_TTL_MINUTES)
+    _meta_path(token).write_text(json.dumps({
+        "owner": actor.id, "file": path.name, "name": file_name,
+        "expires": expires.isoformat(), "rows": rows,
+    }, ensure_ascii=False), encoding="utf-8")
+    return expires
 
 
 def _meta_path(token: str) -> Path:

@@ -140,6 +140,26 @@ Import 시 자동 생성 OFF가 기본. 매칭 실패해도 `*_name_raw` 텍스�
   옮기지 않는다(마감·수행일은 각 상세에서 바꾼다). 한 번에 볼 수 있는 기간은 100일, 이벤트는 2,000건까지.
 - 화면(달력·일정 창)은 브라우저 시간대가 KST 라고 가정한다(A 절 'Asia/Seoul 고정'과 같은 전제). 서버와는 +09:00 을 붙여 주고받는다.
 
+### B-14. 감사 조회 · 댓글 · 첨부 · 알림 (Phase 8)
+- **감사 조회**: 기간 필수, 최대 93일. ANALYST 는 자기 행위만(`audit:read_self`), MANAGER+ 전체. 내보내기(xlsx)도
+  `EXCEL_EXPORT`(resource_type=AUDIT)로 남는다. 감사 로그는 앱에서 읽기만 한다.
+- **감사 35종**: 정의된 행위 전부가 실제로 기록된다(테스트로 강제). 완료 기준 '30종 이상' 충족.
+- **인수인계 댓글**: 본문 버전을 만들지 않고 재확인도 일으키지 않는다. 고치기는 쓴 사람, 지우기는 쓴 사람·MANAGER+,
+  지우기는 표시만. 쓰기·고치기·지우기 모두 `HANDOVER_COMMENT`(detail.op), 고치기는 이전 글을 before 에.
+- **첨부**: 허용 확장자·최대 크기는 관리 설정. 실행·스크립트 형식(exe·ps1·html·svg 등)은 허용 목록에 넣을 수도 없다.
+  저장은 무작위 이름·확장자 없이, 원래 이름은 DB 에만. 크기는 받으면서 센다. 올리기·지우기는 대상을 고칠 수 있는 사람
+  (지우기는 올린 본인도), 받기는 모든 역할. 지우기는 표시만 하고 파일은 남긴다(증적). 올리기·받기·지우기 모두 감사.
+  백신 연동은 `.env` 의 `ATTACHMENT_SCAN_COMMAND` — 비우면 검사 안 함(NOT_SCANNED), 있으면 종료코드 0 만 통과,
+  실행 실패도 거절(안전한 쪽).
+- **알림 7종(ERD §66) 대응**: HANDOVER_ASSIGNED(담당 지정) · ACK_REQUIRED → `HANDOVER_TRANSFER`(인계 받음) ·
+  CHANGED_AFTER_TRANSFER → `HANDOVER_REACK`(재확인 필요) · TASK_ASSIGNED · TASK_DUE_SOON(마감 오늘·내일) ·
+  TASK_OVERDUE(마감 지남) · IMPORTANT_HANDOVER(중요 표시·긴급 → MANAGER+ 에게). 여기에 TASK_COMMENT · SCHEDULE_ASSIGNED 가 더 있다.
+  마감 알림은 서버 안에서 `REMINDER_INTERVAL_MIN`(기본 30분)마다 돌고, 할일마다 **하루 한 번**(읽어도 다시 오지 않음).
+- **통계**: MANAGER+(`stats:read_all`). 기간 최대 366일. 확인율은 기간 안에 보낸 교대 인계 항목 중 받는 사람이 확인한 비율,
+  걸린 시간은 전달 → 그 사람의 (마지막) 확인 시각이라 재확인이 있으면 길게 나올 수 있다.
+- **백업·복구**: `backup.ps1` · `restore.ps1` 이 서버에 `BACKUP` · `RESTORE` 감사를 남긴다(로컬에서만 받는 경로).
+  웹에서 복구는 하지 않는다 — 복구는 서버를 멈추고 하는 작업이다.
+
 ---
 
 ## C. 검색 / 성능

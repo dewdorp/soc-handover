@@ -57,7 +57,7 @@ POST   /handovers/search          ← 목록의 기본 경로 (DSL 본문)
 GET    /handovers?q=&...          ← 단순 조회 / 링크 공유용 (DSL을 query로 인코딩)
 GET    /handovers/facets?field=&q=&limit=   (+ 본문 대신 압축 필터 파라미터)
 POST   /handovers                 생성 → v1
-GET    /handovers/{id}            상세 (+ ack 상태, tag, task/schedule/첨부 카운트)
+GET    /handovers/{id}            상세 (+ ack 상태, tag, task · schedule · comment · attachment 카운트)
 GET    /handovers/{id}?as_of=<ISO>  특정 시점 상태 재현 (감사용, P-07)
 PATCH  /handovers/{id}            {expected_version, change_reason?, ...fields} → 새 버전
 DELETE /handovers/{id}            {reason} Soft Delete   [MANAGER+ 또는 작성자]
@@ -141,6 +141,22 @@ POST   /schedules           {title?, start_at, end_at?, is_all_day, event_type, 
 GET    /schedules/{id}      PATCH /schedules/{id} (expected_version 필수)    DELETE /schedules/{id} {reason?}
 PATCH  /schedules/{id}/move {expected_version, start_at, end_at?}   ← 달력 끌어놓기(길이 유지, Audit via=drag)
 GET    /handovers/{id}/schedules      GET /tasks/{id}/schedules
+
+## 5-1. 감사 · 설정 · 댓글 · 첨부 · 통계 (Phase 8, ASSUMPTIONS B-14)
+
+```
+GET    /audit/catalog                 행위(한국어 이름·묶음) · 기록된 대상 종류 · max_range_days(93)
+POST   /audit/search   {start, end (필수, ≤93일), user_id?, username?, actions[]?, resource_type?,
+                        resource_id?, client_ip?(앞부분), result?, order, page, size}   ANALYST 는 자기 행위만
+POST   /audit/export   (같은 조건) → {download_token} → GET /export/download/{token}   (내보내기도 감사)
+GET    /settings                      값 + spec(입력 형식·범위, 없으면 읽기 전용)
+PATCH  /settings/{key} {value}        형식·범위 검사 후 저장(SETTING_CHANGE, ai.* 는 AI_ENABLE/DISABLE)
+GET/POST /handovers/{id}/comments     PATCH/DELETE /handover-comments/{id}
+GET    /attachments?entity_type=HANDOVER|TASK&entity_id=
+POST   /attachments  (multipart: entity_type, entity_id, file)
+GET    /attachments/{id}/download     (attachment; filename*=UTF-8'' · nosniff)     DELETE /attachments/{id}
+GET    /stats/summary?start=&end=     (MANAGER+, 기본 최근 30일, ≤366일)
+```
 ```
 
 ## 6. 검색 / 저장된 보기

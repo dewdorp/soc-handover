@@ -251,7 +251,31 @@ def create_handover(db: Session, payload: dict[str, Any], actor: User,
                  actor=actor, ctx=ctx)
     record(db, action=actions.HANDOVER_CREATE, ctx=ctx, user=actor,
            resource_type="HANDOVER", resource_id=handover.id, after=after)
+    _notify_people(db, handover, actor, before={})
     return handover
+
+
+def _notify_people(db: Session, handover: Handover, actor: User, before: dict[str, Any]) -> None:
+    """담당 지정(HANDOVER_ASSIGNED) · 중요 인수인계(IMPORTANT_HANDOVER) 알림(§66)."""
+    from app.auth.rbac import ROLE_ADMIN, ROLE_MANAGER
+    from app.services import notification_service as ns
+
+    if handover.assignee_id and handover.assignee_id != actor.id             and handover.assignee_id != before.get("assignee_id"):
+        ns.notify(db, user_id=handover.assignee_id, type_=ns.T_ASSIGNED,
+                  title=f"담당 인수인계: {handover.title}", body=f"{actor.display_name} 님이 담당자로 지정",
+                  link_type="HANDOVER", link_id=handover.id, dedup_key=f"assign:handover:{handover.id}")
+
+    became_important = handover.is_important and not before.get("is_important")
+    became_urgent = handover.priority_code == "URGENT" and before.get("priority_code") != "URGENT"
+    if became_important or became_urgent:
+        why = "긴급" if became_urgent else "중요"
+        managers = db.scalars(select(User.id).where(User.is_active.is_(True),
+                                                    User.role_code.in_((ROLE_MANAGER, ROLE_ADMIN)),
+                                                    User.id != actor.id)).all()
+        for user_id in managers:
+            ns.notify(db, user_id=user_id, type_=ns.T_IMPORTANT, title=f"{why} 인수인계: {handover.title}",
+                      body=f"{actor.display_name} 님이 {why}으로 지정",
+                      link_type="HANDOVER", link_id=handover.id, dedup_key=f"important:{handover.id}")
 
 
 # --------------------------------------------------------------------------- 수정
@@ -324,6 +348,7 @@ def update_handover(db: Session, handover_id: int, changes: dict[str, Any],
            resource_type="HANDOVER", resource_id=handover.id,
            before={f: before[f] for f in changed}, after={f: after[f] for f in changed},
            detail={"version_no": handover.current_version_no, "reack_triggered_by": reack})
+    _notify_people(db, handover, actor, before=before)
     return handover, True
 
 
@@ -604,6 +629,20 @@ def timeline(db: Session, handover_id: int) -> list[dict[str, Any]]:
                 "title": f"할일 완료: {task.title}",
                 "detail": {"task_id": task.id},
             })
+
+    # 첨부 — 올린 때(지운 것도 이력에는 남긴다: 무엇이 있었는지가 증적)
+    from app.models.common import Attachment
+
+    for att in db.scalars(select(Attachment).where(Attachment.entity_type == "HANDOVER",
+                                                   Attachment.entity_id == handover_id)):
+        events.append({
+            "kind": "ATTACHMENT",
+            "_seq": 8_000_000 + att.id,
+            "at": att.created_at,
+            "actor_id": att.uploaded_by,
+            "title": f"첨부: {att.original_name}{' (삭제됨)' if att.is_deleted else ''}",
+            "detail": {"attachment_id": att.id, "size": att.size_bytes, "deleted": att.is_deleted},
+        })
 
     # 일정 — 언제 무엇이 잡혔는지(만든 때 기준으로 이력에 둔다)
     from app.models.schedule import Schedule

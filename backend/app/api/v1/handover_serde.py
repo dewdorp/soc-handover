@@ -11,7 +11,8 @@ from sqlalchemy.orm import Session
 from app.models.handover import Handover, HandoverAcknowledgement, HandoverStar
 from app.models.user import User
 from app.schemas.handover import AckOut, HandoverDetail, HandoverListItem
-from app.services import ack_service, handover_service, schedule_service, task_service
+from app.services import (ack_service, attachment_service, comment_service, handover_service,
+                          schedule_service, task_service)
 
 
 def base_fields(h: Handover) -> dict:
@@ -84,6 +85,8 @@ def detail(db: Session, h: Handover, actor: User) -> HandoverDetail:
         "source_row": h.source_row,
         "task_count": task_service.count_for_handover(db, h.id),
         "schedule_count": schedule_service.count_for_handover(db, h.id),
+        "comment_count": comment_service.count_for(db, h.id),
+        "attachment_count": attachment_service.count_for(db, "HANDOVER", h.id),
         "acknowledgements": [
             AckOut.model_validate({
                 "user_id": a.user_id, "user": db.get(User, a.user_id), "state": a.state,

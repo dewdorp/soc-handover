@@ -7,6 +7,9 @@ $ErrorActionPreference = 'Stop'
 # encoding="locale" 로 설정파일을 읽으므로, Python 을 UTF-8 모드로 고정해 둔다.
 $env:PYTHONUTF8 = '1'
 $env:PYTHONIOENCODING = 'utf-8'
+# 대상 PC 에 다른 Python 이 있어도 섞이지 않게 — 그쪽 경로 · 사용자 site-packages 를 보지 않는다
+Remove-Item env:PYTHONHOME, env:PYTHONPATH -ErrorAction SilentlyContinue
+$env:PYTHONNOUSERSITE = '1'
 
 $script:Root = Split-Path -Parent $PSScriptRoot
 $script:BackendDir = Join-Path $Root 'backend'
@@ -17,7 +20,17 @@ $script:DataDir = Join-Path $Root 'data'
 $script:BackupDir = Join-Path $Root 'backup'
 $script:EnvFile = Join-Path $Root '.env'
 $script:PidFile = Join-Path $RunDir 'app.pid'
+$script:StopFlag = Join-Path $RunDir 'stop.flag'
+$script:RuntimeDir = Join-Path $Root 'runtime'
 $script:VenvPython = Join-Path $BackendDir '.venv\Scripts\python.exe'
+# 설치 패키지는 가상환경 대신 의존성까지 담은 Python 을 runtime\python 에 넣어 온다(인터넷 없는 PC).
+# 개발 PC 는 backend\.venv 를 쓴다. 이후 스크립트는 모두 $AppPython 으로 부른다.
+$script:BundledPython = Join-Path $RuntimeDir 'python\python.exe'
+$script:AppPython = if (Test-Path $BundledPython) { $BundledPython } else { $VenvPython }
+$script:BundledPgBin = Join-Path $RuntimeDir 'pgsql\bin'
+# 서비스 모드(설치 프로그램이 관리자 권한으로 등록): 부팅 시 앱을 띄우는 예약 작업과 매일 백업 작업
+$script:AppTaskName = 'SOC-Handover'
+$script:BackupTaskName = 'SOC-Handover-Backup'
 
 function Write-Step([string]$Message) { Write-Host "`n▶ $Message" -ForegroundColor Cyan }
 function Write-Ok([string]$Message) { Write-Host "  ✔ $Message" -ForegroundColor Green }
@@ -58,6 +71,7 @@ function Get-EnvValue([string]$Key, [string]$Default = '') {
 
 # 시스템 PATH → 일반 설치 경로 → codex 번들 순으로 Python 을 찾는다(ASSUMPTIONS A-02).
 function Resolve-PythonExe {
+    if (Test-Path $BundledPython) { return $BundledPython }
     if (Test-Path $VenvPython) { return $VenvPython }
     $explicit = Get-EnvValue 'PYTHON_EXE'
     if ($explicit -and (Test-Path $explicit)) { return $explicit }
@@ -164,12 +178,12 @@ function Test-AppHealth([int]$TimeoutSec = 3) {
 }
 
 function Test-IsAppPython($Proc) {
-    # 이 프로젝트 가상환경의 python 인가. 경로를 읽을 수 없는 프로세스(시스템 프로세스)는 아니다.
+    # 이 설치본의 python 인가. 경로를 읽을 수 없는 프로세스(시스템 프로세스)는 아니다.
     if (-not $Proc) { return $false }
     if ($Proc.ProcessName -notmatch '^pythonw?$') { return $false }
     $path = $Proc.Path
     if (-not $path) { return $false }
-    return ([IO.Path]::GetFullPath($path) -eq [IO.Path]::GetFullPath($VenvPython))
+    return ([IO.Path]::GetFullPath($path) -eq [IO.Path]::GetFullPath($AppPython))
 }
 
 function Get-AppProcess {
@@ -187,4 +201,165 @@ function Get-AppProcess {
 function Test-IsPostgres {
     $url = Get-EnvValue 'DATABASE_URL'
     return ($url -like 'postgres*')
+}
+
+# uvicorn 인자 — start.ps1(수동) 과 service-run.ps1(서비스) 이 같은 값을 쓴다
+function Get-UvicornArgs {
+    $a = @('-m', 'uvicorn', 'app.main:app', '--host', (Get-AppHost), '--port', "$(Get-AppPort)")
+    $cert = Get-EnvValue 'SSL_CERTFILE'
+    $key = Get-EnvValue 'SSL_KEYFILE'
+    if ($cert -and $key -and (Test-Path $cert) -and (Test-Path $key)) {
+        $a += @('--ssl-certfile', $cert, '--ssl-keyfile', $key)
+    }
+    return $a
+}
+
+# 앱 Python 을 실행하고 출력을 받는다. Python 은 UTF-8 로 쓰는데 PowerShell 은 콘솔 코드페이지(cp949)로
+# 읽어 한글이 깨지므로, 받는 동안만 UTF-8 로 바꾼다.
+function Invoke-AppPythonCapture([string[]]$ArgList) {
+    $prev = $null
+    try { $prev = [Console]::OutputEncoding; [Console]::OutputEncoding = New-Object Text.UTF8Encoding($false) } catch { }
+    try { return (& $AppPython @ArgList) }
+    finally { if ($prev) { try { [Console]::OutputEncoding = $prev } catch { } } }
+}
+
+function Test-IsAdmin {
+    $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+    return (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole(
+        [Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+# ---------------------------------------------------------------- PostgreSQL 도구 · 함께 설치한 DB
+
+# PG_BIN(.env) → 설치 패키지의 runtime\pgsql → 일반 설치 경로 → PATH
+function Resolve-PgBin {
+    $explicit = Get-EnvValue 'PG_BIN'
+    if ($explicit -and (Test-Path (Join-Path $explicit 'pg_dump.exe'))) { return $explicit }
+    if (Test-Path (Join-Path $BundledPgBin 'pg_dump.exe')) { return $BundledPgBin }
+    foreach ($v in @(17, 16, 15)) {
+        $p = "C:\Program Files\PostgreSQL\$v\bin"
+        if (Test-Path (Join-Path $p 'pg_dump.exe')) { return $p }
+    }
+    $cmd = Get-Command pg_dump -ErrorAction SilentlyContinue
+    if ($cmd) { return (Split-Path -Parent $cmd.Source) }
+    return $null
+}
+
+# 설치 프로그램이 DB 까지 함께 설치했는가(.env PG_BUNDLED=true). 아니면 DB 는 따로 운영하는 것으로 본다.
+function Test-BundledDb { return ((Get-EnvValue 'PG_BUNDLED') -eq 'true') }
+function Get-PgData {
+    $d = Get-EnvValue 'PG_DATA'
+    if ($d) { return $d }
+    return (Join-Path $DataDir 'pgdata')
+}
+function Get-PgPort { return [int](Get-EnvValue 'PG_PORT' '5432') }
+
+function Test-DbReady {
+    $bin = Resolve-PgBin
+    if (-not $bin) { return $false }
+    & (Join-Path $bin 'pg_isready.exe') -q -h 127.0.0.1 -p (Get-PgPort) 2>$null | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
+
+# DB 가 Windows 서비스로 등록되어 있으면 그 서비스(서비스 모드), 없으면 $null(수동 모드)
+function Get-DbService {
+    $name = Get-EnvValue 'PG_SERVICE'
+    if (-not $name) { return $null }
+    return (Get-Service -Name $name -ErrorAction SilentlyContinue)
+}
+
+# pg_ctl 은 띄운 postgres 에 자기 표준출력을 물려 준다. 파이프로 받으면 postgres 가 끝날 때까지
+# 호출한 쪽이 멈추므로(실측) 출력은 항상 파일로 받는다.
+# 또, 띄워진 postgres 가 그 출력 파일을 계속 쥐고 있으므로 호출마다 새 파일을 쓴다(최근 20회분만 남김).
+function Invoke-PgCtl([string[]]$ArgList) {
+    $bin = Resolve-PgBin
+    $dir = Join-Path $LogDir 'pg_ctl'
+    if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    $stamp = Get-Date -Format 'yyyyMMdd_HHmmss_fff'
+    $out = Join-Path $dir "$($ArgList[0])_$stamp.out.log"
+    $err = Join-Path $dir "$($ArgList[0])_$stamp.err.log"
+    # -Wait 는 쓰지 않는다: Windows PowerShell 5.1 의 -Wait 는 자손 프로세스(= 계속 떠 있는 postgres)까지 기다린다.
+    # pg_ctl 자신만 기다린다(-w 로 준비될 때까지 기다린 뒤 끝난다). Handle 을 먼저 잡아야 ExitCode 가 남는다.
+    $p = Start-Process -FilePath (Join-Path $bin 'pg_ctl.exe') -ArgumentList $ArgList -NoNewWindow -PassThru `
+        -RedirectStandardOutput $out -RedirectStandardError $err
+    $null = $p.Handle
+    $p.WaitForExit()
+    Get-ChildItem $dir -File -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending |
+        Select-Object -Skip 40 | Remove-Item -ErrorAction SilentlyContinue
+    return $p.ExitCode
+}
+
+function Start-BundledDb {
+    if (-not (Test-BundledDb)) { return $true }
+    if (Test-DbReady) { return $true }
+    $svc = Get-DbService
+    if ($svc) {
+        try { Start-Service -Name $svc.Name -ErrorAction Stop }
+        catch {
+            Write-Err "DB 서비스($($svc.Name))를 시작하지 못했습니다: $($_.Exception.Message)"
+            Write-Host '    관리자 권한으로 다시 실행하십시오(시작 파일은 자동으로 권한을 요청합니다).'
+            return $false
+        }
+    } else {
+        $log = Join-Path $LogDir 'postgresql.log'
+        $code = Invoke-PgCtl @('start', '-D', "`"$(Get-PgData)`"", '-l', "`"$log`"", '-w', '-t', '90')
+        if ($code -ne 0) {
+            Write-Err "DB 를 시작하지 못했습니다(pg_ctl $code). 로그: $log"
+            return $false
+        }
+    }
+    for ($i = 0; $i -lt 60; $i++) {
+        if (Test-DbReady) { return $true }
+        Start-Sleep -Seconds 1
+    }
+    Write-Err 'DB 가 60초 안에 준비되지 않았습니다.'
+    return $false
+}
+
+function Stop-BundledDb {
+    if (-not (Test-BundledDb)) { return $true }
+    $svc = Get-DbService
+    if ($svc) {
+        if ($svc.Status -ne 'Stopped') { Stop-Service -Name $svc.Name -ErrorAction Stop }
+        return $true
+    }
+    if (-not (Test-DbReady)) { return $true }
+    $code = Invoke-PgCtl @('stop', '-D', "`"$(Get-PgData)`"", '-m', 'fast', '-w', '-t', '60')
+    return ($code -eq 0)
+}
+
+# 서비스 모드로 설치되었는가 — 설치 프로그램이 설치 폴더에 SERVICE_MODE 표시 파일을 둔다.
+# (관리자 권한이 없는 창에서는 SYSTEM 예약 작업이 안 보일 수 있어, 작업 존재 여부로 판단하지 않는다)
+function Test-ServiceMode { return (Test-Path (Join-Path $Root 'SERVICE_MODE')) }
+
+# 앱 예약 작업(서비스 모드). 관리자 권한이 없으면 $null 일 수 있다.
+function Get-AppTask {
+    return (Get-ScheduledTask -TaskName $AppTaskName -ErrorAction SilentlyContinue)
+}
+
+# DATABASE_URL(postgresql+psycopg://user:pw@host:port/db) 을 libpq 환경변수로 푼다.
+# 비밀번호를 명령줄 인자(URL)로 넘기면 같은 PC 의 다른 사용자가 프로세스 목록에서 볼 수 있다 — 환경변수로만 넘긴다.
+# -Superuser: 함께 설치한 DB 의 관리 계정(postgres)으로 — 복구처럼 DB 를 새로 만들 때.
+function Use-PgCredential([switch]$Superuser) {
+    $url = Get-EnvValue 'DATABASE_URL'
+    if ($url -notmatch '^postgres(ql)?(\+\w+)?://(?<user>[^:@/]+)(:(?<pw>[^@]*))?@(?<host>[^:/]+)(:(?<port>\d+))?/(?<db>[^?]+)') {
+        throw 'DATABASE_URL 이 PostgreSQL 형식이 아닙니다.'
+    }
+    $env:PGHOST = $Matches['host']
+    $env:PGPORT = $(if ($Matches['port']) { $Matches['port'] } else { '5432' })
+    $env:PGDATABASE = $Matches['db']
+    if ($Superuser) {
+        $env:PGUSER = 'postgres'
+        $env:PGPASSWORD = Get-EnvValue 'PG_SUPERUSER_PASSWORD'
+    } else {
+        $env:PGUSER = [Uri]::UnescapeDataString($Matches['user'])
+        $env:PGPASSWORD = [Uri]::UnescapeDataString($Matches['pw'])
+    }
+    # 도구 메시지를 영어로 — 한국어 Windows 콘솔(cp949)에서 UTF-8 메시지가 깨지는 것을 피한다
+    $env:LC_MESSAGES = 'C'
+    return @{ Db = $Matches['db']; User = [Uri]::UnescapeDataString($Matches['user']) }
+}
+
+function Clear-PgCredential {
+    Remove-Item env:PGPASSWORD, env:PGUSER, env:PGHOST, env:PGPORT, env:PGDATABASE -ErrorAction SilentlyContinue
 }

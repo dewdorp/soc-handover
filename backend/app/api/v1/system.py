@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from app import __version__
 from app.audit.actions import BACKUP, RESTORE
 from app.audit.recorder import record
 from app.auth.deps import require_password_changed
@@ -43,6 +44,7 @@ def health(db: Session = Depends(get_db)):
     return {
         "status": "ok" if db_ok else "degraded",
         "app": settings.APP_NAME,
+        "version": __version__,
         "env": settings.APP_ENV,
         "database": dialect_name(),
         "database_ok": db_ok,

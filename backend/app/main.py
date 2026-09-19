@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.requests import Request
 
+from app import __version__
 from app.api.v1 import api_router
 from app.core.config import settings
 from app.core.errors import register_error_handlers
@@ -57,7 +58,7 @@ def _recover_jobs() -> None:
 def create_app() -> FastAPI:
     app = FastAPI(
         title=settings.APP_NAME,
-        version="0.1.0",
+        version=__version__,
         docs_url="/api/docs" if settings.ENABLE_DOCS else None,
         redoc_url=None,
         openapi_url="/api/openapi.json" if settings.ENABLE_DOCS else None,

@@ -25,7 +25,9 @@ DEFAULTS: dict[str, tuple[Any, str, str, bool]] = {
         "attachment", "업로드 허용 확장자", False,
     ),
     "attachment.max_size_mb": (settings.UPLOAD_MAX_MB, "attachment", "파일당 최대 크기(MB)", False),
-    "retention.audit_days": (365, "retention", "감사로그 보존일수", False),
+    "retention.audit_days": (365, "retention",
+                             "감사로그 보존일수. 지난 것은 매일 백업 직후 backup/audit-archive 로 옮긴 뒤 DB 에서 지운다(최소 365일).",
+                             False),
     "export.max_rows": (settings.EXPORT_MAX_ROWS, "export", "Export 최대 행수", False),
     "shift.carry_forward_auto": (True, "shift", "미완료 업무를 다음 교대 Basket 후보로 자동 제시", False),
     "import.header_aliases": (

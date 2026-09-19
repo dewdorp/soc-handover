@@ -69,7 +69,7 @@ if (-not $SkipFrontend) {
     if ($node) {
         Write-Ok "Node.js: $(& $node --version) ($node)"
     } elseif ($prebuiltUi) {
-        # 이전 패키지(package.ps1 -Offline)에 빌드 결과가 포함된 경우
+        # frontend\dist 가 이미 있는 경우(빌드된 소스를 받은 경우)
         Write-Ok '사전 빌드된 UI 사용 (Node.js 불필요)'
         $SkipFrontend = $true
     } else {
@@ -150,8 +150,7 @@ if ($offlineWheels) {
 if ($LASTEXITCODE -ne 0) {
     Write-Err '의존성 설치 실패'
     if (-not $offlineWheels) {
-        Write-Host '   인터넷이 차단된 환경이면 인터넷 되는 PC에서 .\package.ps1 -Offline 으로'
-        Write-Host '   패키지를 만들어 옮기십시오.'
+        Write-Host '   인터넷이 차단된 PC 라면 소스 설치 대신 오프라인 설치 패키지를 쓰십시오(INSTALL_WINDOWS.md A장).'
     }
     exit 1
 }

@@ -55,7 +55,7 @@ Write-Host ''
 Write-Host '───────────────────────────────────────────────' -ForegroundColor Yellow
 Write-Host ' 경고: 현재 데이터베이스의 내용이 모두 대체됩니다.' -ForegroundColor Yellow
 Write-Host "  대상 백업 : $(Split-Path -Leaf $File)"
-Write-Host "  현재 DB   : $(Get-EnvValue 'DATABASE_URL')"
+Write-Host "  현재 DB   : $((Get-EnvValue 'DATABASE_URL') -replace '://([^:/@]+):[^@]*@', '://$1:***@')"
 Write-Host '───────────────────────────────────────────────' -ForegroundColor Yellow
 
 if (-not $Yes) {
@@ -63,14 +63,22 @@ if (-not $Yes) {
     if ($answer -ne 'RESTORE') { Write-Host '취소되었습니다.'; exit 0 }
 }
 
-# ---------------------------------------------------------------- 서비스 중지
-$proc = Get-AppProcess
-$wasRunning = $false
-if ($proc) {
-    $wasRunning = $true
-    Write-Step '서비스 중지'
-    & "$PSScriptRoot\stop.ps1" | Out-Null
+if ((Test-IsPostgres) -and $File -like '*.db') {
+    Write-Err '이 설치본은 PostgreSQL 을 씁니다. SQLite 백업(.db)은 복구할 수 없습니다(Excel 내보내기/가져오기로 옮기십시오).'
+    exit 1
 }
+if ((Test-ServiceMode) -and -not (Test-IsAdmin)) {
+    Write-Err '서비스 모드로 설치되어 있어 관리자 권한이 필요합니다. restore.cmd 로 실행하십시오.'
+    exit 1
+}
+
+# ---------------------------------------------------------------- 서비스 중지
+$wasRunning = [bool](Get-AppProcess) -or [bool](Test-AppHealth 2)
+if ($wasRunning) {
+    Write-Step '앱 중지 (DB 는 켜 둠)'
+    & "$PSScriptRoot\stop.ps1" -KeepDb | Out-Null
+}
+if ((Test-BundledDb) -and -not (Start-BundledDb)) { exit 1 }
 
 # ---------------------------------------------------------------- 안전 백업
 Write-Step '현재 상태 안전 백업'
@@ -88,18 +96,41 @@ Write-Ok '안전 백업 완료'
 # ---------------------------------------------------------------- 복구
 Write-Step '복구 수행'
 if (Test-IsPostgres) {
-    $pgRestore = Get-Command pg_restore -ErrorAction SilentlyContinue
-    if (-not $pgRestore) {
-        foreach ($p in @('C:\Program Files\PostgreSQL\17\bin', 'C:\Program Files\PostgreSQL\16\bin',
-                         'C:\Program Files\PostgreSQL\15\bin')) {
-            if (Test-Path (Join-Path $p 'pg_restore.exe')) { $pgRestore = Join-Path $p 'pg_restore.exe'; break }
-        }
-    } else { $pgRestore = $pgRestore.Source }
-    if (-not $pgRestore) { Write-Err 'pg_restore 를 찾지 못했습니다.'; exit 1 }
+    $pgBin = Resolve-PgBin
+    if (-not $pgBin) { Write-Err 'pg_restore 를 찾지 못했습니다(.env 의 PG_BIN 으로 지정 가능).'; exit 1 }
+    $psql = Join-Path $pgBin 'psql.exe'
+    $pgRestore = Join-Path $pgBin 'pg_restore.exe'
 
-    $libpq = (Get-EnvValue 'DATABASE_URL') -replace '^postgresql\+\w+://', 'postgresql://'
-    & $pgRestore --clean --if-exists --no-owner --dbname $libpq $File
-    if ($LASTEXITCODE -ne 0) { Write-Err 'pg_restore 실패'; exit 1 }
+    if ((Test-BundledDb) -and (Get-EnvValue 'PG_SUPERUSER_PASSWORD')) {
+        # 함께 설치한 DB: 데이터베이스를 지우고 새로 만든 뒤 그대로 되살린다(남는 객체 없이 깨끗하게)
+        $info = Use-PgCredential -Superuser
+        $restoreCode = 0
+        try {
+            $db = $info.Db; $owner = $info.User
+            & $psql -X -q -v ON_ERROR_STOP=1 -d postgres -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '$db' AND pid <> pg_backend_pid();" | Out-Null
+            & $psql -X -q -v ON_ERROR_STOP=1 -d postgres -c "DROP DATABASE IF EXISTS `"$db`";"
+            if ($LASTEXITCODE -ne 0) { throw 'DROP DATABASE 실패' }
+            & $psql -X -q -v ON_ERROR_STOP=1 -d postgres -c "CREATE DATABASE `"$db`" OWNER `"$owner`" ENCODING 'UTF8' TEMPLATE template0;"
+            if ($LASTEXITCODE -ne 0) { throw 'CREATE DATABASE 실패' }
+            # 객체 주인은 앱 계정으로(--role), 확장 주석처럼 앱 계정이 못 바꾸는 것은 건너뛴다
+            & $pgRestore --no-owner "--role=$owner" --no-comments --exit-on-error --dbname $db $File
+            $restoreCode = $LASTEXITCODE
+        } catch {
+            Write-Err "복구 준비 실패: $($_.Exception.Message)"
+            $restoreCode = 1
+        } finally { Clear-PgCredential }
+    } else {
+        # 따로 운영하는 PostgreSQL: 앱 계정으로 기존 객체를 지우고 덮어쓴다
+        Use-PgCredential | Out-Null
+        try {
+            & $pgRestore --clean --if-exists --no-owner --dbname $env:PGDATABASE $File
+            $restoreCode = $LASTEXITCODE
+        } finally { Clear-PgCredential }
+    }
+    if ($restoreCode -ne 0) {
+        Write-Err 'pg_restore 실패. 복구 직전 상태는 방금 만든 안전 백업으로 되돌릴 수 있습니다(backup 폴더의 최신 .dump).'
+        exit 1
+    }
 } else {
     $dbFile = Join-Path $DataDir 'soc_handover.db'
     foreach ($sfx in @('', '-wal', '-shm')) {
@@ -108,13 +139,21 @@ if (Test-IsPostgres) {
     }
     Copy-Item $File $dbFile -Force
 }
-Write-Ok '복구 완료'
+Write-Ok 'DB 복구 완료'
+
+# 같은 시각에 만든 첨부 백업이 있으면 함께 되살린다. 첨부는 무작위 이름이라 덮어써도 다른 파일을 해치지 않는다.
+$attZip = Join-Path (Split-Path -Parent $File) ("{0}_attachments.zip" -f [IO.Path]::GetFileNameWithoutExtension($File))
+if (Test-Path $attZip) {
+    Write-Step '첨부 파일 복구'
+    Expand-Archive -Path $attZip -DestinationPath (Join-Path $DataDir 'attachments') -Force
+    Write-Ok "첨부 복구: $(Split-Path -Leaf $attZip)"
+}
 
 # ---------------------------------------------------------------- 스키마 최신화
 Write-Step '스키마 확인'
 Push-Location $BackendDir
 try {
-    & $VenvPython -m alembic upgrade head
+    & $AppPython -m alembic upgrade head
     if ($LASTEXITCODE -ne 0) { Write-Warn2 '마이그레이션 적용 실패 — 수동 확인이 필요합니다.' }
     else { Write-Ok '스키마 최신 상태' }
 } finally { Pop-Location }

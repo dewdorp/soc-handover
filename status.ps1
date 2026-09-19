@@ -18,11 +18,26 @@ function Show-Line([string]$Label, [string]$Value, [string]$Color = 'White') {
 Write-Host ''
 Write-Host '── SOC 인수인계 플랫폼 상태 ─────────────────────────' -ForegroundColor White
 
+# 실행 방식
+$task = Get-AppTask
+if (Test-ServiceMode) {
+    if ($task) {
+        $state = if ($task.State -eq 'Running') { '실행기 동작 중' } else { "실행기 $($task.State)" }
+        Show-Line '실행 방식' "서비스 모드 — 부팅 시 자동 시작 ($state)" $(if ($task.State -eq 'Running') { 'Green' } else { 'Yellow' })
+    } else {
+        Show-Line '실행 방식' '서비스 모드 — 부팅 시 자동 시작 (작업 상태는 관리자 권한으로 확인)'
+    }
+} else {
+    Show-Line '실행 방식' '수동 모드 — start.cmd 로 켜고 stop.cmd 로 끕니다'
+}
+
 # 프로세스
 $proc = Get-AppProcess
 if ($proc) {
     $mem = [math]::Round($proc.WorkingSet64 / 1MB, 1)
     Show-Line '프로세스' "실행 중 (PID $($proc.Id), 메모리 ${mem}MB, 시작 $($proc.StartTime.ToString('MM-dd HH:mm')))" 'Green'
+} elseif ((Test-ServiceMode) -and -not (Test-IsAdmin)) {
+    Show-Line '프로세스' '확인하려면 관리자 권한 필요 (아래 API 응답으로 판단)'
 } else {
     Show-Line '프로세스' '중지됨' 'Yellow'
 }
@@ -36,7 +51,7 @@ else { Show-Line '포트' "$port 미사용" 'Yellow' }
 # 헬스체크
 $health = Test-AppHealth 3
 if ($health) {
-    Show-Line 'API' "$(Get-HealthUrl) → $($health.status)" 'Green'
+    Show-Line 'API' "$(Get-HealthUrl) → $($health.status) (버전 $($health.version))" 'Green'
     Show-Line 'DB 연결' "$($health.database) / $(if ($health.database_ok) {'정상'} else {'실패'})" `
         $(if ($health.database_ok) { 'Green' } else { 'Red' })
 } else {
@@ -44,10 +59,10 @@ if ($health) {
 }
 
 # 마이그레이션 리비전
-if (Test-Path $VenvPython) {
+if (Test-Path $AppPython) {
     Push-Location $BackendDir
     try {
-        $rev = (& $VenvPython -c @"
+        $rev = (& $AppPython -c @"
 from sqlalchemy import text
 from app.core.db import engine
 try:
@@ -59,7 +74,7 @@ except Exception as e:
         Show-Line '마이그레이션' ($rev | Select-Object -Last 1)
     } finally { Pop-Location }
 } else {
-    Show-Line '설치 상태' '가상환경 없음 — install.ps1 필요' 'Yellow'
+    Show-Line '설치 상태' 'Python 없음 — 설치 프로그램을 다시 실행하십시오' 'Yellow'
 }
 
 # 프론트엔드
@@ -70,9 +85,21 @@ if (Test-Path $dist) {
     Show-Line '프론트엔드' '빌드 없음 (API 전용 동작)' 'Yellow'
 }
 
-# DB 크기
-if (Test-IsPostgres) {
-    Show-Line '데이터베이스' 'PostgreSQL' 'Green'
+# DB
+if (Test-BundledDb) {
+    $svc = Get-DbService
+    $ready = Test-DbReady
+    $how = if ($svc) { "서비스 $($svc.Name): $($svc.Status)" } else { '수동 실행' }
+    Show-Line '데이터베이스' "PostgreSQL (함께 설치, 포트 $(Get-PgPort), $how) — $(if ($ready) {'응답함'} else {'응답 없음'})" `
+        $(if ($ready) { 'Green' } else { 'Red' })
+    $pgData = Get-PgData
+    if (Test-Path $pgData) {
+        $pgSize = [math]::Round(((Get-ChildItem $pgData -Recurse -File -ErrorAction SilentlyContinue |
+            Measure-Object Length -Sum).Sum) / 1MB, 1)
+        Show-Line 'DB 크기' "${pgSize}MB ($pgData)"
+    }
+} elseif (Test-IsPostgres) {
+    Show-Line '데이터베이스' 'PostgreSQL (별도 운영)' 'Green'
 } else {
     $dbFile = Join-Path $DataDir 'soc_handover.db'
     if (Test-Path $dbFile) {
@@ -111,7 +138,7 @@ if ($last) {
 $errLog = Join-Path $LogDir 'error.log'
 if (Test-Path $errLog) {
     $errCount = @(Select-String -Path $errLog -Pattern 'ERROR' -ErrorAction SilentlyContinue).Count
-    Show-Line '오류 로그' "$errCount건 ($errLog)" $(if ($errCount -gt 0) { 'Yellow' } else { 'White' })
+    Show-Line '오류 로그' "$($errCount)건 ($errLog)" $(if ($errCount -gt 0) { 'Yellow' } else { 'White' })
 }
 
 Write-Host '─────────────────────────────────────────────────────' -ForegroundColor White

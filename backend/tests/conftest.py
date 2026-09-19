@@ -1,6 +1,12 @@
 """테스트 공통 설정.
 
-실제 DB(SQLite 파일)와 실제 API 를 사용한다. In-memory mock 으로 대체하지 않는다(§88).
+실제 DB 와 실제 API 를 사용한다. In-memory mock 으로 대체하지 않는다(§88).
+
+- 기본: 임시 SQLite 파일. 스키마는 모델에서 바로 만든다.
+- `TEST_DATABASE_URL` 을 주면 그 PostgreSQL 에서 돈다(운영 DB 와 같은 방언). 스키마는 **실제 마이그레이션**
+  (alembic upgrade head)으로 만들어 PG 전용 객체(tsvector 트리거 · trigram 인덱스)까지 함께 검증한다.
+  그 DB 의 public 스키마는 통째로 지우고 다시 만드므로 **테스트 전용 DB** 만 주어야 한다.
+    예) TEST_DATABASE_URL=postgresql+psycopg://soc_test:soctest@127.0.0.1:55440/soc_test
 """
 from __future__ import annotations
 
@@ -15,13 +21,15 @@ import pytest
 _TMP = Path(tempfile.mkdtemp(prefix="soc_handover_test_"))
 os.environ["APP_ENV"] = "test"
 os.environ["SECRET_KEY"] = "test-only-secret-key-not-for-production-use-0123456789"
-os.environ["DATABASE_URL"] = f"sqlite+pysqlite:///{(_TMP / 'test.db').as_posix()}"
+_PG_URL = os.environ.get("TEST_DATABASE_URL", "")
+os.environ["DATABASE_URL"] = _PG_URL or f"sqlite+pysqlite:///{(_TMP / 'test.db').as_posix()}"
 os.environ["DATA_DIR"] = str(_TMP / "data")
 os.environ["BACKUP_DIR"] = str(_TMP / "backup")
 os.environ["LOG_DIR"] = str(_TMP / "logs")
 os.environ["COOKIE_SECURE"] = "false"
 
 from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import text  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
 from app.core.db import SessionLocal, engine  # noqa: E402
@@ -36,9 +44,24 @@ MANAGER_PW = "ManagerTest!2026#soc"
 ANALYST_PW = "AnalystTest!2026#soc"
 
 
+def _migrate_postgres() -> None:
+    from alembic import command
+    from alembic.config import Config
+    from sqlalchemy import text
+    with engine.begin() as conn:
+        conn.execute(text("DROP SCHEMA public CASCADE"))
+        conn.execute(text("CREATE SCHEMA public"))
+    cfg = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
+    cfg.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "alembic"))
+    command.upgrade(cfg, "head")
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _schema():
-    Base.metadata.create_all(engine)
+    if _PG_URL:
+        _migrate_postgres()
+    else:
+        Base.metadata.create_all(engine)
     yield
     engine.dispose()
     shutil.rmtree(_TMP, ignore_errors=True)
@@ -48,8 +71,13 @@ def _schema():
 def _clean_db(_schema):
     """테스트마다 데이터를 비우고 기준 데이터를 다시 구성한다."""
     with SessionLocal() as db:
-        for table in reversed(Base.metadata.sorted_tables):
-            db.execute(table.delete())
+        if _PG_URL:
+            # 한 번에 비우고 번호도 1부터 — 테스트가 id 를 가정해도 SQLite 와 같게
+            names = ", ".join(t.name for t in Base.metadata.sorted_tables)
+            db.execute(text(f"TRUNCATE {names} RESTART IDENTITY CASCADE"))
+        else:
+            for table in reversed(Base.metadata.sorted_tables):
+                db.execute(table.delete())
         db.commit()
         bootstrap_service.ensure_reference_data(db)
         bootstrap_service.ensure_default_company(db)

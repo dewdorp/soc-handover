@@ -36,3 +36,6 @@ soc-handover_*.zip
 .idea/
 Thumbs.db
 desktop.ini
+
+# 오프라인 패키지 빌드 산출물 · 내려받은 외부 배포 파일
+/build/

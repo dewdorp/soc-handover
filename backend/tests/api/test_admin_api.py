@@ -16,7 +16,7 @@ from app.core.time import KST, today
 from app.main import app
 from app.models.common import Attachment, AuditLog, Notification, SystemSetting
 from app.models.reference import Company
-from app.services import audit_service
+from app.services import audit_archive_service, audit_service
 from tests.conftest import ADMIN_PW, ANALYST_PW, MANAGER_PW, ApiClient
 from tests.excel_factory import XLSX, build_workbook
 
@@ -66,7 +66,7 @@ def _upload(client, entity_id, name="log.txt", data=b"hello", entity_type="HANDO
 
 class TestAuditCoverage:
     def test_every_defined_action_is_recorded(self, people, cid, db):
-        """정의된 감사 행위 35종을 실제 API 로 한 번씩 일으킨다(완료 기준: 30종 이상)."""
+        """정의된 감사 행위 전부(34종)를 실제 API · 배치로 한 번씩 일으킨다(완료 기준: 30종 이상)."""
         admin, mgr, hong = people["admin"], people["mgr"], people["hong"]
         ids = people["ids"]
 
@@ -125,6 +125,11 @@ class TestAuditCoverage:
         admin.patch("/api/v1/settings/export.max_rows", json={"value": 50_000})            # SETTING_CHANGE
         for action in ("BACKUP", "RESTORE"):                                                # 운영 스크립트
             admin.post("/api/v1/audit/system-event", json={"action": action, "detail": {"file": "x.db"}})
+        # AUDIT_ARCHIVE — 1년 넘은 감사로그 한 건을 만들어 보관 정리를 돌린다
+        db.add(AuditLog(event_uuid="0" * 32, occurred_at=datetime.now(KST) - timedelta(days=400),
+                        action="LOGIN_SUCCESS", result="SUCCESS", username="old"))
+        db.commit()
+        audit_archive_service.archive_expired(db, out_dir=settings.BACKUP_DIR / "audit-archive-test")
 
         recorded = {a for (a,) in db.execute(select(AuditLog.action).distinct())}
         missing = sorted(set(actions.ALL_ACTIONS) - recorded)

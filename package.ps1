@@ -1,238 +1,252 @@
 ﻿<#
 .SYNOPSIS
-    다른 PC로 옮기기 위한 배포 패키지(zip) 생성
+    인터넷 없는 PC 용 오프라인 설치 패키지(zip) 만들기 — 개발 PC(인터넷 되는 곳)에서 실행
 
 .DESCRIPTION
-    소스만 담은 가벼운 패키지, 또는 인터넷이 없는 PC에서도 설치 가능한
-    오프라인 패키지를 만듭니다.
+    필요한 것을 모두 담은 zip 하나를 만듭니다. 대상 PC 에는 아무것도 미리 설치할 필요가 없습니다.
 
-    옮기면 안 되는 것은 자동으로 제외합니다.
-      · backend\.venv        가상환경(절대경로가 박혀 있어 다른 PC에서 동작하지 않음)
-      · frontend\node_modules  pnpm 심볼릭 링크 구조라 복사해도 깨짐
-      · .env                 SECRET_KEY·DB 비밀번호. 대상 PC에서 새로 생성해야 함
-      · logs, run            런타임 산출물
+      SOC-Handover-<버전>\
+        INSTALL.cmd              더블클릭 → 관리자 권한 요청 → 설치/업그레이드
+        README-KO.txt            설치 안내
+        setup\setup.ps1          설치 프로그램 본체
+        setup\vc_redist.x64.exe  Visual C++ 런타임(PostgreSQL 에 필요, 없을 때만 설치)
+        payload\                 설치 폴더(C:\SOC-Handover)로 복사되는 것
+          backend\ frontend\dist\ scripts\ docs\ *.ps1 *.cmd
+          runtime\python\        Python 3.12 + 서버 라이브러리(설치 완료 상태)
+          runtime\pgsql\         PostgreSQL 16 (bin · lib · share 만)
+          runtime\wheels\        라이브러리 원본(현장 복구용)
+        MANIFEST.sha256          파일마다 해시 — 설치 프로그램이 복사 손상을 검사
+        VERSION.txt
 
-.PARAMETER Offline
-    대상 PC에 인터넷이 없을 때 사용합니다.
-    · Python 패키지(wheel)를 backend\offline-wheels 로 미리 내려받아 포함
-    · 이미 빌드된 frontend\dist 를 포함 → 대상 PC에 Node.js 가 필요 없습니다
+    외부 배포 파일은 build\cache 에 둡니다(없으면 -Download 로 받음, git 에는 올리지 않음).
+      postgresql-16.x-windows-x64-binaries.zip  (EnterpriseDB 공식)
+      vc_redist.x64.exe                         (Microsoft 공식)
+      wheels\                                   (PyPI — requirements.lock 버전 그대로)
 
-.PARAMETER IncludeData
-    현재 데이터(인수인계 내용)를 함께 옮깁니다. 최신 백업을 새로 만들어 포함합니다.
-    ※ 인수인계 전문이 들어가므로 취급에 주의하십시오.
+.PARAMETER Download
+    build\cache 에 없는 외부 배포 파일을 인터넷에서 받습니다.
+
+.PARAMETER SkipFrontendBuild
+    화면을 다시 빌드하지 않고 지금의 frontend\dist 를 씁니다.
 
 .PARAMETER OutDir
-    패키지를 만들 위치. 기본값은 프로젝트 상위 폴더.
+    zip 을 만들 폴더. 기본 build\dist.
 
 .EXAMPLE
-    .\package.ps1
-    소스만 담은 패키지(대상 PC에 인터넷 필요)
-
-.EXAMPLE
-    .\package.ps1 -Offline -IncludeData -OutDir D:\usb
-    인터넷 없는 PC용 + 현재 데이터 포함
+    .\package.ps1 -Download
 #>
 [CmdletBinding()]
 param(
-    [switch]$Offline,
-    [switch]$IncludeData,
+    [switch]$Download,
+    [switch]$SkipFrontendBuild,
     [string]$OutDir
 )
 
 . "$PSScriptRoot\scripts\common.ps1"
-Import-DotEnv | Out-Null
 
-if (-not $OutDir) { $OutDir = Split-Path -Parent $Root }
-if (-not (Test-Path $OutDir)) { New-Item -ItemType Directory -Path $OutDir -Force | Out-Null }
+$PgVersion = '16.15-2'
+$PgUrl = "https://get.enterprisedb.com/postgresql/postgresql-$PgVersion-windows-x64-binaries.zip"
+$VcUrl = 'https://aka.ms/vs/17/release/vc_redist.x64.exe'
 
-$stamp = Get-Date -Format 'yyyyMMdd_HHmm'
-$name = "soc-handover_$stamp" + $(if ($Offline) { '_offline' } else { '' })
-$stage = Join-Path ([System.IO.Path]::GetTempPath()) $name
-$zipPath = Join-Path $OutDir "$name.zip"
+$BuildDir = Join-Path $Root 'build'
+$Cache = Join-Path $BuildDir 'cache'
+$PgZip = Join-Path $Cache "postgresql-$PgVersion-windows-x64-binaries.zip"
+$VcExe = Join-Path $Cache 'vc_redist.x64.exe'
+$Wheels = Join-Path $Cache 'wheels'
+if (-not $OutDir) { $OutDir = Join-Path $BuildDir 'dist' }
 
-if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
-New-Item -ItemType Directory -Path $stage -Force | Out-Null
+$initPy = Get-Content (Join-Path $BackendDir 'app\__init__.py') -Raw
+if ($initPy -notmatch '__version__\s*=\s*"([^"]+)"') { Write-Err 'app\__init__.py 에서 버전을 읽지 못했습니다.'; exit 1 }
+$Version = $Matches[1]
+$Name = "SOC-Handover-$Version"
+$Stage = Join-Path $BuildDir "stage\$Name"
+$PayloadDir = Join-Path $Stage 'payload'
 
-Write-Host '==============================================' -ForegroundColor White
-Write-Host ' 배포 패키지 생성' -ForegroundColor White
-Write-Host '==============================================' -ForegroundColor White
+function Invoke-Robo([string]$From, [string]$To, [string[]]$Extra) {
+    $null = & robocopy.exe $From $To @Extra /NFL /NDL /NJH /NJS /NP /R:1 /W:1
+    if ($LASTEXITCODE -ge 8) { throw "복사 실패: $From → $To (robocopy $LASTEXITCODE)" }
+    $global:LASTEXITCODE = 0
+}
 
-# ---------------------------------------------------------------- 1. 소스 복사
-Write-Step '소스 복사'
+Write-Host '=====================================================' -ForegroundColor White
+Write-Host " 오프라인 설치 패키지 만들기 — $Name" -ForegroundColor White
+Write-Host '=====================================================' -ForegroundColor White
 
-$exclude = @(
-    '.venv', 'node_modules', '__pycache__', '.pytest_cache', '.mypy_cache',
-    'logs', 'run', 'data', 'backup', '.git', 'offline-wheels'
+try {
+    # ------------------------------------------------------------ 1. 외부 배포 파일
+    Write-Step '외부 배포 파일 (build\cache)'
+    New-Item -ItemType Directory -Path $Cache -Force | Out-Null
+    foreach ($item in @(@{ Path = $PgZip; Url = $PgUrl; Name = "PostgreSQL $PgVersion" },
+                        @{ Path = $VcExe; Url = $VcUrl; Name = 'Visual C++ 재배포 패키지' })) {
+        if (-not (Test-Path $item.Path)) {
+            if (-not $Download) { throw "$($item.Name) 가 없습니다: $($item.Path)  (-Download 로 받으십시오)" }
+            Write-Host "    내려받는 중: $($item.Url)"
+            & curl.exe -sSL --fail -o $item.Path $item.Url
+            if ($LASTEXITCODE -ne 0) { Remove-Item $item.Path -ErrorAction SilentlyContinue; throw "$($item.Name) 내려받기 실패" }
+        }
+        Write-Ok "$($item.Name): $([math]::Round((Get-Item $item.Path).Length / 1MB, 1))MB"
+    }
+
+    $lock = Join-Path $BackendDir 'requirements.lock'
+    $haveWheels = (Test-Path $Wheels) -and (Get-ChildItem $Wheels -Filter *.whl -ErrorAction SilentlyContinue)
+    if (-not $haveWheels) {
+        if (-not $Download) { throw "Python 라이브러리(wheel)가 없습니다: $Wheels  (-Download 로 받으십시오)" }
+        New-Item -ItemType Directory -Path $Wheels -Force | Out-Null
+        & $VenvPython -m pip download --disable-pip-version-check -q --only-binary=:all: --platform win_amd64 `
+            --python-version 3.12 --implementation cp -r (Join-Path $BackendDir 'requirements.txt') -c $lock -d $Wheels
+        if ($LASTEXITCODE -ne 0) { throw 'wheel 내려받기 실패' }
+    }
+    Write-Ok "Python 라이브러리: $((Get-ChildItem $Wheels -Filter *.whl).Count)개 (requirements.lock 버전)"
+
+    # ------------------------------------------------------------ 2. 화면 빌드
+    if (-not $SkipFrontendBuild) {
+        Write-Step '화면(UI) 빌드'
+        $pm = Resolve-PackageManager
+        if (-not $pm) { throw 'Node/pnpm 을 찾지 못했습니다. -SkipFrontendBuild 로 지금의 dist 를 쓰거나 Node 를 설치하십시오.' }
+        Invoke-PackageManager $pm @('run', 'build') $FrontendDir
+        Write-Ok 'frontend\dist 빌드'
+    }
+    if (-not (Test-Path (Join-Path $FrontendDir 'dist\index.html'))) { throw 'frontend\dist 가 없습니다.' }
+
+    # ------------------------------------------------------------ 3. 준비 폴더
+    Write-Step '패키지 구성'
+    if (Test-Path $Stage) { Remove-Item $Stage -Recurse -Force }
+    New-Item -ItemType Directory -Path $PayloadDir -Force | Out-Null
+
+    # 앱
+    Invoke-Robo (Join-Path $BackendDir 'app') (Join-Path $PayloadDir 'backend\app') @('/E', '/XD', '__pycache__')
+    Invoke-Robo (Join-Path $BackendDir 'alembic') (Join-Path $PayloadDir 'backend\alembic') @('/E', '/XD', '__pycache__')
+    foreach ($f in @('alembic.ini', 'manage.py', 'requirements.txt', 'requirements.lock')) {
+        Copy-Item (Join-Path $BackendDir $f) (Join-Path $PayloadDir "backend\$f")
+    }
+    Invoke-Robo (Join-Path $FrontendDir 'dist') (Join-Path $PayloadDir 'frontend\dist') @('/E')
+    New-Item -ItemType Directory -Path (Join-Path $PayloadDir 'scripts') -Force | Out-Null
+    foreach ($f in @('common.ps1', 'service-run.ps1')) { Copy-Item (Join-Path $Root "scripts\$f") (Join-Path $PayloadDir "scripts\$f") }
+    foreach ($f in @('start.ps1', 'stop.ps1', 'status.ps1', 'backup.ps1', 'restore.ps1')) { Copy-Item (Join-Path $Root $f) $PayloadDir }
+    Copy-Item (Join-Path $Root 'deploy\uninstall.ps1') $PayloadDir
+    New-Item -ItemType Directory -Path (Join-Path $PayloadDir 'docs') -Force | Out-Null
+    Copy-Item (Join-Path $Root 'docs\OPERATIONS.md') (Join-Path $PayloadDir 'docs\OPERATIONS.md')
+    Copy-Item (Join-Path $Root 'deploy\README-KO.txt') (Join-Path $PayloadDir 'README-KO.txt')
+
+    # 설치 폴더의 실행 파일(.cmd) — 서비스 모드면 관리자 권한을 요청한다(status 는 권한 없이)
+    $cmdTemplate = @'
+@echo off
+rem SOC Handover - {0}. See docs\OPERATIONS.md
+setlocal
+cd /d "%~dp0"
+if {1}=="elevate" if exist "%~dp0SERVICE_MODE" (
+  fltmc >nul 2>&1
+  if errorlevel 1 (
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+    exit /b
+  )
 )
-$excludeFiles = @('.env', '*.pyc', '*.db', '*.db-wal', '*.db-shm', 'desktop.ini', 'Thumbs.db')
-
-# robocopy 는 대용량 폴더 제외가 빠르고 안정적이다.
-$roboArgs = @(
-    $Root, $stage, '/E', '/NFL', '/NDL', '/NJH', '/NJS', '/NP', '/R:1', '/W:1',
-    '/XD'
-) + $exclude + @('/XF') + $excludeFiles
-
-$null = & robocopy @roboArgs
-# robocopy 종료코드 0~7 은 정상(8 이상이 실패)
-if ($LASTEXITCODE -ge 8) { Write-Err "소스 복사 실패 (robocopy $LASTEXITCODE)"; exit 1 }
-$global:LASTEXITCODE = 0
-
-$copied = (Get-ChildItem $stage -Recurse -File).Count
-Write-Ok "$copied 개 파일 복사"
-
-# dist 는 오프라인 패키지에서만 포함한다(그 외에는 대상 PC에서 빌드)
-$stageDist = Join-Path $stage 'frontend\dist'
-if (-not $Offline -and (Test-Path $stageDist)) {
-    Remove-Item $stageDist -Recurse -Force
-    Write-Ok 'frontend\dist 제외 (대상 PC에서 빌드)'
-}
-
-# ---------------------------------------------------------------- 2. 오프라인 자산
-if ($Offline) {
-    Write-Step '오프라인 설치용 Python 패키지 내려받기'
-
-    if (-not (Test-Path $VenvPython)) {
-        Write-Err '가상환경이 없습니다. 먼저 .\install.ps1 을 실행하십시오.'
-        exit 1
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0{0}.ps1" %*
+echo.
+pause
+'@
+    foreach ($op in @('start', 'stop', 'status', 'backup', 'restore', 'uninstall')) {
+        $mode = if ($op -eq 'status') { 'no' } else { 'elevate' }
+        $text = [string]::Format($cmdTemplate, $op, $mode)
+        [IO.File]::WriteAllText((Join-Path $PayloadDir "$op.cmd"), $text, [Text.Encoding]::ASCII)
     }
+    Write-Ok '앱 · 화면 · 운영 스크립트'
 
-    $wheelDir = Join-Path $stage 'backend\offline-wheels'
-    New-Item -ItemType Directory -Path $wheelDir -Force | Out-Null
+    # Python 런타임: 이 PC 의 Python 3.12(개발 venv 의 원본)를 복사하고, 라이브러리를 그 안에 설치한다
+    Write-Step 'Python 런타임'
+    $cfg = Get-Content (Join-Path $BackendDir '.venv\pyvenv.cfg')
+    $pyHome = (($cfg | Where-Object { $_ -match '^home\s*=' }) -replace '^home\s*=\s*', '').Trim()
+    $pyExe = Join-Path $pyHome 'python.exe'
+    $pyVer = & $pyExe -c "import sys; print('%d.%d.%d' % sys.version_info[:3])"
+    if ($pyVer -notlike '3.12.*') { throw "Python 3.12 가 필요합니다(지금 $pyVer, $pyHome)" }
+    $rtDir = Join-Path $PayloadDir 'runtime\python'
+    Invoke-Robo $pyHome $rtDir @('/E', '/XD', 'Doc', 'tcl', 'include', 'libs', 'Scripts', 'Tools', 'test', 'tests', 'idlelib',
+        'tkinter', 'turtledemo', 'site-packages', '__pycache__',
+        '/XF', '*.pdb', '_tkinter.pyd', 'tcl86t.dll', 'tk86t.dll', '*_d.pyd', '*_d.dll', 'python_d.exe', 'pythonw_d.exe')
+    $rtPy = Join-Path $rtDir 'python.exe'
+    New-Item -ItemType Directory -Path (Join-Path $rtDir 'Lib\site-packages') -Force | Out-Null
+    $env:PIP_NO_WARN_SCRIPT_LOCATION = '1'
+    & $rtPy -m ensurepip --default-pip | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'ensurepip 실패' }
+    & $rtPy -m pip install --disable-pip-version-check -q --no-warn-script-location --no-index `
+        --find-links $Wheels -r (Join-Path $BackendDir 'requirements.txt') -c $lock
+    if ($LASTEXITCODE -ne 0) { throw '라이브러리 설치 실패' }
+    Remove-Item (Join-Path $rtDir 'Scripts') -Recurse -Force -ErrorAction SilentlyContinue   # 절대경로가 박힌 실행 파일
+    & $rtPy -c "import fastapi, uvicorn, sqlalchemy, alembic, psycopg, argon2, openpyxl, xlsxwriter, apscheduler, dateutil, multipart; print('ok', psycopg.pq.version())"
+    if ($LASTEXITCODE -ne 0) { throw '라이브러리 import 확인 실패' }
+    # 미리 컴파일 — 첫 기동이 빨라지고, 쓰기 권한이 없는 폴더에서도 .pyc 를 만들려다 실패하지 않는다
+    & $rtPy -m compileall -q -j 0 (Join-Path $rtDir 'Lib') (Join-Path $PayloadDir 'backend') | Out-Null
+    $global:LASTEXITCODE = 0   # 일부 표준 라이브러리 예제 파일은 일부러 문법 오류라 컴파일 경고가 난다(무시)
+    Write-Ok "Python $pyVer + 라이브러리 $((& $rtPy -m pip list --disable-pip-version-check --format=freeze).Count)개"
 
-    & $VenvPython -m pip download --disable-pip-version-check -q `
-        -r (Join-Path $BackendDir 'requirements.txt') -d $wheelDir
-    if ($LASTEXITCODE -ne 0) {
-        Write-Err 'wheel 내려받기 실패 (이 PC의 인터넷 연결을 확인하십시오)'
-        exit 1
-    }
-    $wheels = Get-ChildItem $wheelDir -File
-    $wheelMb = [math]::Round(($wheels | Measure-Object Length -Sum).Sum / 1MB, 1)
-    Write-Ok "$($wheels.Count) 개 패키지 (${wheelMb}MB)"
+    # PostgreSQL: 서버 실행에 필요한 bin · lib · share 만(pgAdmin · 문서 · StackBuilder 제외)
+    Write-Step 'PostgreSQL'
+    $pgOut = Join-Path $PayloadDir 'runtime\pgsql'
+    & $VenvPython -c @"
+import zipfile, os, shutil, sys
+src, out = sys.argv[1], sys.argv[2]
+keep_dirs = ('pgsql/bin/', 'pgsql/lib/', 'pgsql/share/')
+keep_files = {'pgsql/server_license.txt', 'pgsql/commandlinetools_3rd_party_licenses.txt'}
+skip_bin = {'stackbuilder.exe', 'isolationtester.exe', 'libpq_pipeline.exe', 'libpq_testclient.exe',
+            'libpq_uri_regress.exe', 'pg_isolation_regress.exe', 'pg_regress.exe', 'pg_regress_ecpg.exe',
+            'test_cloexec.exe', 'testplug.dll'}
+n = 0
+with zipfile.ZipFile(src) as z:
+    for i in z.infolist():
+        name = i.filename
+        if i.is_dir() or not (name.startswith(keep_dirs) or name in keep_files):
+            continue
+        base = name.split('/')[-1].lower()
+        if name.startswith('pgsql/bin/') and (base in skip_bin or base.startswith(('wxbase', 'wxmsw'))):
+            continue
+        if name.startswith('pgsql/lib/') and base.endswith('.lib'):
+            continue
+        dest = os.path.join(out, *name.split('/')[1:])
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        with z.open(i) as r, open(dest, 'wb') as w:
+            shutil.copyfileobj(r, w)
+        n += 1
+print(n)
+"@ $PgZip $pgOut
+    if ($LASTEXITCODE -ne 0) { throw 'PostgreSQL 압축 풀기 실패' }
+    $pgVer = & (Join-Path $pgOut 'bin\postgres.exe') --version
+    Write-Ok "$pgVer"
 
-    Write-Step '프론트엔드 빌드 결과 포함'
-    $srcDist = Join-Path $FrontendDir 'dist\index.html'
-    if (-not (Test-Path $srcDist)) {
-        Write-Warn2 'frontend\dist 가 없습니다. 먼저 빌드하십시오(.\install.ps1).'
-        Write-Warn2 '→ 대상 PC에 Node.js 설치가 필요해집니다.'
-    } else {
-        Write-Ok "사전 빌드된 UI 포함 (대상 PC에 Node.js 불필요)"
-    }
+    Invoke-Robo $Wheels (Join-Path $PayloadDir 'runtime\wheels') @('*.whl')
+    Write-Ok '라이브러리 원본(runtime\wheels) — 현장 복구용'
+
+    # 설치 프로그램
+    New-Item -ItemType Directory -Path (Join-Path $Stage 'setup') -Force | Out-Null
+    Copy-Item (Join-Path $Root 'deploy\setup.ps1') (Join-Path $Stage 'setup\setup.ps1')
+    Copy-Item $VcExe (Join-Path $Stage 'setup\vc_redist.x64.exe')
+    Copy-Item (Join-Path $Root 'deploy\INSTALL.cmd') (Join-Path $Stage 'INSTALL.cmd')
+    Copy-Item (Join-Path $Root 'deploy\README-KO.txt') (Join-Path $Stage 'README-KO.txt')
+    # VERSION.txt 는 payload 에 넣지 않는다 — 설치 프로그램이 끝까지 성공했을 때만 설치 폴더에 써서
+    # '설치 완료(다음 실행은 업그레이드)' 표시로 쓴다.
+    Set-Content -Path (Join-Path $Stage 'VERSION.txt') -Encoding ASCII -Value @(
+        $Version, "built $(Get-Date -Format 'yyyy-MM-dd HH:mm')", "python $pyVer", "$pgVer")
+
+    # ------------------------------------------------------------ 4. 마무리 · 압축
+    Write-Step '인코딩 정리 · 무결성 목록 · 압축'
+    $helper = Join-Path $Root 'deploy\pack_helper.py'
+    & $VenvPython $helper normalize $Stage
+    if ($LASTEXITCODE -ne 0) { throw '인코딩 정리 실패' }
+    & $VenvPython $helper manifest $Stage
+    if ($LASTEXITCODE -ne 0) { throw '무결성 목록 생성 실패' }
+    $zip = Join-Path $OutDir "$Name-offline.zip"
+    & $VenvPython $helper zip $Stage $zip
+    if ($LASTEXITCODE -ne 0) { throw '압축 실패' }
+
+    $stageMb = [math]::Round(((Get-ChildItem $Stage -Recurse -File | Measure-Object Length -Sum).Sum) / 1MB, 0)
+    Write-Host ''
+    Write-Host '=====================================================' -ForegroundColor Green
+    Write-Host ' 패키지 생성 완료' -ForegroundColor Green
+    Write-Host '=====================================================' -ForegroundColor Green
+    Write-Host "  파일   : $zip ($([math]::Round((Get-Item $zip).Length / 1MB, 1))MB, 풀면 ${stageMb}MB)"
+    Write-Host "  해시   : $zip.sha256"
+    Write-Host '  옮긴 뒤: 압축을 풀고 INSTALL.cmd 더블클릭 (README-KO.txt 참고)'
+    Write-Host ''
+} catch {
+    Write-Err $_.Exception.Message
+    exit 1
 }
-
-# ---------------------------------------------------------------- 3. 데이터
-if ($IncludeData) {
-    Write-Step '데이터 백업 포함'
-    & "$PSScriptRoot\backup.ps1" -KeepDays 3650 | Out-Null
-
-    $latest = Get-ChildItem $BackupDir -Filter 'soc_handover_*' |
-              Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if (-not $latest) { Write-Err '백업 파일을 만들지 못했습니다.'; exit 1 }
-
-    $dataDir = Join-Path $stage '_restore'
-    New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
-    Copy-Item $latest.FullName $dataDir
-
-    $att = Get-ChildItem $BackupDir -Filter "$($latest.BaseName)_attachments.zip" -ErrorAction SilentlyContinue
-    if ($att) { Copy-Item $att.FullName $dataDir }
-
-    Write-Ok "$($latest.Name) 포함 ($([math]::Round($latest.Length/1MB,2))MB)"
-    Write-Warn2 '이 패키지에는 인수인계 전문이 들어 있습니다. 전달 경로에 주의하십시오.'
-}
-
-# ---------------------------------------------------------------- 4. 안내문
-# 주의: here-string 안에 here-string 을 중첩할 수 없으므로 조각을 미리 만들어 둔다.
-if ($Offline) {
-    $depsNote = @(
-        '   - 인터넷이 없어도 backend\offline-wheels 로 설치됩니다.',
-        '   - UI 는 이미 빌드되어 있어 Node.js 가 필요 없습니다.'
-    ) -join "`r`n"
-} else {
-    $depsNote = @(
-        '   - 인터넷이 필요합니다(pip / npm 내려받기).',
-        '   - UI 빌드를 위해 Node.js 20 이상이 필요합니다.'
-    ) -join "`r`n"
-}
-
-if ($IncludeData) {
-    $dataNote = @(
-        '4) 기존 데이터 복구:',
-        '',
-        "     .\restore.ps1 -File .\_restore\$($latest.Name)",
-        '',
-        '   확인 문구로 RESTORE 를 입력하면 복구됩니다.',
-        '   ※ 복구 후에는 이전 PC의 계정/비밀번호가 그대로 사용됩니다.',
-        '      (install.ps1 에서 만든 새 관리자 계정은 덮어쓰기됩니다)'
-    ) -join "`r`n"
-} else {
-    $dataNote = '4) 데이터는 비어 있습니다. 관리자 > 관계사 등록부터 시작하십시오.'
-}
-
-$kindNote = if ($Offline) { '오프라인(인터넷 없는 PC용)' } else { '소스만(대상 PC에 인터넷 필요)' }
-$dataKind = if ($IncludeData) { '포함 (_restore 폴더)' } else { '미포함 — 새로 시작' }
-
-$readme = @"
-SOC 인수인계 플랫폼 — 이전(移設) 패키지
-=========================================
-만든 날짜 : $(Get-Date -Format 'yyyy-MM-dd HH:mm')
-만든 PC   : $env:COMPUTERNAME
-형태      : $kindNote
-데이터    : $dataKind
-
-대상 PC에서 할 일
------------------
-1) 이 폴더를 원하는 위치에 압축 해제합니다. 예: C:\soc-handover
-   ※ OneDrive 동기화 폴더는 피하는 것을 권장합니다.
-
-2) PowerShell 을 열고 해당 폴더로 이동한 뒤:
-
-     Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-     .\install.ps1
-
-   - Python 3.12 가 필요합니다(없으면 설치 안내가 나옵니다).
-$depsNote
-   - 설치 중 관리자 비밀번호를 새로 입력합니다.
-
-3) 기동:
-
-     .\start.ps1
-
-   브라우저에서 http://localhost:8080/ 접속
-
-$dataNote
-
-포함되지 않은 것 (의도적으로 제외)
-----------------------------------
-  backend\.venv           가상환경 — 절대경로가 박혀 있어 이전 불가. install.ps1 이 새로 만듭니다.
-  frontend\node_modules   pnpm 링크 구조 — 복사 시 깨짐. install.ps1 이 새로 받습니다.
-  .env                    SECRET_KEY / DB 비밀번호 — 대상 PC에서 새로 생성됩니다.
-                          (기존 SECRET_KEY 를 옮기면 이전 PC의 세션 쿠키가 그대로 유효해집니다)
-  logs, run               런타임 산출물
-
-운영 PC 라면
-------------
-  PostgreSQL 16 을 먼저 설치하고 .env 의 DATABASE_URL 을 바꾼 뒤 install.ps1 을 다시 실행하십시오.
-  자세한 내용: INSTALL_WINDOWS.md 3장
-"@
-
-Set-Content -Path (Join-Path $stage '_이전방법.txt') -Value $readme -Encoding UTF8
-Write-Ok '_이전방법.txt 생성'
-
-# ---------------------------------------------------------------- 5. 압축
-Write-Step '압축'
-if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zipPath -CompressionLevel Optimal
-Remove-Item $stage -Recurse -Force
-
-$sizeMb = [math]::Round((Get-Item $zipPath).Length / 1MB, 1)
-
-Write-Host ''
-Write-Host '==============================================' -ForegroundColor Green
-Write-Host ' 패키지 생성 완료' -ForegroundColor Green
-Write-Host '==============================================' -ForegroundColor Green
-Write-Host ''
-Write-Host "  파일 : $zipPath"
-Write-Host "  크기 : ${sizeMb}MB"
-Write-Host ''
-Write-Host '  USB/공유폴더로 옮긴 뒤, 대상 PC에서 압축을 풀고'
-Write-Host '  _이전방법.txt 의 순서대로 진행하십시오.'
-Write-Host ''

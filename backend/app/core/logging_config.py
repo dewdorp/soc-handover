@@ -22,9 +22,10 @@ def setup_logging() -> None:
     root = logging.getLogger()
     root.setLevel(logging.INFO)
 
-    console = logging.StreamHandler()
-    console.setFormatter(fmt)
-    root.addHandler(console)
+    if settings.LOG_CONSOLE:
+        console = logging.StreamHandler()
+        console.setFormatter(fmt)
+        root.addHandler(console)
 
     file_handler = logging.handlers.RotatingFileHandler(
         settings.LOG_DIR / "app.log", maxBytes=10 * 1024 * 1024, backupCount=10,

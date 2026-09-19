@@ -45,13 +45,15 @@ ROLE_CHANGE: Final = "ROLE_CHANGE"
 SETTING_CHANGE: Final = "SETTING_CHANGE"
 BACKUP: Final = "BACKUP"
 RESTORE: Final = "RESTORE"
+#: 보존기간이 지난 감사로그를 보관 파일로 옮긴 뒤 지움(매일 백업 직후, audit_archive_service)
+AUDIT_ARCHIVE: Final = "AUDIT_ARCHIVE"
 
 #: 증적 보장이 필요한 고위험 행위 — 감사 기록 실패 시 업무 트랜잭션도 롤백한다(SECURITY §5)
 CRITICAL_ACTIONS: Final[frozenset[str]] = frozenset({
     LOGIN_SUCCESS, LOGIN_FAILURE, LOGOUT, PASSWORD_CHANGE, PASSWORD_RESET,
     HANDOVER_DELETE, HANDOVER_RESTORE, HANDOVER_UNDELETE,
     EXCEL_IMPORT_ROLLBACK, USER_CREATE, USER_UPDATE, ROLE_CHANGE,
-    SETTING_CHANGE, BACKUP, RESTORE,
+    SETTING_CHANGE, BACKUP, RESTORE, AUDIT_ARCHIVE,
 })
 
 ALL_ACTIONS: Final[tuple[str, ...]] = tuple(

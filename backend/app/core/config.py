@@ -49,6 +49,9 @@ class Settings(BaseSettings):
     DATA_DIR: Path = PROJECT_ROOT / "data"
     BACKUP_DIR: Path = PROJECT_ROOT / "backup"
     LOG_DIR: Path = PROJECT_ROOT / "logs"
+    #: 로그를 콘솔(stderr)에도 쓸지. 서비스 모드는 stderr 를 파일로 받으므로 끈다 —
+    #: 켜 두면 회전되지 않는 uvicorn.err.log 가 끝없이 커진다(파일 로그는 app.log 가 10MB×10 으로 회전).
+    LOG_CONSOLE: bool = True
     FRONTEND_DIST: Path = PROJECT_ROOT / "frontend" / "dist"
 
     # --- 기능 한도 ---

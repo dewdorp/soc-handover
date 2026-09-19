@@ -33,23 +33,19 @@ Write-Step "백업 시작 ($stamp)"
 
 # ---------------------------------------------------------------- DB
 if (Test-IsPostgres) {
-    $pgDump = Get-Command pg_dump -ErrorAction SilentlyContinue
-    if (-not $pgDump) {
-        foreach ($p in @('C:\Program Files\PostgreSQL\17\bin', 'C:\Program Files\PostgreSQL\16\bin',
-                         'C:\Program Files\PostgreSQL\15\bin')) {
-            if (Test-Path (Join-Path $p 'pg_dump.exe')) { $pgDump = Join-Path $p 'pg_dump.exe'; break }
-        }
-    } else { $pgDump = $pgDump.Source }
+    $pgBin = Resolve-PgBin
+    if (-not $pgBin) { Write-Err 'pg_dump 를 찾지 못했습니다(.env 의 PG_BIN 으로 지정 가능).'; exit 1 }
+    if ((Test-BundledDb) -and -not (Test-DbReady)) {
+        Write-Err 'DB 가 응답하지 않습니다. start.cmd 로 켠 뒤 다시 실행하십시오.'; exit 1
+    }
 
-    if (-not $pgDump) { Write-Err 'pg_dump 를 찾지 못했습니다.'; exit 1 }
-
-    # DATABASE_URL(postgresql+psycopg://user:pw@host:port/db) → libpq URL 로 변환
-    $url = Get-EnvValue 'DATABASE_URL'
-    $libpq = $url -replace '^postgresql\+\w+://', 'postgresql://'
     $target = Join-Path $BackupDir "$base.dump"
-
-    & $pgDump --format=custom --no-owner --file $target $libpq
-    if ($LASTEXITCODE -ne 0) { Write-Err 'pg_dump 실패'; exit 1 }
+    Use-PgCredential | Out-Null
+    try {
+        & (Join-Path $pgBin 'pg_dump.exe') --format=custom --no-owner --file $target
+        $dumpCode = $LASTEXITCODE
+    } finally { Clear-PgCredential }
+    if ($dumpCode -ne 0) { Write-Err 'pg_dump 실패'; exit 1 }
     $created += $target
     Write-Ok "DB 백업: $(Split-Path -Leaf $target) ($([math]::Round((Get-Item $target).Length/1MB,2))MB)"
 } else {
@@ -58,8 +54,8 @@ if (Test-IsPostgres) {
     $target = Join-Path $BackupDir "$base.db"
 
     # WAL 내용까지 포함한 일관된 사본을 만든다
-    if (Test-Path $VenvPython) {
-        & $VenvPython -c @"
+    if (Test-Path $AppPython) {
+        & $AppPython -c @"
 import sqlite3, sys
 src = sqlite3.connect(r'$dbFile')
 dst = sqlite3.connect(r'$target')
@@ -103,6 +99,17 @@ if ($old) {
 
 # ---------------------------------------------------------------- 감사 기록
 Write-SystemAudit 'BACKUP' @{ files = @($created | ForEach-Object { Split-Path -Leaf $_ }) } | Out-Null
+
+# ---------------------------------------------------------------- 감사로그 보관 정리
+# 방금 만든 백업에 들어 있으므로 여기서 지워도 잃지 않는다. 보존기간(설정 retention.audit_days)이 지난 것만.
+if (Test-Path $AppPython) {
+    Push-Location $BackendDir
+    try {
+        $archiveOut = Invoke-AppPythonCapture @('manage.py', 'archive-audit')
+        if ($LASTEXITCODE -eq 0) { Write-Ok ($archiveOut | Select-Object -Last 1) }
+        else { Write-Warn2 '감사로그 보관 정리 실패(백업은 정상). logs\app.log 확인' }
+    } finally { Pop-Location }
+}
 
 Write-Host ''
 Write-Ok "백업 완료 → $BackupDir"

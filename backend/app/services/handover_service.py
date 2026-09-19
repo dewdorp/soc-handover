@@ -137,7 +137,10 @@ def _select_one(db: Session, handover_id: int, *, lock: bool = False) -> Handove
     stmt = select(Handover).where(Handover.id == handover_id)
     if lock and dialect_name() == "postgresql":
         # SQLite 는 FOR UPDATE 가 없다(단일 writer 로 직렬화됨). PG 에서만 행을 잠근다.
-        stmt = stmt.with_for_update()
+        # of=Handover: 관계사 · 담당자 등을 LEFT JOIN 으로 함께 읽기 때문에 그냥 FOR UPDATE 면 PG 가
+        # "nullable side of an outer join" 으로 거절한다. 인수인계 행만 잠근다.
+        # populate_existing: 세션에 이미 있던 객체도 잠근 뒤 읽은 값(최신 버전 번호)으로 갱신한다.
+        stmt = stmt.with_for_update(of=Handover).execution_options(populate_existing=True)
     return db.scalar(stmt)
 
 

@@ -4,6 +4,7 @@
   python manage.py bootstrap                     기준 데이터 구성
   python manage.py create-admin --username admin 관리자 생성(비밀번호는 입력 프롬프트)
   python manage.py check                         DB 연결 및 마이그레이션 상태 확인
+  python manage.py archive-audit [--dry-run]     보존기간 지난 감사로그 보관 후 정리
 """
 from __future__ import annotations
 
@@ -79,6 +80,24 @@ def cmd_check(_args) -> int:
     return 0
 
 
+def cmd_archive_audit(args) -> int:
+    """보존기간이 지난 감사로그를 backup/audit-archive 로 옮긴 뒤 지운다(backup.ps1 이 매일 실행)."""
+    from app.services import audit_archive_service
+    with SessionLocal() as db:
+        try:
+            r = audit_archive_service.archive_expired(db, days=args.days, dry_run=args.dry_run)
+        except Exception as exc:
+            print(f"감사로그 보관 정리 실패: {exc}", file=sys.stderr)
+            return 1
+    if args.dry_run:
+        print(f"보존 {r['days']}일 기준, 대상 {r['count']}건 (확인만, 지우지 않음)")
+    elif r["count"]:
+        print(f"감사로그 {r['count']}건 보관 후 정리 → {r['file']}")
+    else:
+        print(f"보존 {r['days']}일이 지난 감사로그 없음")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="manage.py", description="SOC Handover 관리 CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -93,11 +112,16 @@ def main() -> int:
 
     sub.add_parser("check", help="DB 연결/마이그레이션 상태 확인")
 
+    p_arch = sub.add_parser("archive-audit", help="보존기간 지난 감사로그를 보관 파일로 옮긴 뒤 정리")
+    p_arch.add_argument("--days", type=int, default=None, help="보존 일수(기본: 설정 retention.audit_days, 최소 365)")
+    p_arch.add_argument("--dry-run", action="store_true", help="대상 건수만 확인")
+
     args = parser.parse_args()
     handlers = {
         "bootstrap": cmd_bootstrap,
         "create-admin": cmd_create_admin,
         "check": cmd_check,
+        "archive-audit": cmd_archive_audit,
     }
     return handlers[args.command](args)
 

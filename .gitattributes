@@ -1,0 +1,2 @@
+# 배치 파일은 CRLF 로 — cmd.exe 는 LF 만 있는 파일에서 레이블 · goto 를 잘못 읽을 수 있다
+*.cmd text eol=crlf

@@ -46,10 +46,10 @@ const GROUPS: { title?: string; items: NavEntry[] }[] = [
     title: '데이터 · 운영',
     items: [
       { to: '/import', label: 'Excel Import/Export', icon: FileSpreadsheet, permission: 'import:run' },
-      { to: '/stats', label: '통계', icon: BarChart3 },
-      { to: '/audit', label: '감사로그', icon: ShieldCheck, permission: 'audit:read_all' },
+      { to: '/stats', label: '통계', icon: BarChart3, permission: 'stats:read_all' },
+      { to: '/audit', label: '감사로그', icon: ShieldCheck, permission: 'audit:read_self' },
       { to: '/admin/users', label: '관리자', icon: Users, permission: 'user:manage' },
-      { to: '/settings', label: '설정', icon: Settings },
+      { to: '/settings', label: '설정', icon: Settings, permission: 'settings:manage' },
     ],
   },
 ]

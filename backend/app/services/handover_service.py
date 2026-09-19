@@ -519,6 +519,12 @@ def is_starred(db: Session, handover_id: int, user_id: int) -> bool:
 
 # --------------------------------------------------------------------------- Timeline
 
+def _one_line(text: str, limit: int = 60) -> str:
+    """이력 한 줄 미리보기 — 줄바꿈 · 연속 공백을 접고 길면 자른다(전문은 detail 과 댓글 탭에)."""
+    flat = " ".join(text.split())
+    return flat if len(flat) <= limit else flat[:limit] + "…"
+
+
 def timeline(db: Session, handover_id: int) -> list[dict[str, Any]]:
     """Version + Ack + Comment + 교대 인계 + 할일 + 일정을 시간순으로 합친다(FR-B-07).
 
@@ -578,7 +584,7 @@ def timeline(db: Session, handover_id: int) -> list[dict[str, Any]]:
             "_seq": 3_000_000 + comment.id,
             "at": comment.created_at,
             "actor_id": comment.author_id,
-            "title": "댓글",
+            "title": "댓글: " + _one_line(comment.body),
             "detail": {"body": comment.body, "is_edited": comment.is_edited},
         })
 

@@ -7,6 +7,7 @@ import { notificationApi, type AppNotification } from '@/services/api/shift'
 const TYPE_LABEL: Record<string, string> = {
   HANDOVER_TRANSFER: '인계 받음', HANDOVER_REACK: '재확인 필요', HANDOVER_ASSIGNED: '담당 지정',
   TASK_ASSIGNED: '할일 배정', TASK_COMMENT: '할일 댓글', SCHEDULE_ASSIGNED: '일정 배정',
+  IMPORTANT_HANDOVER: '중요 인수인계', TASK_DUE_SOON: '마감 임박', TASK_OVERDUE: '할일 지연',
 }
 
 export default function NotificationPage() {

@@ -12,11 +12,11 @@ import MyWorkPage from '@/features/mywork/MyWorkPage'
 import TaskPage from '@/features/tasks/TaskPage'
 import CalendarPage from '@/features/calendar/CalendarPage'
 import SearchPage from '@/features/search/SearchPage'
-import {
-  AdminPage, AiSearchPage, AuditPage,
-  NotFoundPage, SettingsPage,
-  StatsPage,
-} from '@/pages/placeholders'
+import AuditPage from '@/features/audit/AuditPage'
+import AdminPage from '@/features/admin/AdminPage'
+import SettingsPage from '@/features/admin/SettingsPage'
+import StatsPage from '@/features/stats/StatsPage'
+import { AiSearchPage, NotFoundPage } from '@/pages/placeholders'
 
 const queryClient = new QueryClient({
   defaultOptions: {

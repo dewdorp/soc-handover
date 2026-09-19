@@ -84,7 +84,7 @@ def features(db: Session = Depends(get_db), _: User = Depends(require_password_c
             "max_size_mb": settings_service.get_value(db, "attachment.max_size_mb"),
         },
         "ack": {"reack_fields": settings_service.get_value(db, "ack.reack_fields")},
-        "export": {"max_rows": settings.EXPORT_MAX_ROWS},
+        "export": {"max_rows": int(settings_service.get_value(db, "export.max_rows") or settings.EXPORT_MAX_ROWS)},
         "page": {"default_size": settings.DEFAULT_PAGE_SIZE, "max_size": settings.MAX_PAGE_SIZE},
         "database": dialect_name(),
         #: SQLite 는 개발/평가용이다. 운영 화면에 경고 배너를 띄우기 위한 플래그(ASSUMPTIONS A-01)

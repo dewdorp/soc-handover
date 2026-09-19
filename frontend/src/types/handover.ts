@@ -46,6 +46,8 @@ export interface Acknowledgement {
 export interface HandoverDetail extends HandoverListItem {
   task_count: number
   schedule_count: number
+  comment_count: number
+  attachment_count: number
   content: string
   remark: string | null
   created_by: number | null

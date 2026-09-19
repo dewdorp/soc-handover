@@ -218,6 +218,10 @@ class TestSettings:
         assert listed["retention.audit_days"]["spec"]["min"] == 365
         assert any(c["value"] == "title" for c in listed["ack.reack_fields"]["spec"]["choices"])
 
+    def test_features_follow_export_limit(self, people):
+        people["admin"].patch("/api/v1/settings/export.max_rows", json={"value": 5000})
+        assert people["hong"].get("/api/v1/settings/features").json()["export"]["max_rows"] == 5000,             "내보내기 창이 보여주는 상한도 설정값을 따른다"
+
 
 # --------------------------------------------------------------------------- 댓글
 
@@ -230,6 +234,8 @@ class TestComments:
         assert kim.patch(f"/api/v1/handover-comments/{c['id']}", json={"body": "x"}).status_code == 403
         edited = hong.patch(f"/api/v1/handover-comments/{c['id']}", json={"body": "로그 2개 첨부"}).json()
         assert edited["is_edited"] and edited["body"] == "로그 2개 첨부"
+        line = next(e for e in hong.get(f"{H}/{h['id']}/timeline").json() if e["kind"] == "COMMENT")
+        assert line["title"] == "댓글: 로그 2개 첨부", "이력에서 댓글 내용을 한 줄로 보여준다"
         assert kim.delete(f"/api/v1/handover-comments/{c['id']}").status_code == 403
         assert mgr.delete(f"/api/v1/handover-comments/{c['id']}").status_code == 204, "관리자는 지울 수 있다"
 

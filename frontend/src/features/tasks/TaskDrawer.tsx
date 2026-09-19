@@ -1,5 +1,5 @@
 /**
- * 할일 상세 (UI_STRUCTURE §6) — 필드 · 체크리스트 · 댓글.
+ * 할일 상세 (UI_STRUCTURE §6) — 필드 · 체크리스트 · 연결 일정 · 첨부 · 댓글.
  *
  * 선택 칸(상태·중요도·담당자·날짜)은 고르는 즉시 저장한다. 제목·내용은 '편집'으로.
  * 모든 저장에 지금 보고 있는 버전(expected_version)을 함께 보낸다 — 그사이 다른 사람이
@@ -9,6 +9,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Trash2, X } from 'lucide-react'
+import Attachments from '@/components/Attachments'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import LinkedSchedules from '@/features/calendar/LinkedSchedules'
 import { useMe } from '@/hooks/useAuth'
@@ -204,6 +205,10 @@ export default function TaskDrawer({ taskId, onClose }: { taskId: number; onClos
 
         <Checklist task={task} canEdit={canEdit} onChanged={refresh} />
         <LinkedSchedules task={{ id: task.id, title: task.title }} canCreate={!!me?.permissions.includes('schedule:create')} />
+        <section className="space-y-1.5">
+          <h3 className="text-ink-muted text-sm">첨부</h3>
+          <Attachments entityType="TASK" entityId={task.id} canUpload={canEdit} />
+        </section>
         <Comments taskId={task.id} onChanged={refresh} />
       </div>
 

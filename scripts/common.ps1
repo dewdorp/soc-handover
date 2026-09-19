@@ -163,11 +163,24 @@ function Test-AppHealth([int]$TimeoutSec = 3) {
     } catch { return $null }
 }
 
+function Test-IsAppPython($Proc) {
+    # 이 프로젝트 가상환경의 python 인가. 경로를 읽을 수 없는 프로세스(시스템 프로세스)는 아니다.
+    if (-not $Proc) { return $false }
+    if ($Proc.ProcessName -notmatch '^pythonw?$') { return $false }
+    $path = $Proc.Path
+    if (-not $path) { return $false }
+    return ([IO.Path]::GetFullPath($path) -eq [IO.Path]::GetFullPath($VenvPython))
+}
+
 function Get-AppProcess {
     if (-not (Test-Path $PidFile)) { return $null }
     $raw = (Get-Content $PidFile -Raw).Trim()
     if (-not $raw) { return $null }
     $proc = Get-Process -Id ([int]$raw) -ErrorAction SilentlyContinue
+    # PC 가 비정상 종료되면 PID 파일이 남고, 재부팅 뒤 그 번호를 svchost 같은 시스템
+    # 프로세스가 쓰고 있을 수 있다. 우리 서버가 아니면 없는 것으로 본다 — stop.ps1 이
+    # 엉뚱한 프로세스를 종료하지 않게 하는 안전장치다.
+    if (-not (Test-IsAppPython $proc)) { return $null }
     return $proc
 }
 

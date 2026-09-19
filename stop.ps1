@@ -17,8 +17,13 @@ if (-not $proc) {
     $port = Get-AppPort
     $conn = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
     if ($conn) {
-        $proc = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue
-        if ($proc) { Write-Warn2 "PID 파일이 없어 포트 $port 점유 프로세스를 대상으로 합니다." }
+        $owner = Get-Process -Id @($conn)[0].OwningProcess -ErrorAction SilentlyContinue
+        if (Test-IsAppPython $owner) {
+            $proc = $owner
+            Write-Warn2 "PID 파일이 없어 포트 $port 점유 프로세스를 대상으로 합니다."
+        } elseif ($owner) {
+            Write-Warn2 "포트 $port 를 이 앱이 아닌 프로세스($($owner.ProcessName), PID $($owner.Id))가 쓰고 있습니다. 건드리지 않습니다."
+        }
     }
 }
 
@@ -54,7 +59,8 @@ try {
         $left = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
         if (-not $left) { break }
         foreach ($l in @($left)) {
-            Stop-Process -Id $l.OwningProcess -Force -ErrorAction SilentlyContinue
+            $owner = Get-Process -Id $l.OwningProcess -ErrorAction SilentlyContinue
+            if (Test-IsAppPython $owner) { Stop-Process -Id $owner.Id -Force -ErrorAction SilentlyContinue }
         }
         Start-Sleep -Milliseconds 400
     }

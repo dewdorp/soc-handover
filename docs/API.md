@@ -146,7 +146,10 @@ GET    /handovers/{id}/schedules      GET /tasks/{id}/schedules
 ## 6. 검색 / 저장된 보기
 
 ```
-POST   /search/global        {q, scope:[handover,task,schedule,attachment], limit}
+POST   /search/global        {q, scope:[handover,task,schedule], limit ≤ 50}   ← Ctrl+K 팔레트 · /search 화면
+       → {hits: [{type, id, title, snippet, company, date, matched: [걸린 칸]}], totals: {종류별 건수}}
+       인수인계는 목록 검색과 같은 범위(제목·내용·비고·관계사·전달자·담당자·확인자·태그), 할일·일정은 제목·내용.
+       matched 는 어느 칸에서 걸렸는지 — 이름·관계사·태그로만 걸리면 snippet 이 '확인자: 홍길동' 형태.
                              → 타입별 상위 N + 총 건수 (Ctrl+K 팔레트)
 POST   /search/handovers     = POST /handovers/search (동일 DSL, 별칭)
 GET    /search/facets?target=handover&field=&q=&limit=

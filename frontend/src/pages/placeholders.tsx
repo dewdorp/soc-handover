@@ -20,14 +20,6 @@ export const ShiftPage = () => (
   ]} />
 )
 
-export const SearchPage = () => (
-  <PhasePlaceholder title="통합검색" phase="Phase 3" items={[
-    '제목·내용·비고·관계사·인명·태그 통합 검색',
-    'PostgreSQL Full Text + trigram 한글 부분일치',
-    '컬럼 필터와 동시 사용 · 저장된 보기',
-  ]} />
-)
-
 export const AiSearchPage = () => (
   <PhasePlaceholder title="AI 검색" phase="Phase 9 (선택 기능)" items={[
     '자연어 질문 → 구조화 조건 추출 → 메타데이터 필터',

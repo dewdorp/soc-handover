@@ -59,7 +59,9 @@ export default function TaskPage() {
 
         {board
           ? <TaskBoard assignee={assignee} onOpen={(id) => setParam('id', String(id))} />
-          : <TaskList assignee={assignee} openId={openId} onOpen={(id) => setParam('id', String(id))} />}
+          : <TaskList key={`${params.get('q') ?? ''}|${params.get('closed') ?? ''}`} assignee={assignee} openId={openId}
+                      initialQ={params.get('q') ?? ''} initialClosed={params.get('closed') === '1'}
+                      onOpen={(id) => setParam('id', String(id))} />}
       </div>
 
       {openId != null && <TaskDrawer taskId={openId} onClose={() => setParam('id', null)} />}
@@ -68,9 +70,12 @@ export default function TaskPage() {
   )
 }
 
-function TaskList({ assignee, openId, onOpen }: { assignee: Assignee; openId: number | null; onOpen: (id: number) => void }) {
-  const [q, setQ] = useState('')
-  const [includeClosed, setIncludeClosed] = useState(false)
+function TaskList({ assignee, openId, onOpen, initialQ, initialClosed }: {
+  assignee: Assignee; openId: number | null; onOpen: (id: number) => void
+  initialQ: string; initialClosed: boolean                 // 통합검색 '목록에서 모두 보기'로 넘어온 값
+}) {
+  const [q, setQ] = useState(initialQ)
+  const [includeClosed, setIncludeClosed] = useState(initialClosed)
   const [due, setDue] = useState<TaskSearch['due']>(null)
   const [page, setPage] = useState(1)
   const body: TaskSearch = { q: q.trim() || undefined, assignee, include_closed: includeClosed, due, page, size: PAGE }

@@ -230,6 +230,22 @@ class TestGlobalSearchAndSort:
         assert body["totals"]["handover"] == 1
         assert body["hits"][0]["title"] == "EDR 경고 조사"
         assert "랜섬웨어" in body["hits"][0]["snippet"]
+        assert "내용" in body["hits"][0]["matched"]
+
+    def test_global_tells_which_field_matched(self, admin_client, dataset):
+        """본문에 없는 이름으로 걸린 건은 어느 칸인지 알려준다."""
+        hid = dataset["ids"][0]
+        resp = admin_client.patch(f"/api/v1/handovers/{hid}", json={"expected_version": 1,
+                                                                   "checker_name_raw": "박확인"})
+        assert resp.status_code == 200, resp.text
+        body = admin_client.post("/api/v1/search/global", json={"q": "박확인", "scope": ["handover"]}).json()
+        assert body["totals"] == {"handover": 1}
+        assert body["hits"][0]["matched"] == ["확인자"]
+        assert body["hits"][0]["snippet"] == "확인자: 박확인"
+
+    def test_global_scope_limits_types(self, admin_client, dataset):
+        body = admin_client.post("/api/v1/search/global", json={"q": "EDR", "scope": ["task"]}).json()
+        assert set(body["totals"]) == {"task"} and all(h["type"] == "task" for h in body["hits"])
 
     def test_paging_reports_totals(self, admin_client, dataset):
         body = admin_client.post(SEARCH, json={"size": 2, "page": 1}).json()

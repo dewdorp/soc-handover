@@ -4,7 +4,7 @@
  * 그리드 상태는 전부 URL 에 있다(useGridState). 주소를 복사해 보내면 같은 화면이 뜨고,
  * 새로고침해도 보던 조건이 유지된다.
  */
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bookmark, ChevronLeft, ChevronRight, Download, Plus, RotateCcw, Search, X } from 'lucide-react'
 import CreateHandoverDialog from '@/features/handovers/CreateHandoverDialog'
@@ -32,6 +32,8 @@ export default function HandoverListPage() {
   const qc = useQueryClient()
   const grid = useGridState()
   const [draftQ, setDraftQ] = useState(grid.state.q)
+  // 팔레트·통합검색에서 검색어를 넘겨받으면 입력칸도 따라간다
+  useEffect(() => setDraftQ(grid.state.q), [grid.state.q])
   const [creating, setCreating] = useState(false)
   const [exporting, setExporting] = useState(false)
 
@@ -127,9 +129,9 @@ export default function HandoverListPage() {
 
           <form className="relative" onSubmit={(e) => { e.preventDefault(); grid.patch({ q: draftQ }) }}>
             <Search size={13} className="absolute left-2 top-2 text-ink-faint" />
-            <input className="input w-full pl-7" value={draftQ}
+            <input className="input w-full pl-7" value={draftQ} data-grid-search aria-label="인수인계 검색"
                    onChange={(e) => setDraftQ(e.target.value)}
-                   placeholder="통합 검색 (제목·내용·비고·관계사·인명·태그)" />
+                   placeholder="인수인계 검색 (제목·내용·비고·관계사·인명·태그)  /" />
             {draftQ && (
               <button type="button" aria-label="검색어 지우기"
                       className="absolute right-2 top-1.5 text-ink-faint hover:text-ink"

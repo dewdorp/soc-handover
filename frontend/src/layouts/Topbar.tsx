@@ -10,7 +10,7 @@ const ROLE_LABEL: Record<string, string> = {
   ANALYST: 'SOC 근무자',
 }
 
-export default function Topbar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
+export default function Topbar({ onToggleSidebar, onOpenSearch }: { onToggleSidebar: () => void; onOpenSearch: () => void }) {
   const { data: me } = useMe()
   const { data: features } = useFeatures()
   const logout = useLogout()
@@ -35,10 +35,10 @@ export default function Topbar({ onToggleSidebar }: { onToggleSidebar: () => voi
       <button
         className="flex-1 max-w-xl h-7 px-2.5 rounded border border-surface-border
                    bg-surface-sunken text-ink-faint flex items-center gap-2 hover:bg-white"
-        onClick={() => navigate('/search')}
+        onClick={onOpenSearch} aria-label="통합 검색 (Ctrl+K)" title="인수인계 · 할일 · 일정을 한 번에 찾습니다"
       >
         <Search size={14} />
-        <span className="text-sm">통합 검색</span>
+        <span className="text-sm whitespace-nowrap">통합 검색</span>
         <kbd className="ml-auto text-xs border border-surface-border rounded px-1 bg-surface">
           Ctrl K
         </kbd>
@@ -50,7 +50,7 @@ export default function Topbar({ onToggleSidebar }: { onToggleSidebar: () => voi
           title={features.database_warning}
         >
           <ShieldAlert size={13} />
-          개발용 DB
+          <span className="whitespace-nowrap hidden sm:inline">개발용 DB</span>
         </span>
       )}
 
@@ -65,17 +65,17 @@ export default function Topbar({ onToggleSidebar }: { onToggleSidebar: () => voi
         )}
       </button>
 
-      <div className="text-sm text-right leading-tight">
+      <div className="text-sm text-right leading-tight whitespace-nowrap hidden md:block">
         <div className="font-medium">{me?.display_name}</div>
         <div className="text-ink-faint text-xs">{ROLE_LABEL[me?.role_code ?? ''] ?? ''}</div>
       </div>
 
       <button
-        className="btn btn-sm"
+        className="btn btn-sm" aria-label="로그아웃" title={me ? `${me.display_name} 로그아웃` : '로그아웃'}
         onClick={() => logout.mutate(undefined, { onSettled: () => navigate('/login') })}
       >
         <LogOut size={14} />
-        로그아웃
+        <span className="hidden sm:inline">로그아웃</span>
       </button>
     </header>
   )

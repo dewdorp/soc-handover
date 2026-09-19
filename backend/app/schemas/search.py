@@ -61,6 +61,7 @@ class GlobalHit(BaseModel):
     snippet: str | None = None
     company: str | None = None
     date: Any = None
+    matched: list[str] = []       # 걸린 칸: 제목 · 내용 · 비고 · 관계사 · 전달자 · 담당자 · 확인자 · 태그
 
 
 class GlobalSearchResponse(BaseModel):

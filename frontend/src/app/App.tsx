@@ -11,9 +11,10 @@ import ShiftPage from '@/features/shift/ShiftPage'
 import MyWorkPage from '@/features/mywork/MyWorkPage'
 import TaskPage from '@/features/tasks/TaskPage'
 import CalendarPage from '@/features/calendar/CalendarPage'
+import SearchPage from '@/features/search/SearchPage'
 import {
   AdminPage, AiSearchPage, AuditPage,
-  NotFoundPage, SearchPage, SettingsPage,
+  NotFoundPage, SettingsPage,
   StatsPage,
 } from '@/pages/placeholders'
 

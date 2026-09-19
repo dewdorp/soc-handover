@@ -69,67 +69,99 @@ def capabilities(_: User = Depends(require("search:use"))):
 @router.post("/search/global", response_model=GlobalSearchResponse)
 def global_search(payload: GlobalSearchRequest, db: Session = Depends(get_db),
                   actor: User = Depends(require("search:use"))):
-    """Ctrl+K 팔레트. 타입별 상위 N + 총 건수.
+    """Ctrl+K 팔레트 · 통합검색 화면. 종류별 상위 N + 총 건수.
 
-    Attachment scope 는 해당 Phase 에서 같은 형식으로 덧붙인다.
+    인수인계는 목록 검색창과 같은 규칙(제목·내용·비고·관계사·인명·태그)으로 찾고,
+    결과마다 **어느 칸에서 걸렸는지(matched)** 를 붙인다 — 확인자 이름으로만 걸린 건은
+    제목·내용만 봐서는 왜 나왔는지 알 수 없다. Attachment 는 해당 Phase 에서 덧붙인다.
     """
-    request = SearchRequest(q=payload.q, size=payload.limit, page=1)
-    dsl.validate(request, permissions=frozenset())
+    hits: list[GlobalHit] = []
+    totals: dict[str, int] = {}
+    term = payload.q.strip()
 
-    from app.search.compiler import CompileContext
-    from app.repositories import handover_repo
+    if "handover" in payload.scope:
+        from app.repositories import handover_repo
+        from app.search.compiler import CompileContext
 
-    ctx = CompileContext(user_id=actor.id)
-    total = handover_repo.count(db, request, ctx, include_deleted=False)
-    rows = handover_repo.search(db, request, ctx, include_deleted=False)
-
-    hits = [
-        GlobalHit(
-            type="handover", id=h.id, title=h.title,
-            snippet=_snippet(h.content, payload.q),
-            company=h.company.name if h.company else None,
-            date=h.registered_date,
-        ) for h in rows
-    ]
-    totals = {"handover": total}
-    if "handover" not in payload.scope:
-        hits, totals = [], {}
+        request = SearchRequest(q=payload.q, size=payload.limit, page=1)
+        dsl.validate(request, permissions=frozenset())
+        ctx = CompileContext(user_id=actor.id)
+        totals["handover"] = handover_repo.count(db, request, ctx, include_deleted=False)
+        for h in handover_repo.search(db, request, ctx, include_deleted=False):
+            matched = _handover_matches(h, term)
+            hits.append(GlobalHit(
+                type="handover", id=h.id, title=h.title, matched=[m for m, _ in matched],
+                snippet=_best_snippet(matched, h.content, payload.q),
+                company=h.company.name if h.company else None, date=h.registered_date))
 
     if "task" in payload.scope and has_permission(actor.role_code, "task:read"):
         from app.schemas.task import TaskSearchRequest
         from app.services import task_service
 
-        tasks, task_total = task_service.search(db, actor, TaskSearchRequest(
+        tasks, totals["task"] = task_service.search(db, actor, TaskSearchRequest(
             q=payload.q, include_closed=True, sort="updated_at", size=payload.limit))
-        hits += [
-            GlobalHit(type="task", id=t.id, title=t.title,
-                      snippet=_snippet(t.description, payload.q),
-                      company=t.company.name if t.company else None, date=t.due_date)
-            for t in tasks
-        ]
-        totals["task"] = task_total
+        for t in tasks:
+            matched = _text_matches([("제목", t.title), ("내용", t.description)], term)
+            hits.append(GlobalHit(
+                type="task", id=t.id, title=t.title, matched=[m for m, _ in matched],
+                snippet=_best_snippet(matched, t.description, payload.q),
+                company=t.company.name if t.company else None, date=t.due_date))
 
     if "schedule" in payload.scope and has_permission(actor.role_code, "schedule:read"):
         from sqlalchemy import func, or_, select
 
-        from app.models.schedule import Schedule
         from app.core.time import KST
+        from app.models.schedule import Schedule
 
-        term = payload.q.strip()
         cond = (Schedule.is_deleted.is_(False),
                 or_(Schedule.title.icontains(term, autoescape=True),
                     Schedule.description.icontains(term, autoescape=True)))
-        found = db.scalars(select(Schedule).where(*cond)
-                           .order_by(Schedule.start_at.desc()).limit(payload.limit)).all()
-        hits += [
-            GlobalHit(type="schedule", id=s.id, title=s.title,
-                      snippet=_snippet(s.description, payload.q),
-                      company=s.company.name if s.company else None,
-                      date=s.start_at.astimezone(KST).date())
-            for s in found
-        ]
         totals["schedule"] = db.scalar(select(func.count()).select_from(Schedule).where(*cond)) or 0
+        for sched in db.scalars(select(Schedule).where(*cond)
+                                .order_by(Schedule.start_at.desc()).limit(payload.limit)):
+            matched = _text_matches([("제목", sched.title), ("내용", sched.description)], term)
+            hits.append(GlobalHit(
+                type="schedule", id=sched.id, title=sched.title, matched=[m for m, _ in matched],
+                snippet=_best_snippet(matched, sched.description, payload.q),
+                company=sched.company.name if sched.company else None,
+                date=sched.start_at.astimezone(KST).date()))
+
     return GlobalSearchResponse(q=payload.q, hits=hits, totals=totals)
+
+
+def _person(user, raw: str | None) -> str | None:
+    return user.display_name if user is not None else raw
+
+
+def _text_matches(fields: list[tuple[str, str | None]], term: str) -> list[tuple[str, str]]:
+    needle = term.lower()
+    return [(label, value) for label, value in fields if value and needle in value.lower()]
+
+
+def _handover_matches(h, term: str) -> list[tuple[str, str]]:
+    from app.services.handover_service import tag_names
+
+    return _text_matches([
+        ("제목", h.title), ("내용", h.content), ("비고", h.remark),
+        ("관계사", h.company.name if h.company else None),
+        ("전달자", _person(h.sender, h.sender_name_raw)),
+        ("담당자", _person(h.assignee, h.assignee_name_raw)),
+        ("확인자", _person(h.checker, h.checker_name_raw)),
+        ("태그", ", ".join(tag_names(h)) or None),
+    ], term)
+
+
+def _best_snippet(matched: list[tuple[str, str]], body: str | None, term: str) -> str | None:
+    """본문에서 걸렸으면 그 주변. 제목에서 걸렸으면 본문 앞부분(무슨 건인지).
+    사람·관계사·태그에서만 걸렸으면 '확인자: 홍길동' 처럼 — 제목만 봐서는 왜 나왔는지 모르므로."""
+    labels = [label for label, _ in matched]
+    for label, value in matched:
+        if label in ("내용", "비고"):
+            return _snippet(value, term)
+    if "제목" in labels or not matched:
+        return _snippet(body, term)
+    label, value = matched[0]
+    return f"{label}: {value}"
 
 
 def _snippet(text: str | None, term: str, width: int = 80) -> str | None:

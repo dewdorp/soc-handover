@@ -43,7 +43,7 @@ ACTION_LABELS: dict[str, str] = {
     actions.ATTACHMENT_UPLOAD: "첨부 올림", actions.ATTACHMENT_DOWNLOAD: "첨부 받음",
     actions.ATTACHMENT_DELETE: "첨부 삭제",
     actions.USER_CREATE: "사용자 등록", actions.USER_UPDATE: "사용자 수정", actions.ROLE_CHANGE: "권한 변경",
-    actions.SETTING_CHANGE: "설정 변경", actions.AI_ENABLE: "AI 켬", actions.AI_DISABLE: "AI 끔",
+    actions.SETTING_CHANGE: "설정 변경",
     actions.BACKUP: "백업", actions.RESTORE: "복구",
 }
 
@@ -58,7 +58,7 @@ ACTION_GROUPS: dict[str, list[str]] = {
     "데이터 이동": [actions.EXCEL_IMPORT, actions.EXCEL_IMPORT_ROLLBACK, actions.EXCEL_EXPORT,
                actions.ATTACHMENT_UPLOAD, actions.ATTACHMENT_DOWNLOAD, actions.ATTACHMENT_DELETE],
     "관리": [actions.USER_CREATE, actions.USER_UPDATE, actions.ROLE_CHANGE, actions.SETTING_CHANGE,
-           actions.AI_ENABLE, actions.AI_DISABLE, actions.BACKUP, actions.RESTORE],
+           actions.BACKUP, actions.RESTORE],
 }
 
 

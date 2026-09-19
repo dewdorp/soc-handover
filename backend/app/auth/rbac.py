@@ -51,7 +51,6 @@ _ADMIN_EXTRA: Final[frozenset[str]] = frozenset({
     "user:manage",
     "role:change",
     "settings:manage",
-    "ai:manage",
     "status:manage",
     "shift:manage",
     "system:maintain",

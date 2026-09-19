@@ -77,7 +77,8 @@ export interface SystemSettingRow {
   category: string
   description: string | null
   is_secret: boolean
-  updated_at: string
+  /** 한 번도 바꾸지 않아 DB 에 행이 없으면 null(기본값) */
+  updated_at: string | null
   spec: SettingSpec | null
 }
 

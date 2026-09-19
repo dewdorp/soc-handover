@@ -107,8 +107,6 @@ class AuthProvider(Protocol):
 .env            (git 제외, 설치 시 생성)
   SECRET_KEY=<64byte random>
   DATABASE_URL=postgresql+psycopg://soc_app:<pw>@127.0.0.1:5432/soc_handover
-  LLM_PROVIDER=disabled
-  LLM_BASE_URL= / LLM_API_KEY= / LLM_MODEL=
 ```
 - 소스·문서·스크립트에 실제 비밀번호/키를 넣지 않는다. `.env.example`에는 자리표시자만.
 - DB 계정 분리 권장: 마이그레이션용(DDL)과 애플리케이션용(DML, `handover_versions`·`audit_logs`에 UPDATE/DELETE 없음).
@@ -123,7 +121,6 @@ class AuthProvider(Protocol):
 | `/auth/login` | IP당 20회/5분, 계정당 5회/5분 |
 | 검색/목록 API | 사용자당 120회/분 |
 | Export / Import commit | 사용자당 5회/분, 동시 1건 |
-| AI 검색 | 사용자당 10회/분 (비용·지연 보호) |
 
 인메모리 토큰 버킷(단일 프로세스 전제). 다중 워커 도입 시 DB/파일 기반으로 승격.
 
@@ -158,4 +155,4 @@ class AuthProvider(Protocol):
 7. Version 불변성: API/서비스 경로로 과거 버전 수정·삭제 불가 확인.
 8. Soft delete 우회 조회 불가(일반 사용자).
 9. 비밀번호/토큰이 Audit·로그·응답에 노출되지 않음(로그 grep 검사).
-10. AI OFF 상태에서 `/api/v1/ai/*` 전 경로 404.
+10. AI 는 범위에서 제외 — `/api/v1/ai/*` 경로가 없다(404). 외부 LLM 으로 데이터가 나가는 경로도 없다.

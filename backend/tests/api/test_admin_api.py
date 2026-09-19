@@ -8,13 +8,13 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from app.audit import actions
 from app.core.config import settings
 from app.core.time import KST, today
 from app.main import app
-from app.models.common import Attachment, AuditLog, Notification
+from app.models.common import Attachment, AuditLog, Notification, SystemSetting
 from app.models.reference import Company
 from app.services import audit_service
 from tests.conftest import ADMIN_PW, ANALYST_PW, MANAGER_PW, ApiClient
@@ -123,8 +123,6 @@ class TestAuditCoverage:
         admin.patch(f"/api/v1/users/{u['id']}", json={"team": "야간조"})                    # USER_UPDATE
         admin.patch(f"/api/v1/users/{u['id']}", json={"role_code": "MANAGER"})             # ROLE_CHANGE
         admin.patch("/api/v1/settings/export.max_rows", json={"value": 50_000})            # SETTING_CHANGE
-        admin.patch("/api/v1/settings/ai.search_enabled", json={"value": True})            # AI_ENABLE
-        admin.patch("/api/v1/settings/ai.search_enabled", json={"value": False})           # AI_DISABLE
         for action in ("BACKUP", "RESTORE"):                                                # 운영 스크립트
             admin.post("/api/v1/audit/system-event", json={"action": action, "detail": {"file": "x.db"}})
 
@@ -217,6 +215,16 @@ class TestSettings:
         listed = {s["key"]: s for s in people["admin"].get("/api/v1/settings").json()}
         assert listed["retention.audit_days"]["spec"]["min"] == 365
         assert any(c["value"] == "title" for c in listed["ack.reack_fields"]["spec"]["choices"])
+
+    def test_settings_without_row_show_default(self, people, db):
+        """설치 뒤에 새로 생긴 설정(행 없음)도 목록에 기본값으로 보이고, 저장하면 행이 생긴다."""
+        db.execute(delete(SystemSetting).where(SystemSetting.key == "import.status_aliases"))
+        db.commit()
+        listed = {s["key"]: s for s in people["admin"].get("/api/v1/settings").json()}
+        row = listed["import.status_aliases"]
+        assert row["value"] == {} and row["updated_at"] is None and row["spec"]["kind"] == "aliases"
+        people["admin"].patch("/api/v1/settings/import.status_aliases", json={"value": {"DONE": ["처리끝"]}})
+        assert db.get(SystemSetting, "import.status_aliases").value == {"DONE": ["처리끝"]}
 
     def test_features_follow_export_limit(self, people):
         people["admin"].patch("/api/v1/settings/export.max_rows", json={"value": 5000})

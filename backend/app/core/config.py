@@ -68,14 +68,6 @@ class Settings(BaseSettings):
     #: 할일 마감 알림(임박·지연)을 몇 분마다 돌릴지. 0 이면 끈다(테스트는 0).
     REMINDER_INTERVAL_MIN: int = 30
 
-    # --- LLM (선택) ---
-    LLM_PROVIDER: Literal["disabled", "ollama", "openai_compatible"] = "disabled"
-    LLM_BASE_URL: str | None = None
-    LLM_API_KEY: str | None = None
-    LLM_MODEL: str | None = None
-    LLM_EMBED_MODEL: str | None = None
-    LLM_TIMEOUT_SEC: int = 60
-
     # --- 개발 편의 ---
     DEV_CORS_ORIGINS: list[str] = Field(default_factory=lambda: ["http://127.0.0.1:5173", "http://localhost:5173"])
 

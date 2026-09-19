@@ -15,7 +15,7 @@
 ```
 빠르게 찾는다 / 놓치지 않는다 / 누가 담당하는지 안다 / 다음 교대자에게 정확히 전달한다 /
 확인 여부가 남는다 / 모든 수정 이력이 남는다 / 과거 시점 상태를 복원할 수 있다 /
-감사 시 증적을 제공한다 / AI 없이도 완전하게 사용한다 / 필요하면 AI로 더 쉽게 찾는다
+감사 시 증적을 제공한다 / AI 없이 완전하게 사용한다
 ```
 
 ## 2. 절대 우선순위 (§92)
@@ -30,7 +30,7 @@
 | 6 | 감사 증적 | AuditLog(행위) + VersionHistory(내용) 분리 |
 | 7 | 성능 | 100k~500k rows, 서버사이드 전부, 인덱스 설계 |
 | 8 | 사용 편의성 | Dense/Professional UI, 저소음 |
-| 9 | AI 기능 | Optional, 기본 OFF, 꺼도 100% 동작 |
+| 9 | ~~AI 기능~~ | **범위에서 제외**(2026-09-19, ASSUMPTIONS E-01) |
 
 ## 3. 사용자 및 역할 (§67)
 
@@ -130,20 +130,15 @@
 
 | ID | 요구사항 | AC |
 |---|---|---|
-| FR-G-01 | 우선순위 준수 | ColumnFilter > QuickFilter > GlobalSearch > SavedView > Advanced > FTS > LLM |
+| FR-G-01 | 우선순위 준수 | ColumnFilter > QuickFilter > GlobalSearch > SavedView > Advanced > FTS |
 | FR-G-02 | 전량 서버사이드 | Pagination/Filter/Sort/Search/Aggregation. 전체 데이터 클라이언트 전송 금지 |
 | FR-G-03 | Full Text Search | PostgreSQL FTS + 한글 전략(trigram 병행) |
 | FR-G-04 | Facet 값 조회 | 값이 많으면 서버사이드 검색 |
 
-### FR-H. AI (Optional) — §52~§57
+### FR-H. AI — §52~§57 · **범위에서 제외**
 
-| ID | 요구사항 | AC |
-|---|---|---|
-| FR-H-01 | 관리자 토글 4종 | AI검색/Embedding/AI요약/AI태그추천, 기본 OFF |
-| FR-H-02 | Provider Adapter | disabled / ollama / openai_compatible, 키·엔드포인트 하드코딩 금지 |
-| FR-H-03 | Disabled에서 전 기능 정상 | AI 메뉴 숨김 |
-| FR-H-04 | Hybrid Retrieval | 질문분석→구조화조건→메타데이터필터→(FTS + Vector)→Hybrid Rank→LLM→답변+근거 |
-| FR-H-05 | 근거(Source) 필수 | 없으면 "찾지 못했습니다", 추측 금지 |
+AI(자연어 검색 · 임베딩 · 요약 · 태그 추천)는 만들지 않는다(2026-09-19 사용자 결정, ASSUMPTIONS E-01).
+FR-H-01~05 는 적용하지 않는다. 원래 요구사항은 git 기록의 이 문서 이전 판에 있다.
 
 ### FR-I. 감사/관리 — §60~§66
 
@@ -202,6 +197,5 @@
 | 누가 어느 Version을 확인했는가? | handover_acknowledgements.acked_version_no |
 | 누가 언제 무엇을 수정했는가? | handover_versions.changed_by/at/changed_fields + audit_logs |
 | 감사 시 변경 전 내용 재현? | after_data 전체 스냅샷으로 임의 시점 복원 가능 |
-| LLM을 꺼도 운영 가능한가? | LLM_PROVIDER=disabled 기본값, AI 미사용 경로만으로 전 기능 테스트 |
 | 10만건 이상 검색 가능한가? | 서버사이드 + 복합 인덱스 + tsvector/trgm + keyset 페이징 |
 | Windows 10 운영 가능한가? | 네이티브 프로세스 + PowerShell 6종 스크립트 + 단일 포트 서비스 |

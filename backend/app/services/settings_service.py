@@ -25,21 +25,17 @@ DEFAULTS: dict[str, tuple[Any, str, str, bool]] = {
         "attachment", "업로드 허용 확장자", False,
     ),
     "attachment.max_size_mb": (settings.UPLOAD_MAX_MB, "attachment", "파일당 최대 크기(MB)", False),
-    "ai.search_enabled": (False, "ai", "AI 자연어 검색 사용", False),
-    "ai.embedding_enabled": (False, "ai", "임베딩(Vector) 사용", False),
-    "ai.summary_enabled": (False, "ai", "AI 요약 사용", False),
-    "ai.tag_suggest_enabled": (False, "ai", "AI 태그 추천 사용", False),
     "retention.audit_days": (365, "retention", "감사로그 보존일수", False),
     "export.max_rows": (settings.EXPORT_MAX_ROWS, "export", "Export 최대 행수", False),
     "shift.carry_forward_auto": (True, "shift", "미완료 업무를 다음 교대 Basket 후보로 자동 제시", False),
     "import.header_aliases": (
         {}, "import",
-        "Excel 헤더 별칭 추가분. 예) {\"content\": [\"조치내역\"]}. 코드 기본값과 합쳐진다(D-01).",
+        "Excel 헤더 별칭 추가분. 한 줄에 '필드: 별칭, 별칭' — 예) content: 조치내역. 코드 기본값과 합쳐진다(D-01).",
         False,
     ),
     "import.status_aliases": (
         {}, "import",
-        "Excel 진행상황 문구 → 상태 코드 추가분. 예) {\"DONE\": [\"처리끝\"]}.",
+        "Excel 진행상황 문구 → 상태 코드 추가분. 한 줄에 '상태코드: 문구, 문구' — 예) DONE: 처리끝.",
         False,
     ),
 }
@@ -67,10 +63,7 @@ def set_value(db: Session, key: str, value: Any, *, actor=None,
     row.updated_by = getattr(actor, "id", None)
     db.flush()
 
-    action = actions.SETTING_CHANGE
-    if key.startswith("ai."):
-        action = actions.AI_ENABLE if value else actions.AI_DISABLE
-    record(db, action=action, ctx=ctx, user=actor, resource_type="SETTING",
+    record(db, action=actions.SETTING_CHANGE, ctx=ctx, user=actor, resource_type="SETTING",
            resource_id=key,
            before=None if row.is_secret else {"value": before},
            after=None if row.is_secret else {"value": value})
@@ -93,10 +86,6 @@ SPEC: dict[str, dict[str, Any]] = {
     "retention.audit_days": {"kind": "int", "min": 365, "max": 3650, "unit": "일", "label": "감사로그 보존"},
     "export.max_rows": {"kind": "int", "min": 1_000, "max": 1_000_000, "unit": "행", "label": "Export 최대 행수"},
     "shift.carry_forward_auto": {"kind": "bool", "label": "미완료 자동 이어 넘기기"},
-    "ai.search_enabled": {"kind": "bool", "label": "AI 자연어 검색"},
-    "ai.embedding_enabled": {"kind": "bool", "label": "임베딩"},
-    "ai.summary_enabled": {"kind": "bool", "label": "AI 요약"},
-    "ai.tag_suggest_enabled": {"kind": "bool", "label": "AI 태그 추천"},
     "import.header_aliases": {"kind": "aliases", "label": "Import 컬럼 별칭"},
     "import.status_aliases": {"kind": "aliases", "label": "Import 상태 별칭"},
 }
@@ -166,17 +155,3 @@ def ensure_defaults(db: Session) -> int:
     if created:
         db.flush()
     return created
-
-
-def ai_flags(db: Session) -> dict[str, bool]:
-    """AI 기능 플래그. Provider가 disabled면 개별 토글과 무관하게 전부 꺼진 것으로 본다."""
-    provider_on = settings.LLM_PROVIDER != "disabled"
-    flags = {
-        "search": bool(provider_on and get_value(db, "ai.search_enabled")),
-        "embedding": bool(provider_on and get_value(db, "ai.embedding_enabled")),
-        "summary": bool(provider_on and get_value(db, "ai.summary_enabled")),
-        "tag_suggest": bool(provider_on and get_value(db, "ai.tag_suggest_enabled")),
-    }
-    flags["provider"] = settings.LLM_PROVIDER
-    flags["enabled"] = any(v for k, v in flags.items() if isinstance(v, bool))
-    return flags

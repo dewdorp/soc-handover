@@ -18,7 +18,7 @@
    - (b) **개발/평가 모드**로 SQLite를 사용해 즉시 구동(`DEV_DB=sqlite`).
 3. SQLite 모드에서도 전 기능이 동작하도록 `search/backends/`를 방언별로 분리한다(FTS5 + LIKE).
    단, **운영 모드에서는 화면 상단에 상시 경고 배너**를 띄우고 `status.ps1`이 경고를 출력한다.
-4. Alembic 마이그레이션은 방언 분기(`op.get_bind().dialect.name`)로 PG 전용 객체(tsvector/trgm/pgvector, 부분 인덱스 일부)를 조건부 생성한다.
+4. Alembic 마이그레이션은 방언 분기(`op.get_bind().dialect.name`)로 PG 전용 객체(tsvector/trgm, 부분 인덱스 일부)를 조건부 생성한다.
 
 **영향**: 개발·시연은 즉시 가능, 운영 이관 시 `pg_dump` 대신 마이그레이션 + 데이터 이관 스크립트 1회 실행 필요.
 
@@ -143,7 +143,8 @@ Import 시 자동 생성 OFF가 기본. 매칭 실패해도 `*_name_raw` 텍스�
 ### B-14. 감사 조회 · 댓글 · 첨부 · 알림 (Phase 8)
 - **감사 조회**: 기간 필수, 최대 93일. ANALYST 는 자기 행위만(`audit:read_self`), MANAGER+ 전체. 내보내기(xlsx)도
   `EXCEL_EXPORT`(resource_type=AUDIT)로 남는다. 감사 로그는 앱에서 읽기만 한다.
-- **감사 35종**: 정의된 행위 전부가 실제로 기록된다(테스트로 강제). 완료 기준 '30종 이상' 충족.
+- **감사 33종**: 정의된 행위 전부가 실제로 기록된다(테스트로 강제). 완료 기준 '30종 이상' 충족.
+  (처음 35종에서 AI 켬·끔 2종은 AI 제외로 뺐다 — E-01)
 - **인수인계 댓글**: 본문 버전을 만들지 않고 재확인도 일으키지 않는다. 고치기는 쓴 사람, 지우기는 쓴 사람·MANAGER+,
   지우기는 표시만. 쓰기·고치기·지우기 모두 `HANDOVER_COMMENT`(detail.op), 고치기는 이전 글을 before 에.
 - **첨부**: 허용 확장자·최대 크기는 관리 설정. 실행·스크립트 형식(exe·ps1·html·svg 등)은 허용 목록에 넣을 수도 없다.
@@ -240,16 +241,14 @@ COMMIT 은 행 단위 멱등이라 다시 실행하면 남은 행만 들어간�
 
 ## E. AI
 
-### E-01. 기본값
-`LLM_PROVIDER=disabled`, 4개 AI 토글 모두 OFF. 메뉴·라우트·API 전부 비노출(§54).
-
-### E-02. 로컬 LLM
-사내망 사용을 전제로 Ollama(`http://127.0.0.1:11434`)를 1순위 예시로 문서화한다. 이 PC에는 Ollama가
-설치되어 있어 Phase 9 검증에 사용 가능. 임베딩 모델은 한국어 지원 모델(예: `bge-m3`) 권장.
-
-### E-03. 근거 없는 답변
-후보 0건이면 LLM을 호출하지 않고 즉시 "찾지 못했습니다"를 반환한다(토큰·지연 절약 + 환각 차단).
-
+### E-01. AI 는 범위에서 제외 (2026-09-19 결정)
+사용자 결정: AI 는 필요 없다. 자연어 검색 · 임베딩 · 요약 · 태그 추천(Phase 9)을 **만들지 않는다**.
+- 찾기는 컬럼 필터 · Global Search · FTS · 저장된 보기 · 통합검색(Ctrl+K)으로 한다(ARCHITECTURE §5).
+- 코드에서 뺀 것: `ai.*` 설정 4개(마이그레이션 `a9d4f7c2e815` 가 DB 행도 지운다), `AI_ENABLE` · `AI_DISABLE`
+  감사 행위, `ai:manage` 권한, `LLM_*` 환경변수, 빈 `app/llm` 패키지, `/ai` 화면 · 메뉴, features 의 `ai` 값.
+  감사 행위는 33종이 남는다(Phase 8 완료 기준 30종 이상 유지).
+- 예전 `.env` 에 `LLM_*` 줄이 남아 있어도 무시된다(설정은 모르는 키를 무시).
+- 원래 설계는 git 기록의 이전 판(ARCHITECTURE §8 · API §9 · UI_STRUCTURE §9)에 있다. 다시 넣으려면 그 설계부터 다시 검토한다.
 ---
 
 ## F. 기술 선택
@@ -264,7 +263,7 @@ FullCalendar(MIT 코어, 월/주/일 + DnD) 사용. 상용 플러그인 미사�
 
 ### F-03. 백그라운드 처리
 Celery/Redis를 도입하지 않는다(Windows 단일 노드에 과함). **APScheduler + DB 기반 Job 테이블**로
-Import/Embedding/스윕을 처리하고, 프론트는 폴링한다.
+Import/스윕을 처리하고, 프론트는 폴링한다.
 
 ### F-04. 실시간성
 WebSocket을 도입하지 않는다. 알림·충돌 감지는 30초 폴링(`/notifications/unread-count`,

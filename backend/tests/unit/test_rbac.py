@@ -26,7 +26,7 @@ MATRIX = [
     ("user:manage",            False, False, True),
     ("role:change",            False, False, True),
     ("settings:manage",        False, False, True),
-    ("ai:manage",              False, False, True),
+    ("ai:manage",              False, False, False),   # AI 는 범위에서 뺐다
     ("export:run",             True,  True,  True),
 ]
 

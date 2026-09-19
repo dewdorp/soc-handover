@@ -16,7 +16,7 @@ import AuditPage from '@/features/audit/AuditPage'
 import AdminPage from '@/features/admin/AdminPage'
 import SettingsPage from '@/features/admin/SettingsPage'
 import StatsPage from '@/features/stats/StatsPage'
-import { AiSearchPage, NotFoundPage } from '@/pages/placeholders'
+import NotFoundPage from '@/pages/NotFoundPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -47,7 +47,6 @@ export default function App() {
             <Route path="/tasks/*" element={<TaskPage />} />
             <Route path="/schedules" element={<CalendarPage />} />
             <Route path="/search" element={<SearchPage />} />
-            <Route path="/ai" element={<AiSearchPage />} />
             <Route path="/import/*" element={<ImportWizardPage />} />
             <Route path="/stats" element={<StatsPage />} />
             <Route path="/audit" element={<AuditPage />} />

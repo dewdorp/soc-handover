@@ -32,8 +32,6 @@ export interface Me {
 }
 
 export interface Features {
-  ai_enabled: boolean
-  ai: { provider: string; search: boolean; embedding: boolean; summary: boolean; tag_suggest: boolean }
   attachment: { allowed_ext: string[]; max_size_mb: number }
   ack: { reack_fields: string[] }
   export: { max_rows: number }

@@ -1,6 +1,6 @@
 /**
  * 시스템 설정 (/settings) — 서버가 알려주는 입력 규칙(spec)대로 칸을 그리고, 저장 전 검사도 서버가 한다.
- * 모든 변경은 감사로그(설정 변경 · AI 켬/끔)에 남는다. 비밀 값은 가려서 보여주고 여기서 바꾸지 않는다.
+ * 모든 변경은 감사로그(설정 변경)에 남는다. 비밀 값은 가려서 보여주고 여기서 바꾸지 않는다.
  */
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -11,10 +11,10 @@ import { ApiRequestError } from '@/services/api/client'
 
 const CATEGORY_LABEL: Record<string, string> = {
   handover: '인수인계', shift: '교대 인계', attachment: '첨부', export: '내보내기', retention: '보존',
-  import: 'Excel Import', ai: 'AI (선택 기능 · Phase 9)',
+  import: 'Excel Import',
 }
 /** 자주 바꾸는 것부터. 목록에 없는 분류는 뒤에 붙는다. */
-const CATEGORY_ORDER = ['handover', 'shift', 'attachment', 'export', 'import', 'retention', 'ai']
+const CATEGORY_ORDER = ['handover', 'shift', 'attachment', 'export', 'import', 'retention']
 const rank = (c: string) => { const i = CATEGORY_ORDER.indexOf(c); return i < 0 ? CATEGORY_ORDER.length : i }
 
 export default function SettingsPage() {
@@ -64,7 +64,7 @@ function SettingRow({ row }: { row: SystemSettingRow }) {
         <span className="font-medium">{spec?.label ?? row.key}</span>
         <code className="text-xs text-ink-faint">{row.key}</code>
         <span className="flex-1" />
-        <span className="text-xs text-ink-faint">{format(parseISO(row.updated_at), 'yyyy-MM-dd HH:mm')} 변경</span>
+        <span className="text-xs text-ink-faint">{row.updated_at ? `${format(parseISO(row.updated_at), 'yyyy-MM-dd HH:mm')} 변경` : '기본값'}</span>
       </div>
       {row.description && <p className="text-sm text-ink-muted">{row.description}</p>}
 
@@ -98,7 +98,8 @@ function SettingRow({ row }: { row: SystemSettingRow }) {
       ) : spec.kind === 'ext_list' ? (
         <ExtEditor key={nonce} value={value} label={spec.label} onChange={setValue} />
       ) : (
-        <AliasEditor key={nonce} value={value} onChange={setValue} />
+        <AliasEditor key={nonce} value={value} onChange={setValue}
+                     placeholder={row.key === 'import.status_aliases' ? 'DONE: 처리끝, 조치완료\nHOLD: 보류중' : 'content: 조치내역, 처리내용\nremark: 특이사항'} />
       )}
 
       {spec && spec.kind !== 'bool' && !row.is_secret && (
@@ -125,11 +126,11 @@ function ExtEditor({ value, label, onChange }: { value: unknown; label: string; 
 }
 
 /** '이름: 별칭, 별칭' 한 줄에 하나 — JSON 을 직접 고치지 않게. */
-function AliasEditor({ value, onChange }: { value: unknown; onChange: (v: unknown) => void }) {
+function AliasEditor({ value, onChange, placeholder }: { value: unknown; onChange: (v: unknown) => void; placeholder?: string }) {
   const toText = (v: unknown) => Object.entries((v ?? {}) as Record<string, string[]>).map(([k, xs]) => `${k}: ${xs.join(', ')}`).join('\n')
   const [text, setText] = useState(() => toText(value))
   return (
-    <textarea className="input w-full h-32 py-1 font-mono text-sm resize-y" value={text} aria-label="별칭"
+    <textarea className="input w-full h-32 py-1 font-mono text-sm resize-y" value={text} aria-label="별칭" placeholder={placeholder}
               onChange={(e) => {
                 setText(e.target.value)
                 const obj: Record<string, string[]> = {}

@@ -116,12 +116,6 @@ if ((Test-Path $EnvFile) -and -not $Force) {
         '',
         "DATABASE_URL=$dbUrl",
         '',
-        '# AI 는 기본 비활성. 사용하려면 ollama 또는 openai_compatible 로 변경하십시오.',
-        'LLM_PROVIDER=disabled',
-        'LLM_BASE_URL=',
-        'LLM_API_KEY=',
-        'LLM_MODEL=',
-        '',
         '# 런타임 경로를 직접 지정할 때만 사용',
         '# PYTHON_EXE=',
         '# NODE_EXE='

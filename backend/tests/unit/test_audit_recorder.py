@@ -44,7 +44,7 @@ def test_all_required_actions_defined():
         "CALENDAR_CREATE", "CALENDAR_UPDATE",
         "EXCEL_IMPORT", "EXCEL_EXPORT",
         "USER_CREATE", "USER_UPDATE", "ROLE_CHANGE",
-        "AI_ENABLE", "AI_DISABLE", "SETTING_CHANGE", "BACKUP", "RESTORE",
+        "SETTING_CHANGE", "BACKUP", "RESTORE",
     ]
     for name in required:
         assert getattr(actions, name, None) == name, f"{name} 액션이 정의되지 않았습니다"

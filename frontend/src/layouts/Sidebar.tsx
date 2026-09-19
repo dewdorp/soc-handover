@@ -2,10 +2,10 @@ import { NavLink } from 'react-router-dom'
 import clsx from 'clsx'
 import {
   LayoutDashboard, ClipboardList, ArrowLeftRight, UserCheck, ListTodo,
-  CalendarDays, Search, Sparkles, FileSpreadsheet, BarChart3, ShieldCheck,
+  CalendarDays, Search, FileSpreadsheet, BarChart3, ShieldCheck,
   Settings, Users,
 } from 'lucide-react'
-import { useCan, useFeatures } from '@/hooks/useAuth'
+import { useCan } from '@/hooks/useAuth'
 
 interface NavEntry {
   to: string
@@ -13,8 +13,6 @@ interface NavEntry {
   icon: typeof LayoutDashboard
   /** 필요한 권한(없으면 모두 표시) */
   permission?: string
-  /** AI 활성 시에만 표시 */
-  aiOnly?: boolean
   end?: boolean
 }
 
@@ -39,7 +37,6 @@ const GROUPS: { title?: string; items: NavEntry[] }[] = [
     title: '탐색',
     items: [
       { to: '/search', label: '통합검색', icon: Search },
-      { to: '/ai', label: 'AI 검색', icon: Sparkles, aiOnly: true },
     ],
   },
   {
@@ -56,7 +53,6 @@ const GROUPS: { title?: string; items: NavEntry[] }[] = [
 
 export default function Sidebar({ collapsed }: { collapsed: boolean }) {
   const can = useCan()
-  const { data: features } = useFeatures()
 
   return (
     <nav
@@ -68,9 +64,7 @@ export default function Sidebar({ collapsed }: { collapsed: boolean }) {
     >
       <div className="p-2 space-y-3">
         {GROUPS.map((group, gi) => {
-          const items = group.items.filter(
-            (i) => (!i.permission || can(i.permission)) && (!i.aiOnly || features?.ai_enabled),
-          )
+          const items = group.items.filter((i) => !i.permission || can(i.permission))
           if (items.length === 0) return null
           return (
             <div key={gi}>

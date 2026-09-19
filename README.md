@@ -1,7 +1,7 @@
 # SOC 교대근무 인수인계 · 업무관리 플랫폼
 
 24×365 SOC 교대근무 환경에서 **업무 연속성**을 확보하기 위한 인수인계·할일·일정·검색·이력관리 통합 플랫폼입니다.
-게시판이나 단순 TODO가 아니며, AI 없이도 모든 기능이 동작합니다.
+게시판이나 단순 TODO가 아닙니다. AI 기능은 없습니다(범위에서 제외).
 
 ```
 빠르게 찾는다 · 놓치지 않는다 · 누가 담당하는지 안다 · 다음 교대자에게 정확히 전달한다
@@ -49,7 +49,7 @@ Chrome / Edge ──▶ Uvicorn(FastAPI) :8080 ──▶ PostgreSQL 16
 
 - **Windows 네이티브 실행.** Docker 불필요, 리버스 프록시 불필요(단일 포트에서 UI+API 동시 서빙).
 - **운영 DB는 PostgreSQL.** 미설치 환경에서는 개발/평가용 SQLite로 자동 전환되며, 화면과 `status.ps1`에 경고가 표시됩니다.
-- **AI는 선택 기능.** 기본값 `LLM_PROVIDER=disabled`, 비활성 시 메뉴·API 모두 노출되지 않습니다.
+- **AI 없음.** 자연어 검색 · 요약 같은 AI 기능은 만들지 않기로 했습니다(docs/ASSUMPTIONS.md E-01). 외부로 데이터가 나가는 경로가 없습니다.
 
 | 영역 | 기술 |
 |---|---|
@@ -76,8 +76,7 @@ soc-handover/
 │  │  ├─ auth/          인증 Provider · RBAC
 │  │  ├─ search/        필터 DSL · 검색 백엔드
 │  │  ├─ importers/     Excel 이관
-│  │  ├─ audit/         감사 기록
-│  │  └─ llm/           LLM 어댑터(선택)
+│  │  └─ audit/         감사 기록
 │  ├─ alembic/          마이그레이션
 │  ├─ tests/            실제 DB·실제 API 기반 테스트
 │  └─ manage.py         bootstrap / create-admin / check
@@ -98,7 +97,7 @@ soc-handover/
 | 문서 | 내용 |
 |---|---|
 | [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md) | 기능/비기능 요구사항, 수용기준, 우선순위 |
-| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 도메인·시스템 구조·Version/교대/검색/이관/AI 설계·위험요소 |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 도메인·시스템 구조·Version/교대/검색/이관 설계·위험요소 |
 | [docs/ERD.md](docs/ERD.md) | 30개 테이블 정의와 인덱스 전략 |
 | [docs/API.md](docs/API.md) | REST API 구조와 RBAC 매트릭스 |
 | [docs/UI_STRUCTURE.md](docs/UI_STRUCTURE.md) | 사이트맵·와이어프레임·단축키·표기 규칙 |
@@ -113,14 +112,14 @@ soc-handover/
 |---|---|---|
 | 0 | 설계 문서 7종 | ✅ 완료 |
 | 1 | 인증·RBAC·감사 기반·DB 스키마·Windows 실행환경·AppShell | ✅ 완료 |
-| 2 | 인수인계 CRUD · Version · Diff · 복원 · 낙관적 잠금 | 예정 |
-| 3 | Data Grid · 컬럼 필터 · 검색 · 저장된 보기 | 예정 |
-| 4 | Excel Import 마법사 · 중복검사 · Export | 예정 |
-| 5 | 교대 인수인계 · 확인(ack) · 재확인 · Carry Forward | 예정 |
-| 6 | Task · Checklist · My Work · Board | 예정 |
-| 7 | 일정(Calendar) 및 연계 | 예정 |
-| 8 | 감사 UI · 관리자 · 알림 · 백업/복구 UI | 예정 |
-| 9 | AI 어댑터 · 하이브리드 RAG · 근거 인용 (선택) | 예정 |
+| 2 | 인수인계 CRUD · Version · Diff · 복원 · 낙관적 잠금 | ✅ 완료 |
+| 3 | Data Grid · 컬럼 필터 · 검색 · 저장된 보기 · 통합검색(Ctrl+K) | ✅ 완료 |
+| 4 | Excel Import 마법사 · 중복검사 · Export | ✅ 완료 |
+| 5 | 교대 인수인계 · 확인(ack) · 재확인 · Carry Forward | ✅ 완료 |
+| 6 | Task · Checklist · My Work · Board | ✅ 완료 |
+| 7 | 일정(Calendar) 및 연계 | ✅ 완료 |
+| 8 | 감사로그 · 관리자 · 설정 · 통계 · 댓글 · 첨부 · 알림 · 백업 현황 | ✅ 완료 |
+| 9 | ~~AI 어댑터 · 하이브리드 RAG~~ | 범위에서 제외 |
 | 10 | 성능 · 보안 · E2E · 패키징 · 문서 | 예정 |
 
 ---

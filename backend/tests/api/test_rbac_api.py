@@ -136,10 +136,9 @@ class TestSystemEndpoints:
     def test_features_requires_auth(self, client):
         assert client.get("/api/v1/settings/features").status_code == 401
 
-    def test_features_reports_ai_disabled_by_default(self, analyst_client):
+    def test_features_has_no_ai(self, analyst_client):
         body = analyst_client.get("/api/v1/settings/features").json()
-        assert body["ai_enabled"] is False
-        assert body["ai"]["provider"] == "disabled"
+        assert "ai_enabled" not in body and "ai" not in body, "AI 는 범위에서 뺐다(ASSUMPTIONS E-01)"
         assert body["ack"]["reack_fields"] == [
             "title", "content", "work_date", "status_code", "priority_code", "assignee_id"]
 
@@ -150,7 +149,7 @@ class TestSystemEndpoints:
         rows = admin_client.get("/api/v1/settings").json()
         keys = {r["key"] for r in rows}
         assert "ack.reack_fields" in keys
-        assert "ai.search_enabled" in keys
+        assert not any(k.startswith("ai.") for k in keys)
 
 
 class TestSystemEventAudit:

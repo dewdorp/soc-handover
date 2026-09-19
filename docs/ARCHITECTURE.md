@@ -12,7 +12,7 @@
 |---|---|---|
 | **Continuity** (연속성) | 인수인계 사실의 기록·버전·교대 전달·확인 | Handover, HandoverVersion, Acknowledgement, Shift, ShiftHandover, ShiftHandoverItem |
 | **Work** (실행) | 실제 수행할 액션과 일정 | Task, TaskChecklist, TaskComment, Schedule |
-| **Discovery** (탐색) | 찾기. 필터·검색·저장된 보기·AI | SearchQuery(DSL), SavedView, SearchFeedback, Embedding |
+| **Discovery** (탐색) | 찾기. 필터·검색·저장된 보기 | SearchQuery(DSL), SavedView |
 | **Governance** (통제) | 누가 무엇을 했는가, 권한, 설정 | AuditLog, User, Role, SystemSetting, Notification |
 | **Migration** (이관) | Excel → DB | ExcelImportJob, ExcelImportRow, ExcelImportError |
 
@@ -62,13 +62,12 @@ Handover 1 : N Task, Handover 1 : N Schedule, Task 1 : N Schedule.
 │  │                                                                      │   │
 │  │  [Background] APScheduler in-process                                 │   │
 │  │      · Excel Import Worker (job queue, DB 기반)                       │   │
-│  │      · Embedding Worker (AI ON일 때만)                                │   │
 │  │      · Notification/Carry-Forward 스윕 (교대 시각 기준)                │   │
 │  └──────────────────────────────────────────────────────────────────────┘   │
-│      │                         │                          │                  │
-│      ▼                         ▼                          ▼                  │
-│  PostgreSQL 16            data/attachments/          (선택) Ollama :11434    │
-│  (+pg_trgm, 선택 pgvector)  data/imports/             또는 사내 OpenAI 호환   │
+│      │                         │                                             │
+│      ▼                         ▼                                             │
+│  PostgreSQL 16            data/attachments/                                  │
+│  (+pg_trgm)                 data/imports/                                    │
 │                             data/backup/                                     │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -96,7 +95,7 @@ backend/
    ├─ api/v1/               # 라우터: auth, users, companies, handovers, versions,
    │                        #         acks, shifts, shift_handovers, tasks, schedules,
    │                        #         search, saved_views, imports, exports,
-   │                        #         notifications, audit, settings, ai, stats
+   │                        #         notifications, audit, settings, stats
    ├─ services/             # 도메인 로직 (handover_service, version_service,
    │                        #  ack_service, shift_service, carry_forward, task_service,
    │                        #  import_service, export_service, notification_service)
@@ -113,12 +112,7 @@ backend/
    ├─ importers/excel/      # reader(openpyxl read_only), mapper, validator,
    │                        # fingerprint, duplicate, runner
    ├─ audit/                # recorder.py (서비스에서 호출), decorators.py
-   ├─ llm/
-   │   ├─ base.py           # LLMProvider Protocol
-   │   ├─ providers/        # disabled.py, ollama.py, openai_compatible.py
-   │   ├─ rag/              # query_analyzer, retriever(hybrid), ranker(RRF), answerer
-   │   └─ embedding/        # embedder, store(pgvector | 미사용)
-   ├─ jobs/                 # APScheduler 등록, import worker, embed worker, sweeps
+   ├─ jobs/                 # APScheduler 등록, import worker, sweeps
    ├─ utils/
    └─ tests/                # unit / api / e2e / perf
 ```
@@ -145,8 +139,7 @@ frontend/src/
 │   ├─ search/           # global search, advanced, saved view
 │   ├─ importer/         # 8-step wizard
 │   ├─ audit/
-│   ├─ admin/            # users, settings, statuses, companies
-│   └─ ai/               # AI 검색 (설정 ON일 때만 라우트 등록)
+│   └─ admin/            # users, settings, statuses, companies
 ├─ hooks/                # useQueryState(URL 동기화), useHotkeys, useMe
 ├─ services/api/         # 타입 안전 API 클라이언트 (도메인별 파일)
 ├─ stores/               # zustand: gridState, basketStore, uiStore
@@ -277,9 +270,8 @@ handover_acknowledgements
 ④ Saved View (DSL + 그리드 상태 저장)
 ⑤ Advanced Search (AND/OR 그룹, 필드 지정)
 ⑥ Full Text Search 전용 화면
-⑦ AI Natural Language (선택) → 최종적으로 ①~⑥의 DSL로 변환되어 실행
 ```
-**AI는 검색의 우회로가 아니라 ①~⑥ 위의 얇은 껍데기다.**
+AI 자연어 검색은 범위에서 뺐다(ASSUMPTIONS E-01). 찾기는 ①~⑥ 으로 끝난다.
 
 ### 5.2 Filter DSL
 
@@ -398,44 +390,11 @@ Task 완료가 Handover 완료를 자동 트리거하지 않는다. 다만 Hando
 
 ---
 
-## 8. LLM Optional Architecture (§52~§57)
+## 8. AI — 범위에서 제외 (§52~§57)
 
-### 8.1 스위치
-
-```
-LLM_PROVIDER = disabled | ollama | openai_compatible     (.env)
-LLM_BASE_URL, LLM_API_KEY, LLM_MODEL, LLM_EMBED_MODEL    (.env, 하드코딩 금지)
-system_settings: ai.search_enabled / ai.embedding_enabled / ai.summary_enabled / ai.tag_suggest_enabled  (기본 false)
-```
-`GET /api/v1/settings/features` 가 프론트에 `ai_enabled`를 내려주고, false면 AI 라우트·메뉴를 **등록하지 않는다**.
-백엔드도 AI 라우터에서 `Depends(require_ai_enabled)` → 비활성 시 404.
-
-### 8.2 Provider Adapter
-
-```python
-class LLMProvider(Protocol):
-    async def health(self) -> ProviderHealth: ...
-    async def chat(self, messages, *, temperature, max_tokens, timeout) -> ChatResult: ...
-    async def embed(self, texts: list[str]) -> list[list[float]]: ...
-```
-`DisabledProvider`는 모든 호출에 `FeatureDisabledError`. 팩토리는 설정만 보고 주입 → 도메인 코드에 provider 분기 없음.
-
-### 8.3 Hybrid RAG
-
-```
-질문 → QueryAnalyzer (①규칙 기반 우선: 기간·관계사·상태·담당자·키워드 추출
-                       ②LLM 보조: 실패 시에도 ①결과로 동작)
-     → 구조화 필터(DSL)로 후보 축소  ← 메타데이터 필터가 1차 (정확도의 핵심)
-     → FTS 랭킹(top 50) + Vector 랭킹(top 50, embedding ON일 때만)
-     → RRF(Reciprocal Rank Fusion) 병합 + 최신성/중요도 가중
-     → top 8 컨텍스트 → LLM 답변 생성(인용 ID 강제 포맷)
-     → 응답 검증: 인용된 handover_id가 실제 후보에 없으면 제거.
-       남은 근거 0건이면 "관련 인수인계를 찾지 못했습니다" 반환 (추측 금지)
-```
-- Embedding OFF여도 FTS 단독으로 RAG 동작(품질만 저하).
-- pgvector 미설치 시 embedding 기능 자동 비활성 + 관리자 화면에 사유 표시.
-- 답변은 항상 `sources: [{handover_id, company, date, title}]` 동반. 프론트는 클릭 시 Drawer로 이동.
-- `search_feedback` 테이블에 👍/👎 수집 → 추후 랭킹 튜닝 근거.
+AI(자연어 검색 · 임베딩 · 요약 · 태그 추천)는 **만들지 않기로 했다**(2026-09-19, ASSUMPTIONS E-01).
+원래 설계(LLM Provider 어댑터 · Hybrid RAG · 근거 인용)는 git 기록의 이 문서 이전 판에 남아 있다.
+검색은 §5 의 구조화 필터 · Global Search · FTS 로 충분하다는 판단이다.
 
 ---
 
@@ -475,7 +434,7 @@ soc-handover/
 | 6 | Task + Checklist + My Work + Board | 시나리오 D 통과 |
 | 7 | Calendar + 연계 | 일정 CRUD/드래그 Audit 확인 |
 | 8 | Audit UI + Admin + Notification + Backup/Restore | Audit 30종 기록 검증 |
-| 9 | LLM Adapter + Hybrid RAG + Citation (Optional) | AI OFF/ON 양쪽 회귀 통과 |
+| 9 | ~~LLM Adapter + Hybrid RAG + Citation~~ | **범위에서 제외**(ASSUMPTIONS E-01) |
 | 10 | 성능/보안/E2E/패키징/문서 | 50만건 성능, E2E 5종, Windows 클린설치 |
 
 각 Phase 종료 시 §87의 8항목(구현 기능 / 파일 / 테스트 결과 / 실패 테스트 / Windows 실행 확인 / 알려진 문제 / 남은 작업 / 다음 Phase)을 보고한다.
@@ -494,7 +453,6 @@ soc-handover/
 | R-06 | 동시 수정 충돌 빈발 | 사용성 저하 | 필드 단위 충돌 판정(같은 필드 아니면 병합 제안), Drawer 실시간 stale 배지 |
 | R-07 | 알림/재확인 폭주 | 알림 피로 | 재확인 트리거 필드를 설정화, 동일 handover 알림 병합 |
 | R-08 | OneDrive 동기화 폴더에서 node_modules/DB 파일 충돌 | 빌드 오류·동기화 지연 | `.gitignore`/OneDrive 제외 안내, data/ 는 로컬 경로 권장 |
-| R-09 | AI 응답 지연·환각 | 신뢰 저하 | 타임아웃·스트리밍·근거 검증·근거 없으면 답변 거부 |
 | R-10 | 단일 노드 장애 | 업무 중단 | 일 1회 자동 백업 + restore 리허설 문서화 + 읽기 전용 Export 백업 |
 
 ---

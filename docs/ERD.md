@@ -18,8 +18,7 @@ users ──< handovers(creator/sender/assignee)        companies ──< handov
   │              │  ├──1:N── attachments (polymorphic)
   │              │  ├──1:N── tasks
   │              │  ├──1:N── schedules
-  │              │  ├──1:N── shift_handover_items ──> shift_handovers ──> shifts
-  │              │  └──1:1── handover_embeddings (선택, pgvector)
+  │              │  └──1:N── shift_handover_items ──> shift_handovers ──> shifts
   │
   ├──< tasks ──< task_checklists / task_comments
   ├──< schedules
@@ -217,10 +216,6 @@ INDEX `(handover_id, created_at)`
 ### handover_tags
 `handover_id + tag_id PK`
 
-### handover_embeddings (선택, AI ON)
-`handover_id PK FK`, `model VARCHAR(100)`, `embedding vector(768)`, `source_hash CHAR(64)`, `updated_at`
-INDEX: `USING hnsw (embedding vector_cosine_ops)` — pgvector 설치 시에만 생성(Alembic 조건부).
-
 ---
 
 ## 5. 교대 인수인계
@@ -335,12 +330,12 @@ INDEX `(job_id, status)`, `(job_id, fingerprint)`
 ### system_settings
 `key VARCHAR(100) PK`, `value JSONB NOT NULL`, `value_type VARCHAR(20)`, `category VARCHAR(30)`,
 `description`, `is_secret BOOLEAN`, `updated_by`, `updated_at`
-기본 키 예: `ack.reack_fields`, `ai.search_enabled`, `attachment.allowed_ext`, `attachment.max_size_mb`,
+기본 키 예: `ack.reack_fields`, `attachment.allowed_ext`, `attachment.max_size_mb`,
 `shift.definitions`, `export.max_rows`, `retention.audit_days`
 ※ `is_secret=true` 값은 API 응답에서 마스킹, API Key는 DB가 아니라 `.env`에만 둔다.
 
 ### search_feedback
-`id PK`, `user_id`, `query TEXT`, `mode VARCHAR(20)` (GRID/FTS/AI), `result_count`, `clicked_handover_id`, `rating SMALLINT`, `comment`, `created_at`
+`id PK`, `user_id`, `query TEXT`, `mode VARCHAR(20)` (GRID/FTS), `result_count`, `clicked_handover_id`, `rating SMALLINT`, `comment`, `created_at`
 
 ---
 

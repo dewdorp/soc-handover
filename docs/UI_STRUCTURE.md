@@ -28,16 +28,14 @@
   /tasks/:id              (Drawer)
 /schedules                일정 (월/주/일)
 /search                   통합검색
-/ai                       AI 검색            ← settings.features.ai_enabled 일 때만 라우트 등록
 /import                   Excel Import (8-step wizard)
   /import/jobs            Import 이력
 /export                   Export 이력
-/stats                    통계
-/audit                    감사로그              [MANAGER+]
+/stats                    통계                  [MANAGER+]
+/audit                    감사로그              (ANALYST 는 자기 기록만)
 /admin                    관리자                 [ADMIN]
-  /admin/users  /admin/companies  /admin/statuses  /admin/shifts
-  /admin/settings  /admin/ai  /admin/deleted  /admin/integrity
-/settings                 개인 설정(테마/밀도/기본 보기/단축키)
+  /admin/users  /admin/codes(상태 · 관계사)  /admin/shifts  /admin/backup
+/settings                 시스템 설정            [ADMIN]
 ```
 
 ---
@@ -62,7 +60,7 @@
 │ 할일        ▾ │  오늘 해야 할 업무           │  오늘 일정                     │
 │ 일정          │  지연 업무                   │  다음 예정                     │
 │ 통합검색      │  ─────────────────────────────────────────────────────────   │
-│ AI 검색       │  최근 변경                                                    │
+│               │  최근 변경                                                    │
 │ Import/Export │                                                              │
 │ 통계 / 감사   │                                                              │
 │ 관리자 / 설정 │                                                              │
@@ -270,22 +268,9 @@ Calendar: 월/주/일 · Task 마감 + Schedule + Handover 수행일 레이어 �
 
 ---
 
-## 9. AI 검색 (AI ON일 때만, §57)
+## 9. AI 검색 — 범위에서 제외
 
-```
-🤖 AI 검색                                            [일반 검색으로 전환]
- [ 지난달 A사 DDoS 관련 진행사항 알려줘                              ] [질문]
- 적용된 조건: 관계사=A사 · 기간=2026-08-01~08-31 · 키워드=DDoS   [조건 수정]
-─────────────────────────────────────────────────────────────────────────
- 지난달 A사 DDoS 관련 인수인계는 3건입니다. 8/15 방어정책 점검 후 8/21 임계치
- 조정이 이루어졌고, 8/28 건은 현재 진행중입니다.
- 근거
-  ① #18231  A사  2026-08-15  DDoS 방어정책 점검        [열기]
-  ② #18310  A사  2026-08-21  DDoS 임계치 조정          [열기]
-  ③ #18402  A사  2026-08-28  DDoS 재발 모니터링(진행중) [열기]
-                                                   유용했나요? 👍 👎
-```
-근거가 없으면 답변 대신 `관련 인수인계를 찾지 못했습니다.` + 일반 검색 전환 버튼.
+AI 는 만들지 않기로 했다(ASSUMPTIONS E-01). 찾기는 통합검색(Ctrl+K · `/search`)과 목록 필터로 한다.
 
 ---
 

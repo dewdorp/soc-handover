@@ -90,8 +90,6 @@ export default function DashboardPage() {
                 <span className="text-amber-700 text-xs">({features.database_warning})</span>
               )}
             </dd>
-            <dt className="text-ink-muted">AI 기능</dt>
-            <dd>{features?.ai_enabled ? '사용' : '사용 안 함 (기본값)'}</dd>
             <dt className="text-ink-muted">관계사</dt>
             <dd>{companies.data?.length ?? 0}개</dd>
             <dt className="text-ink-muted">상태 코드</dt>
@@ -119,7 +117,7 @@ export default function DashboardPage() {
             <li>✔ Phase 6 — 할일 · 체크리스트 · 보드 · 내 업무</li>
             <li>✔ Phase 7 — 일정 · 달력 · 반복 · 연계</li>
             <li>✔ Phase 8 — 감사로그 · 관리자 · 설정 · 통계 · 댓글 · 첨부 · 알림 · 백업</li>
-            <li className="text-ink-faint">· Phase 9~10 — AI(선택) · 안정화</li>
+            <li className="text-ink-faint">· Phase 10 — 안정화 (Phase 9 AI 는 범위에서 제외)</li>
           </ul>
         </section>
       </div>

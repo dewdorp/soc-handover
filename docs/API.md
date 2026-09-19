@@ -150,7 +150,7 @@ POST   /audit/search   {start, end (필수, ≤93일), user_id?, username?, acti
                         resource_id?, client_ip?(앞부분), result?, order, page, size}   ANALYST 는 자기 행위만
 POST   /audit/export   (같은 조건) → {download_token} → GET /export/download/{token}   (내보내기도 감사)
 GET    /settings                      값 + spec(입력 형식·범위, 없으면 읽기 전용)
-PATCH  /settings/{key} {value}        형식·범위 검사 후 저장(SETTING_CHANGE, ai.* 는 AI_ENABLE/DISABLE)
+PATCH  /settings/{key} {value}        형식·범위 검사 후 저장(SETTING_CHANGE)
 GET/POST /handovers/{id}/comments     PATCH/DELETE /handover-comments/{id}
 GET    /attachments?entity_type=HANDOVER|TASK&entity_id=
 POST   /attachments  (multipart: entity_type, entity_id, file)
@@ -215,23 +215,15 @@ GET    /stats/dashboard                        KPI 6종 + 각 영역 상위 N
 GET    /stats/handovers?group_by=company|status|month&from=&to=
 GET    /stats/ack-compliance?from=&to=         확인율/지연 확인 통계
 
-GET    /settings/features                      {ai_enabled, ai_features{}, attachment{}, shift[]}
-GET    /settings           [ADMIN]             PATCH /settings [ADMIN]
+GET    /settings/features                      {attachment{allowed_ext, max_size_mb}, ack{reack_fields},
+                                                export{max_rows}, page{}, database, database_warning}
+GET    /settings           [ADMIN]             PATCH /settings/{key} [ADMIN]
 GET    /admin/integrity-check [ADMIN]          버전 정합성/고아 레코드 점검
 ```
 
-## 9. AI (Optional — 비활성 시 404)
+## 9. AI — 범위에서 제외
 
-```
-GET    /ai/status                    provider, model, healthy, enabled_features
-POST   /ai/search     {question, filters?}
-       → { answer, sources:[{handover_id, company, date, title, snippet, score}],
-           used_filters:{...}, retrieval:{fts_hits, vector_hits}, latency_ms }
-POST   /ai/summarize  {handover_ids[]}         (summary_enabled=true)
-POST   /ai/suggest-tags {handover_id|text}     (tag_suggest_enabled=true)
-POST   /ai/reindex    [ADMIN]                  (embedding_enabled=true)
-GET    /ai/reindex/status
-```
+`/ai/*` 경로는 없다. AI 는 만들지 않기로 했다(ASSUMPTIONS E-01).
 
 ---
 
@@ -252,6 +244,6 @@ GET    /ai/reindex/status
 | Import Rollback | ❌ | ❌ | ✅ |
 | Audit 조회 | 본인 이력만 | 전체 | 전체 |
 | 사용자/역할 관리 | ❌ | ❌ | ✅ |
-| 시스템 설정/AI 설정 | ❌ | ❌ | ✅ |
+| 시스템 설정 | ❌ | ❌ | ✅ |
 
 권한 체크는 라우터 데코레이터(`Depends(require("handover:update"))`) + 서비스 레이어의 소유권 검사 2단으로 수행한다.

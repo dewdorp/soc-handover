@@ -71,14 +71,8 @@ def system_event(payload: SystemEvent, request: Request, db: Session = Depends(g
 
 @router.get("/settings/features")
 def features(db: Session = Depends(get_db), _: User = Depends(require_password_changed)):
-    """AI 활성 여부 등 화면 구성에 필요한 플래그.
-
-    AI가 꺼져 있으면 프론트는 AI 라우트를 아예 등록하지 않는다(§54).
-    """
-    ai = settings_service.ai_flags(db)
+    """화면 구성에 필요한 값(첨부 정책 · 재확인 필드 · 내보내기 상한 · DB 경고)."""
     return {
-        "ai_enabled": ai["enabled"],
-        "ai": ai,
         "attachment": {
             "allowed_ext": settings_service.get_value(db, "attachment.allowed_ext"),
             "max_size_mb": settings_service.get_value(db, "attachment.max_size_mb"),
@@ -101,9 +95,7 @@ def list_settings(db: Session = Depends(get_db), user: User = Depends(require_pa
     from app.core.errors import Forbidden
     if not has_permission(user.role_code, "settings:manage"):
         raise Forbidden()
-    rows = db.scalars(select(SystemSetting).order_by(SystemSetting.category,
-                                                     SystemSetting.key)).all()
-    return [
+    rows = [
         {
             "key": r.key,
             "value": "***" if r.is_secret else r.value,
@@ -113,8 +105,16 @@ def list_settings(db: Session = Depends(get_db), user: User = Depends(require_pa
             "updated_at": r.updated_at,
             "spec": settings_service.spec_for(r.key),     # 화면 입력칸 · 서버 검사 규칙(없으면 읽기 전용)
         }
-        for r in rows
+        for r in db.scalars(select(SystemSetting))
     ]
+    # 설치 뒤에 새로 생긴 설정은 아직 행이 없다 — 기본값으로 보여주고, 처음 저장할 때 행이 생긴다
+    stored = {r["key"] for r in rows}
+    rows += [
+        {"key": key, "value": "***" if secret else value, "category": category, "description": desc,
+         "is_secret": secret, "updated_at": None, "spec": settings_service.spec_for(key)}
+        for key, (value, category, desc, secret) in settings_service.DEFAULTS.items() if key not in stored
+    ]
+    return sorted(rows, key=lambda r: (r["category"], r["key"]))
 
 
 @router.get("/backups")

@@ -168,6 +168,25 @@ Import 시 자동 생성 OFF가 기본. 매칭 실패해도 `*_name_raw` 텍스�
 
 ---
 
+### B-15. 배포 · 성능 결정 (Phase 10)
+- **오프라인 설치 패키지**: 인터넷 없는 PC 에 Python 3.12 · PostgreSQL 16 · VC++ 런타임까지 담아 zip 하나로 준다
+  (INSTALL_WINDOWS.md A장). 설치 위치는 영문 · 공백 없는 경로, DB 는 127.0.0.1 전용, 데이터 · 백업 · 로그 ·
+  .env 는 관리자와 설치한 사용자만 읽는다. 기본은 서비스 모드(부팅 시 자동 시작 · 매일 03:00 백업 · 방화벽),
+  `-Manual` 은 수동 실행.
+- **DB 초기화 값**: UTF8 · 로케일 C(Windows 지역 설정과 무관하게 같은 정렬, 한글은 유니코드 순서 = 가나다 순),
+  `lc_messages=C`(로그는 영어), data-checksums 켜고, shared_buffers 는 RAM 에 따라 256MB~1GB.
+- **Smart App Control(Windows 11)**: 켜져 있으면 서명 없는 PostgreSQL 실행 파일이 막힌다(실측). 설치 프로그램이
+  미리 확인하고 멈춘다 — 끄거나, 사내 인증서로 서명하거나, 꺼진 PC 에 설치한다.
+- **질의는 `= false` 로 쓴다**: `IS false` 는 PostgreSQL 이 부분 인덱스 조건(`WHERE ... = false`)과 같다고
+  증명하지 못해 인덱스를 통째로 놓친다(0.14ms → 133ms). SQLite 에서는 차이가 없어 드러나지 않으므로
+  **PostgreSQL 로도 전체 테스트**를 돌린다(TEST_DATABASE_URL).
+- **계획 캐시**: PG 연결마다 `plan_cache_mode = force_custom_plan`. 검색은 조건 값에 따라 좋은 계획이 달라서
+  굳은 계획(generic plan)이 인덱스를 놓친다.
+- **Cockpit**: 목록은 보고 있는 영역만 만들고(`?area=`), 타일 숫자는 9,999 까지만 센다(넘으면 `9,999+`).
+- **성능 기준 통과**: 50만 건에서 가장 느린 화면 p95 356ms(docs/PERFORMANCE.md).
+
+---
+
 ## C. 검색 / 성능
 
 ### C-01. 한글 전문검색

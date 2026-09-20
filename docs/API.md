@@ -96,7 +96,8 @@ DELETE /attachments/{id}
 ## 4. 교대 인수인계
 
 ```
-GET    /shift-handovers/cockpit?shift_date=&shift_id=
+GET    /shift-handovers/cockpit?shift_date=&shift_id=&area=   area 는 목록을 채울 영역(기본 new_in_shift).
+                                     나머지 영역은 숫자만(9,999 까지 세고 넘으면 capped=true)
        → { new_in_shift[], in_progress[], need_ack[], planned_next[], important[], overdue[], counts{} }
 
 GET    /shift-handovers/basket                       내 DRAFT 세션(없으면 자동 생성)

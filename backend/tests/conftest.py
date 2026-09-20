@@ -142,6 +142,9 @@ def users(db: Session):
             for k, v in made.items()}
 
 
+# 주의: 아래 세 고정구는 **같은 client 객체**를 쓴다. 한 시험에서 둘을 함께 받으면 나중 로그인이
+# 앞 세션을 덮어써 엉뚱한 사람으로 요청하게 된다. 두 사람이 필요하면 ApiClient 를 따로 만든다
+# (tests/api/test_security_checklist.py 의 people 고정구 참고).
 @pytest.fixture
 def admin_client(client: ApiClient, users) -> ApiClient:
     assert client.login("admin", ADMIN_PW).status_code == 200

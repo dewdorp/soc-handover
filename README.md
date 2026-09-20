@@ -103,6 +103,8 @@ soc-handover/
 | [docs/UI_STRUCTURE.md](docs/UI_STRUCTURE.md) | 사이트맵·와이어프레임·단축키·표기 규칙 |
 | [docs/SECURITY.md](docs/SECURITY.md) | 인증·인가·입력 신뢰 경계·업로드·감사·백업 보안 |
 | [docs/ASSUMPTIONS.md](docs/ASSUMPTIONS.md) | 요구사항에 없어 기본값으로 정한 사항 |
+| [docs/OPERATIONS.md](docs/OPERATIONS.md) | 설치 PC 운영 — 켜고 끄기 · 백업/복구 · 업그레이드 · 문제 해결 |
+| [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | 50만 건 성능 측정 결과와 고친 내용 |
 
 ---
 
@@ -120,7 +122,7 @@ soc-handover/
 | 7 | 일정(Calendar) 및 연계 | ✅ 완료 |
 | 8 | 감사로그 · 관리자 · 설정 · 통계 · 댓글 · 첨부 · 알림 · 백업 현황 | ✅ 완료 |
 | 9 | ~~AI 어댑터 · 하이브리드 RAG~~ | 범위에서 제외 |
-| 10 | 성능 · 보안 · E2E · 패키징 · 문서 | 예정 |
+| 10 | 성능 · 보안 · E2E · 오프라인 설치 패키지 · 문서 | ✅ 완료 |
 
 ---
 

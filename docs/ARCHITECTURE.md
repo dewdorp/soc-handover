@@ -435,7 +435,7 @@ soc-handover/
 | 7 | Calendar + 연계 | 일정 CRUD/드래그 Audit 확인 |
 | 8 | Audit UI + Admin + Notification + Backup/Restore | Audit 30종 기록 검증 |
 | 9 | ~~LLM Adapter + Hybrid RAG + Citation~~ | **범위에서 제외**(ASSUMPTIONS E-01) |
-| 10 | 성능/보안/E2E/패키징/문서 | 50만건 성능, E2E 5종, Windows 클린설치 |
+| 10 | 성능/보안/E2E/패키징/문서 | 50만건 성능(docs/PERFORMANCE.md), E2E 5종(tests/e2e), 오프라인 설치 패키지 |
 
 각 Phase 종료 시 §87의 8항목(구현 기능 / 파일 / 테스트 결과 / 실패 테스트 / Windows 실행 확인 / 알려진 문제 / 남은 작업 / 다음 Phase)을 보고한다.
 
@@ -453,6 +453,8 @@ soc-handover/
 | R-06 | 동시 수정 충돌 빈발 | 사용성 저하 | 필드 단위 충돌 판정(같은 필드 아니면 병합 제안), Drawer 실시간 stale 배지 |
 | R-07 | 알림/재확인 폭주 | 알림 피로 | 재확인 트리거 필드를 설정화, 동일 handover 알림 병합 |
 | R-08 | OneDrive 동기화 폴더에서 node_modules/DB 파일 충돌 | 빌드 오류·동기화 지연 | `.gitignore`/OneDrive 제외 안내, data/ 는 로컬 경로 권장 |
+| R-11 | Windows 11 Smart App Control 이 서명 없는 PostgreSQL 실행을 차단 | 설치 실패 | 설치 프로그램이 미리 확인하고 해결 방법 안내(INSTALL_WINDOWS.md A-3) |
+| R-12 | `IS false` 로 질의해 부분 인덱스를 놓침(SQLite 에서는 안 보임) | 50만 건에서 전체 스캔 | 질의는 `= false` 로 통일, PostgreSQL 로도 전체 테스트(docs/PERFORMANCE.md §3.1) |
 | R-10 | 단일 노드 장애 | 업무 중단 | 일 1회 자동 백업 + restore 리허설 문서화 + 읽기 전용 Export 백업 |
 
 ---

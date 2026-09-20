@@ -280,6 +280,20 @@ class TestCockpit:
                                        "planned_next", "important", "overdue"]
         assert body["window"]["code"] in {"DAY", "NIGHT"}
 
+    def test_only_the_shown_area_carries_rows(self, people, cid):
+        """목록은 보고 있는 영역만 만든다(50만 건에서 여섯 영역을 다 만들면 2초가 걸린다)."""
+        hong = people["hong"]
+        _mk(hong, cid, "진행 중인 건")
+        body = hong.get(f"{P}/cockpit", params={"area": "in_progress"}).json()
+        assert body["area"] == "in_progress"
+        assert body["areas"]["in_progress"]["items"], "보고 있는 영역은 목록이 온다"
+        assert all(not a["items"] for k, a in body["areas"].items() if k != "in_progress")
+        assert all(a["total"] >= 0 and a["capped"] is False for a in body["areas"].values())
+
+        default_area = hong.get(f"{P}/cockpit").json()
+        assert default_area["area"] == "new_in_shift", "영역을 안 주면 첫 영역"
+        assert hong.get(f"{P}/cockpit", params={"area": "없는영역"}).json()["area"] == "new_in_shift"
+
     def test_area_counts_equal_the_list(self, people, cid):
         """Cockpit 숫자와 '목록으로 보기'의 건수가 어긋나면 안 된다."""
         hong = people["hong"]

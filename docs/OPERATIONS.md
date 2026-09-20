@@ -192,6 +192,7 @@ Remove-Item env:SOC_ADMIN_PASSWORD
 | DB 응답 없음 | `services.msc` 에서 `SOC-Handover-DB` 시작. 실패하면 `data\pgdata\log\postgresql-요일.log` |
 | 디스크 부족 | `status.cmd` 의 디스크 여유 확인. `backup` 폴더의 오래된 백업을 다른 곳으로 옮김 |
 | 포트 충돌 | `.env` 의 `APP_PORT` 변경(5장) |
+| DB 실행 파일이 "차단"됨 | Windows 11 의 Smart App Control 이 켜져 있으면 서명 없는 PostgreSQL 실행 파일을 막습니다. Windows 보안 → 앱 및 브라우저 컨트롤 → Smart App Control → 끄기(한 번 끄면 다시 켤 수 없음), 또는 사내 인증서로 `runtime\pgsql\bin\*.exe` 서명 |
 | 백업이 안 됨 | `taskschd.msc` → `SOC-Handover-Backup` → 마지막 실행 결과. 수동으로 `backup.cmd` 실행해 오류 확인 |
 | 느려짐 | `status.cmd` 의 DB 크기 · 메모리 확인. 화면 목록은 필터를 걸어 좁혀 보기 |
 

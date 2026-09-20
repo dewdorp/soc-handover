@@ -4,7 +4,7 @@ from __future__ import annotations
 import secrets
 
 from fastapi import APIRouter, Depends, Query, Response, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, true
 from sqlalchemy.orm import Session
 
 from app.audit import actions
@@ -28,7 +28,7 @@ router = APIRouter(tags=["users"], dependencies=[Depends(require_password_change
 def lookup(q: str = Query(default="", max_length=50), limit: int = Query(default=20, le=100),
            db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     """담당자 선택용 경량 목록(모든 로그인 사용자 사용 가능)."""
-    stmt = select(User).where(User.is_active.is_(True))
+    stmt = select(User).where(User.is_active == true())
     if q:
         like = f"%{q}%"
         stmt = stmt.where(or_(User.display_name.ilike(like), User.username.ilike(like)))

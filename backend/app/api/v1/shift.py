@@ -44,10 +44,14 @@ def _session_out(db: Session, session: ShiftHandover, *, with_items: bool = True
 
 @router.get(f"{P}/cockpit", response_model=CockpitOut)
 def cockpit(shift_date: date | None = None, shift_id: int | None = None,
+            area: str | None = Query(default=None, max_length=30),
             size: int = Query(default=50, ge=1, le=200), db: Session = Depends(get_db),
             actor: User = Depends(require("handover:read"))):
-    """근무 중 신규 · 진행 중 · 확인 필요 · 다음 근무 예정 · 중요 · 지연 (FR-C-01)."""
-    return svc.cockpit(db, actor, shift_date=shift_date, shift_id=shift_id, size=size)
+    """근무 중 신규 · 진행 중 · 확인 필요 · 다음 근무 예정 · 중요 · 지연 (FR-C-01).
+
+    `area` 로 지금 보고 있는 영역을 알려 주면 그 영역의 목록만 만든다(나머지는 숫자만).
+    """
+    return svc.cockpit(db, actor, shift_date=shift_date, shift_id=shift_id, size=size, area=area)
 
 
 # --------------------------------------------------------------------------- Basket

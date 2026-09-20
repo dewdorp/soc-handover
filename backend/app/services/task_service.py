@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.audit import actions
@@ -111,7 +111,7 @@ def _set_status(task: Task, status: str) -> None:
 
 def _bottom_of(db: Session, status: str) -> int:
     top = db.scalar(select(func.max(Task.board_order))
-                    .where(Task.status == status, Task.is_deleted.is_(False)))
+                    .where(Task.status == status, Task.is_deleted == false()))
     return (top if top is not None else -1) + 1
 
 
@@ -222,7 +222,7 @@ def move(db: Session, actor: User, task_id: int, expected_version: int, status: 
 
     if status != TASK_DONE:
         column = [t for t in db.scalars(
-            select(Task).where(Task.status == status, Task.is_deleted.is_(False), Task.id != task.id)
+            select(Task).where(Task.status == status, Task.is_deleted == false(), Task.id != task.id)
             .order_by(Task.board_order, Task.id))]
         index = 0
         if after_id is not None:
@@ -299,7 +299,7 @@ def delete_checklist(db: Session, actor: User, item_id: int) -> None:
 def list_comments(db: Session, task_id: int) -> list[TaskComment]:
     get_or_404(db, task_id)
     return list(db.scalars(select(TaskComment)
-                           .where(TaskComment.task_id == task_id, TaskComment.is_deleted.is_(False))
+                           .where(TaskComment.task_id == task_id, TaskComment.is_deleted == false())
                            .order_by(TaskComment.created_at, TaskComment.id)))
 
 
@@ -343,7 +343,7 @@ def _assignee_filter(stmt, actor: User, assignee: str | int):
 
 
 def search(db: Session, actor: User, req) -> tuple[list[Task], int]:
-    stmt = select(Task).where(Task.is_deleted.is_(False))
+    stmt = select(Task).where(Task.is_deleted == false())
     if req.status:
         stmt = stmt.where(Task.status.in_(req.status))
     elif not req.include_closed:
@@ -383,7 +383,7 @@ def search(db: Session, actor: User, req) -> tuple[list[Task], int]:
 
 def board(db: Session, actor: User, assignee: str | int = "all",
           company_id: int | None = None) -> dict[str, Any]:
-    base = _assignee_filter(select(Task).where(Task.is_deleted.is_(False)), actor, assignee)
+    base = _assignee_filter(select(Task).where(Task.is_deleted == false()), actor, assignee)
     if company_id is not None:
         base = base.where(Task.company_id == company_id)
     since = today() - timedelta(days=DONE_WINDOW_DAYS)
@@ -402,13 +402,13 @@ def for_handover(db: Session, handover_id: int) -> list[Task]:
     """인수인계에 딸린 할일 — 안 끝난 것 먼저."""
     closed_last = Task.status.in_(TASK_CLOSED_STATES)
     return list(db.scalars(select(Task)
-                           .where(Task.handover_id == handover_id, Task.is_deleted.is_(False))
+                           .where(Task.handover_id == handover_id, Task.is_deleted == false())
                            .order_by(closed_last, Task.due_date.is_(None), Task.due_date, Task.id)))
 
 
 def count_for_handover(db: Session, handover_id: int) -> int:
     return db.scalar(select(func.count()).select_from(Task)
-                     .where(Task.handover_id == handover_id, Task.is_deleted.is_(False))) or 0
+                     .where(Task.handover_id == handover_id, Task.is_deleted == false())) or 0
 
 
 # --------------------------------------------------------------------------- 응답
@@ -418,7 +418,7 @@ def to_out(db: Session, actor: User, tasks: list[Task], *, detail: bool = False)
     ids = [t.id for t in tasks]
     comments = dict(db.execute(
         select(TaskComment.task_id, func.count())
-        .where(TaskComment.task_id.in_(ids), TaskComment.is_deleted.is_(False))
+        .where(TaskComment.task_id.in_(ids), TaskComment.is_deleted == false())
         .group_by(TaskComment.task_id)).all()) if ids else {}
     t0 = today()
     out = []

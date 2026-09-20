@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import false, select, true
 from sqlalchemy.orm import Session
 
 from app.audit import actions
@@ -272,7 +272,7 @@ def _notify_people(db: Session, handover: Handover, actor: User, before: dict[st
     became_urgent = handover.priority_code == "URGENT" and before.get("priority_code") != "URGENT"
     if became_important or became_urgent:
         why = "긴급" if became_urgent else "중요"
-        managers = db.scalars(select(User.id).where(User.is_active.is_(True),
+        managers = db.scalars(select(User.id).where(User.is_active == true(),
                                                     User.role_code.in_((ROLE_MANAGER, ROLE_ADMIN)),
                                                     User.id != actor.id)).all()
         for user_id in managers:
@@ -579,7 +579,7 @@ def timeline(db: Session, handover_id: int) -> list[dict[str, Any]]:
     comments = db.scalars(
         select(HandoverComment)
         .where(HandoverComment.handover_id == handover_id,
-               HandoverComment.is_deleted.is_(False))
+               HandoverComment.is_deleted == false())
     ).all()
     for comment in comments:
         events.append({
@@ -617,7 +617,7 @@ def timeline(db: Session, handover_id: int) -> list[dict[str, Any]]:
 
     # 할일 — 만들어진 때와 끝난 때
     tasks = db.scalars(select(Task).where(Task.handover_id == handover_id,
-                                          Task.is_deleted.is_(False))).all()
+                                          Task.is_deleted == false())).all()
     for task in tasks:
         events.append({
             "kind": "TASK",
@@ -658,7 +658,7 @@ def timeline(db: Session, handover_id: int) -> list[dict[str, Any]]:
     from app.services.recurrence import describe
 
     for sched in db.scalars(select(Schedule).where(Schedule.handover_id == handover_id,
-                                                   Schedule.is_deleted.is_(False))):
+                                                   Schedule.is_deleted == false())):
         start = sched.start_at.astimezone(KST)
         when = start.strftime("%m/%d") if sched.is_all_day else start.strftime("%m/%d %H:%M")
         repeat = describe(sched.recurrence_rule)

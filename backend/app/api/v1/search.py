@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import false
 from sqlalchemy.orm import Session
 
 from app.auth.deps import require, require_password_changed
@@ -113,7 +114,7 @@ def global_search(payload: GlobalSearchRequest, db: Session = Depends(get_db),
         from app.core.time import KST
         from app.models.schedule import Schedule
 
-        cond = (Schedule.is_deleted.is_(False),
+        cond = (Schedule.is_deleted == false(),
                 or_(Schedule.title.icontains(term, autoescape=True),
                     Schedule.description.icontains(term, autoescape=True)))
         totals["schedule"] = db.scalar(select(func.count()).select_from(Schedule).where(*cond)) or 0

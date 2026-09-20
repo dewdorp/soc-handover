@@ -14,7 +14,7 @@ import logging
 import threading
 from datetime import datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import false, select
 from sqlalchemy.orm import Session
 
 from app.core.time import KST, now
@@ -31,7 +31,7 @@ def run(db: Session, at: datetime | None = None) -> dict[str, int]:
     rows = db.execute(
         select(Task, User.is_active)
         .join(User, User.id == Task.assignee_id)
-        .where(Task.is_deleted.is_(False), Task.status.notin_(TASK_CLOSED_STATES),
+        .where(Task.is_deleted == false(), Task.status.notin_(TASK_CLOSED_STATES),
                Task.due_date.is_not(None), Task.due_date <= tomorrow)).all()
     sent = {"due_soon": 0, "overdue": 0}
     for task, active in rows:

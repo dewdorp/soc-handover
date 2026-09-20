@@ -34,7 +34,8 @@ export default function CockpitView() {
   const [area, setArea] = useState('in_progress')
   const [picked, setPicked] = useState<Set<number>>(new Set())
 
-  const { data } = useQuery({ queryKey: ['cockpit'], queryFn: shiftApi.cockpit, refetchInterval: 60_000 })
+  // 목록은 지금 보고 있는 영역만 받아 온다 — 타일을 바꾸면 그 영역만 다시 불러온다
+  const { data } = useQuery({ queryKey: ['cockpit', area], queryFn: () => shiftApi.cockpit(area), refetchInterval: 60_000 })
   const add = useMutation({
     mutationFn: () => shiftApi.addItems([...picked]),
     onSuccess: () => {
@@ -76,7 +77,7 @@ export default function CockpitView() {
                     className={`card px-3 py-2 text-left ${area === key ? 'border-brand ring-1 ring-brand' : 'hover:border-brand/50'}`}>
               <div className="text-xs text-ink-faint">{a.label}</div>
               <div className={`text-lg font-semibold tabular-nums ${a.total ? (TONE[key] ?? 'text-ink') : 'text-ink-faint'}`}>
-                {a.total.toLocaleString()}
+                {a.total.toLocaleString()}{a.capped ? '+' : ''}
               </div>
             </button>
           ))}

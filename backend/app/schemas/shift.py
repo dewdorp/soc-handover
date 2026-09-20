@@ -21,6 +21,9 @@ class ShiftWindowOut(BaseModel):
 class CockpitArea(BaseModel):
     label: str
     total: int
+    #: 건수를 상한까지만 센 경우(그 이상이라는 뜻). 화면은 '9,999+' 처럼 보여 준다
+    capped: bool = False
+    #: 지금 보고 있는 영역만 채운다(나머지는 숫자만 — 50만 건에서 2초가 0.2초가 된다)
     items: list[HandoverListItem]
     #: 이 영역을 목록 화면에서 그대로 열 수 있는 DSL(숫자와 목록이 같다)
     request: dict[str, Any]
@@ -29,6 +32,8 @@ class CockpitArea(BaseModel):
 class CockpitOut(BaseModel):
     window: ShiftWindowOut
     next_window: ShiftWindowOut
+    #: 목록을 채워 준 영역
+    area: str
     areas: dict[str, CockpitArea]
     basket_handover_ids: list[int]
 

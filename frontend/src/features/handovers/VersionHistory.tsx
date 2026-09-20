@@ -7,6 +7,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { RotateCcw } from 'lucide-react'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { handoverApi } from '@/services/api/handovers'
 import { ApiRequestError } from '@/services/api/client'
 import type { DiffField, VersionSummary } from '@/types/handover'
@@ -65,10 +66,8 @@ export default function VersionHistory({ handoverId, currentVersion, canEdit }: 
       ? err.message : '복원하지 못했습니다.'),
   })
 
-  const onRestore = (no: number) => {
-    const reason = window.prompt(`v${no} 내용으로 되돌립니다. 사유를 입력하십시오.`)
-    if (reason && reason.trim()) restore.mutate({ no, reason: reason.trim() })
-  }
+  // window.prompt 는 앱을 품은 창(데스크톱 앱 안의 브라우저)에서 그냥 취소되는 경우가 있어 앱 안에서 묻는다.
+  const [restoring, setRestoring] = useState<number | null>(null)
 
   const rows = versions ?? []
 
@@ -86,12 +85,21 @@ export default function VersionHistory({ handoverId, currentVersion, canEdit }: 
                       isCurrent={v.version_no === currentVersion}
                       canEdit={canEdit}
                       onCompare={(from, to) => setCompare([from, to])}
-                      onRestore={onRestore} />
+                      onRestore={setRestoring} />
         ))}
         {rows.length === 0 && (
           <li className="px-2 py-3 text-ink-faint">이력을 불러오는 중…</li>
         )}
       </ul>
+
+      {restoring != null && (
+        <ConfirmDialog title={`v${restoring} 내용으로 되돌립니다`} confirmLabel="복원" busy={restore.isPending}
+                       input={{ label: '복원 사유', required: true, placeholder: '예: 잘못 수정해서 되돌림' }}
+                       onCancel={() => setRestoring(null)}
+                       onConfirm={(reason) => { restore.mutate({ no: restoring, reason }); setRestoring(null) }}>
+          <p>지금 내용을 지우는 것이 아니라, 그 버전의 내용으로 <b>새 버전</b>을 만듭니다.</p>
+        </ConfirmDialog>
+      )}
 
       {diff && (
         <div className="card p-2 space-y-1.5">

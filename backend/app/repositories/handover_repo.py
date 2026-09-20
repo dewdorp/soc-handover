@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import Select, and_, func, select
+from sqlalchemy import Select, and_, false, func, select
 from sqlalchemy.orm import Session
 
 from app.models.handover import (ACK_NONE, Handover, HandoverAcknowledgement,
@@ -28,19 +28,27 @@ _LABEL_SOURCES = {
 
 
 def _deleted_scope(stmt: Select, *, include_deleted: bool) -> Select:
-    return stmt if include_deleted else stmt.where(Handover.is_deleted.is_(False))
+    return stmt if include_deleted else stmt.where(Handover.is_deleted == false())
 
 
 def count(db: Session, request: SearchRequest, ctx: CompileContext, *,
-          include_deleted: bool, extra: list[Filter] | None = None) -> int:
+          include_deleted: bool, extra: list[Filter] | None = None,
+          cap: int | None = None) -> int:
+    """건수. cap 을 주면 그 값까지만 세고 멈춘다(cap+1 을 돌려주면 '그 이상'이라는 뜻).
+
+    50만 건에서 '지연 17만 건'을 정확히 세는 데 0.6초가 든다. Cockpit 타일처럼 '많다'만 알면 되는
+    자리에서는 상한을 두고 센다 — 실측: 620ms → 20ms.
+    """
     stmt = _deleted_scope(build_statement(request, ctx, extra), include_deleted=include_deleted)
+    if cap is not None:
+        stmt = stmt.limit(cap + 1)
     return db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
 
 
 def count_all(db: Session) -> int:
     """필터를 걸지 않았을 때의 전체 건수. '전체 N건 / 검색결과 M건' 표시용(FR-A-09)."""
     return db.scalar(
-        select(func.count()).select_from(Handover).where(Handover.is_deleted.is_(False))
+        select(func.count()).select_from(Handover).where(Handover.is_deleted == false())
     ) or 0
 
 

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request, Response, status
-from sqlalchemy import func, select
+from sqlalchemy import false, func, select
 from sqlalchemy.orm import Session
 
 from app.auth.deps import get_current_user
@@ -26,7 +26,7 @@ def _me_payload(db: Session, user: User) -> MeResponse:
     pending = ack_service.pending_count(db, user.id)
     unread = db.scalar(
         select(func.count()).select_from(Notification).where(
-            Notification.user_id == user.id, Notification.is_read.is_(False)
+            Notification.user_id == user.id, Notification.is_read == false()
         )
     ) or 0
     return MeResponse(
@@ -63,7 +63,10 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db),
         user = get_optional_user(request, db)
     auth_service.logout(db, response, raw_refresh=request.cookies.get(REFRESH_COOKIE),
                         user=user, ctx=ctx)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    # 주의: 새 Response 를 만들어 돌려주면 위에서 쿠키를 지운 헤더가 버려져 브라우저에 세션이 남는다.
+    # 주입받은 response 를 그대로 돌려줘야 Set-Cookie(삭제)가 함께 나간다.
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response
 
 
 @router.get("/me", response_model=MeResponse)
@@ -78,7 +81,9 @@ def change_password(payload: ChangePasswordRequest, response: Response,
     auth_service.change_password(db, user=user, current=payload.current_password,
                                  new=payload.new_password, ctx=ctx)
     auth_service.clear_auth_cookies(response)
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    # logout 과 같은 이유 — 주입받은 response 를 돌려줘야 쿠키 삭제가 실제로 나간다(비밀번호를 바꾸면 다시 로그인)
+    response.status_code = status.HTTP_204_NO_CONTENT
+    return response
 
 
 @router.get("/sessions", response_model=list[SessionInfo])

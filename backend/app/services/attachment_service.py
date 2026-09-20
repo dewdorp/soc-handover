@@ -22,7 +22,7 @@ import uuid
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from sqlalchemy import func, select
+from sqlalchemy import false, func, select
 from sqlalchemy.orm import Session
 
 from app.audit import actions
@@ -189,13 +189,13 @@ def list_for(db: Session, entity_type: str, entity_id: int) -> list[Attachment]:
     _entity(db, entity_type.upper(), entity_id)
     return list(db.scalars(select(Attachment).where(
         Attachment.entity_type == entity_type.upper(), Attachment.entity_id == entity_id,
-        Attachment.is_deleted.is_(False)).order_by(Attachment.created_at, Attachment.id)))
+        Attachment.is_deleted == false()).order_by(Attachment.created_at, Attachment.id)))
 
 
 def count_for(db: Session, entity_type: str, entity_id: int) -> int:
     return db.scalar(select(func.count()).select_from(Attachment).where(
         Attachment.entity_type == entity_type, Attachment.entity_id == entity_id,
-        Attachment.is_deleted.is_(False))) or 0
+        Attachment.is_deleted == false())) or 0
 
 
 def to_out(db: Session, actor: User, att: Attachment) -> dict[str, Any]:

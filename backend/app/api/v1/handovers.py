@@ -8,7 +8,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, Query, Response, status
-from sqlalchemy import select
+from sqlalchemy import false, select
 from sqlalchemy.orm import Session
 
 from app.api.v1 import handover_serde
@@ -236,7 +236,7 @@ def pending_acknowledgements(db: Session = Depends(get_db),
         .join(Handover, Handover.id == HandoverAcknowledgement.handover_id)
         .where(HandoverAcknowledgement.user_id == actor.id,
                HandoverAcknowledgement.state.in_((ACK_PENDING, ACK_REACK)),
-               Handover.is_deleted.is_(False))
+               Handover.is_deleted == false())
         .order_by(HandoverAcknowledgement.id)
     ).all()
     return list(rows)

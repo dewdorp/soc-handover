@@ -12,7 +12,7 @@
 """
 from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import false, select
 from sqlalchemy.orm import Session
 
 from app.audit import actions
@@ -177,6 +177,6 @@ def pending_count(db: Session, user_id: int) -> int:
         .where(
             HandoverAcknowledgement.user_id == user_id,
             HandoverAcknowledgement.state.in_((ACK_PENDING, ACK_REACK)),
-            Handover.is_deleted.is_(False),
+            Handover.is_deleted == false(),
         )
     ) or 0

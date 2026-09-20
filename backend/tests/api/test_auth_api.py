@@ -115,6 +115,16 @@ class TestSessionLifecycle:
         assert client.post("/api/v1/auth/logout").status_code == 204
         assert db.scalars(select(RefreshToken).where(
             RefreshToken.revoked_at.is_(None))).all() == []
+        # 쿠키가 실제로 지워져야 한다 — 지우는 헤더가 응답에서 빠지면 브라우저에 세션이 남는다(실측 버그)
+        assert client.get("/api/v1/auth/me").status_code == 401, "로그아웃 뒤에는 그 브라우저로 아무것도 못 해야 한다"
+
+    def test_change_password_ends_session(self, client, users):
+        client.login("analyst1", ANALYST_PW)
+        resp = client.post("/api/v1/auth/change-password",
+                           json={"current_password": ANALYST_PW, "new_password": "Rotated#Pw2026!qz"})
+        assert resp.status_code == 204
+        assert client.get("/api/v1/auth/me").status_code == 401, "비밀번호를 바꾸면 다시 로그인해야 한다"
+        assert client.login("analyst1", "Rotated#Pw2026!qz").status_code == 200
 
     def test_sessions_listed(self, admin_client):
         rows = admin_client.get("/api/v1/auth/sessions").json()

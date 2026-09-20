@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.audit import actions
@@ -259,7 +259,7 @@ def occurrences_in(db: Session, start: datetime, end: datetime, *, owner_id: int
                    company_id: int | None = None) -> list[tuple[Schedule, datetime, datetime]]:
     """기간과 겹치는 회차. 반복 일정은 시작이 기간 끝보다 앞이면 후보로 두고 펼쳐서 거른다."""
     stmt = select(Schedule).where(
-        Schedule.is_deleted.is_(False), Schedule.start_at < end,
+        Schedule.is_deleted == false(), Schedule.start_at < end,
         or_(Schedule.recurrence_rule.is_not(None), Schedule.end_at > start))
     if owner_id is not None:
         stmt = stmt.where(Schedule.owner_id == owner_id)
@@ -295,7 +295,7 @@ def calendar(db: Session, actor: User, start: datetime, end: datetime, layers: s
             })
 
     if "task" in layers:
-        stmt = select(Task).where(Task.is_deleted.is_(False), Task.status != TASK_CANCELED,
+        stmt = select(Task).where(Task.is_deleted == false(), Task.status != TASK_CANCELED,
                                   Task.due_date >= first_day, Task.due_date <= last_day)
         if mine:
             stmt = stmt.where(Task.assignee_id == actor.id)
@@ -311,7 +311,7 @@ def calendar(db: Session, actor: User, start: datetime, end: datetime, layers: s
     if "handover" in layers:
         stmt = (select(Handover, HandoverStatus.category)
                 .join(HandoverStatus, HandoverStatus.code == Handover.status_code)
-                .where(Handover.is_deleted.is_(False), Handover.work_date >= first_day,
+                .where(Handover.is_deleted == false(), Handover.work_date >= first_day,
                        Handover.work_date <= last_day))
         if mine:
             stmt = stmt.where(Handover.assignee_id == actor.id)
@@ -331,19 +331,19 @@ def calendar(db: Session, actor: User, start: datetime, end: datetime, layers: s
 
 def for_handover(db: Session, handover_id: int) -> list[Schedule]:
     return list(db.scalars(select(Schedule).where(Schedule.handover_id == handover_id,
-                                                  Schedule.is_deleted.is_(False))
+                                                  Schedule.is_deleted == false())
                            .order_by(Schedule.start_at, Schedule.id)))
 
 
 def for_task(db: Session, task_id: int) -> list[Schedule]:
     return list(db.scalars(select(Schedule).where(Schedule.task_id == task_id,
-                                                  Schedule.is_deleted.is_(False))
+                                                  Schedule.is_deleted == false())
                            .order_by(Schedule.start_at, Schedule.id)))
 
 
 def count_for_handover(db: Session, handover_id: int) -> int:
     return db.scalar(select(func.count()).select_from(Schedule)
-                     .where(Schedule.handover_id == handover_id, Schedule.is_deleted.is_(False))) or 0
+                     .where(Schedule.handover_id == handover_id, Schedule.is_deleted == false())) or 0
 
 
 def next_occurrences(db: Session, owner_id: int, start: datetime, end: datetime) -> list[tuple[Schedule, datetime, datetime]]:

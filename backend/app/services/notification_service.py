@@ -6,7 +6,7 @@
 """
 from __future__ import annotations
 
-from sqlalchemy import func, select, update
+from sqlalchemy import false, func, select, update
 from sqlalchemy.orm import Session
 
 from app.core.time import now
@@ -29,7 +29,7 @@ def notify(db: Session, *, user_id: int, type_: str, title: str, body: str | Non
     if dedup_key:
         existing = db.scalar(select(Notification).where(
             Notification.user_id == user_id, Notification.dedup_key == dedup_key,
-            Notification.is_read.is_(False)))
+            Notification.is_read == false()))
         if existing is not None:
             existing.title = title
             existing.body = body
@@ -56,14 +56,14 @@ def notify_once(db: Session, *, user_id: int, dedup_key: str, **kwargs) -> Notif
 
 def unread_count(db: Session, user_id: int) -> int:
     return db.scalar(select(func.count()).select_from(Notification).where(
-        Notification.user_id == user_id, Notification.is_read.is_(False))) or 0
+        Notification.user_id == user_id, Notification.is_read == false())) or 0
 
 
 def list_for(db: Session, user_id: int, *, unread_only: bool = False,
              limit: int = 50) -> list[Notification]:
     stmt = select(Notification).where(Notification.user_id == user_id)
     if unread_only:
-        stmt = stmt.where(Notification.is_read.is_(False))
+        stmt = stmt.where(Notification.is_read == false())
     return list(db.scalars(stmt.order_by(Notification.created_at.desc(),
                                          Notification.id.desc()).limit(limit)))
 
@@ -83,6 +83,6 @@ def mark_read(db: Session, user_id: int, notification_id: int) -> bool:
 def mark_all_read(db: Session, user_id: int) -> int:
     result = db.execute(update(Notification)
                         .where(Notification.user_id == user_id,
-                               Notification.is_read.is_(False))
+                               Notification.is_read == false())
                         .values(is_read=True, read_at=now()))
     return result.rowcount

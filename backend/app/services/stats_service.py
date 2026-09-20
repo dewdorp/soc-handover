@@ -11,7 +11,7 @@ from datetime import date, datetime, time, timedelta
 from statistics import median
 from typing import Any
 
-from sqlalchemy import case, extract, func, select
+from sqlalchemy import case, extract, false, func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import ValidationFailed
@@ -36,7 +36,7 @@ def _range(start: date, end: date) -> tuple[datetime, datetime]:
 def summary(db: Session, start: date, end: date) -> dict[str, Any]:
     t_from, t_to = _range(start, end)
     t0 = today()
-    in_range = (Handover.is_deleted.is_(False), Handover.registered_date >= start,
+    in_range = (Handover.is_deleted == false(), Handover.registered_date >= start,
                 Handover.registered_date <= end)
 
     # 관계사 · 상태
@@ -73,7 +73,7 @@ def summary(db: Session, start: date, end: date) -> dict[str, Any]:
         .join(ShiftHandoverItem, ShiftHandoverItem.session_id == ShiftHandover.id)
         .join(Handover, Handover.id == ShiftHandoverItem.handover_id)
         .where(ShiftHandover.sent_at >= t_from, ShiftHandover.sent_at < t_to,
-               ShiftHandover.to_user_id.is_not(None), Handover.is_deleted.is_(False))).all()
+               ShiftHandover.to_user_id.is_not(None), Handover.is_deleted == false())).all()
     acks = {(a.handover_id, a.user_id): a for a in db.scalars(
         select(HandoverAcknowledgement).where(
             HandoverAcknowledgement.handover_id.in_({i.handover_id for i in items} or {0})))}
@@ -92,25 +92,25 @@ def summary(db: Session, start: date, end: date) -> dict[str, Any]:
         "pending_now": db.scalar(select(func.count()).select_from(HandoverAcknowledgement)
                                  .join(Handover, Handover.id == HandoverAcknowledgement.handover_id)
                                  .where(HandoverAcknowledgement.state != "ACKED",
-                                        Handover.is_deleted.is_(False))) or 0,
+                                        Handover.is_deleted == false())) or 0,
     }
 
     # 지금 지연 중
     overdue = {
         "handovers": db.scalar(select(func.count()).select_from(Handover)
                                .join(HandoverStatus, HandoverStatus.code == Handover.status_code)
-                               .where(Handover.is_deleted.is_(False), HandoverStatus.category != "CLOSED",
+                               .where(Handover.is_deleted == false(), HandoverStatus.category != "CLOSED",
                                       Handover.work_date < t0)) or 0,
         "tasks": db.scalar(select(func.count()).select_from(Task)
-                           .where(Task.is_deleted.is_(False), Task.status.notin_(TASK_CLOSED_STATES),
+                           .where(Task.is_deleted == false(), Task.status.notin_(TASK_CLOSED_STATES),
                                   Task.due_date < t0)) or 0,
     }
 
     # 할일
     created = db.scalar(select(func.count()).select_from(Task).where(
-        Task.is_deleted.is_(False), Task.created_at >= t_from, Task.created_at < t_to)) or 0
+        Task.is_deleted == false(), Task.created_at >= t_from, Task.created_at < t_to)) or 0
     done_rows = db.execute(select(Task.created_at, Task.completed_at).where(
-        Task.is_deleted.is_(False), Task.status == TASK_DONE,
+        Task.is_deleted == false(), Task.status == TASK_DONE,
         Task.completed_at >= t_from, Task.completed_at < t_to)).all()
     hours = [(c2 - c1).total_seconds() / 3600 for c1, c2 in done_rows if c1 and c2 and c2 >= c1]
     tasks = {"created": created, "completed": len(done_rows),

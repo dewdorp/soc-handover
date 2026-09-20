@@ -11,7 +11,7 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import and_, delete, func, insert, select, update
+from sqlalchemy import and_, delete, false, func, insert, select, true, update
 from sqlalchemy.orm import Session
 
 from app.core.time import now
@@ -107,14 +107,14 @@ def stage(db: Session, job: ExcelImportJob, progress: Progress) -> dict[str, int
 
 def build_lookups(db: Session, job: ExcelImportJob) -> Lookups:
     companies: dict[str, int] = {}
-    for c in db.scalars(select(Company).where(Company.is_active.is_(True))):
+    for c in db.scalars(select(Company).where(Company.is_active == true())):
         for label in (c.name, c.short_name, c.code):
             if label:
                 companies.setdefault(norm(label), c.id)
 
     # 별칭 사전(정규화된 문구 → 코드)에 관리자가 만든 상태의 이름·코드를 더한다.
     statuses: dict[str, str] = dict(al.build_lookup(al.status_aliases(db)))
-    for s in db.scalars(select(HandoverStatus).where(HandoverStatus.is_active.is_(True))):
+    for s in db.scalars(select(HandoverStatus).where(HandoverStatus.is_active == true())):
         statuses.setdefault(norm(s.name), s.code)
         statuses.setdefault(norm(s.code), s.code)
 
@@ -124,7 +124,7 @@ def build_lookups(db: Session, job: ExcelImportJob) -> Lookups:
         priorities.setdefault(norm(p.code), p.code)
 
     users: dict[str, int] = {}
-    for u in db.scalars(select(User).where(User.is_active.is_(True))):
+    for u in db.scalars(select(User).where(User.is_active == true())):
         users.setdefault(norm(u.display_name), u.id)
         users.setdefault(norm(u.username), u.id)
 
@@ -196,7 +196,7 @@ def _mark_duplicates(db: Session, job: ExcelImportJob) -> None:
 
     # 1) 이미 시스템에 있는 것. 이 job 이 넣은 행은 '기존'이 아니다(부분 실패 후 재시도 대비).
     existing = (select(Handover.fingerprint, func.min(Handover.id).label("hid"))
-                .where(Handover.is_deleted.is_(False), Handover.fingerprint.is_not(None),
+                .where(Handover.is_deleted == false(), Handover.fingerprint.is_not(None),
                        (Handover.import_job_id.is_(None)) | (Handover.import_job_id != job.id))
                 .group_by(Handover.fingerprint).subquery())
     matches = db.execute(
@@ -376,7 +376,7 @@ def rollback(db: Session, job: ExcelImportJob, actor: User) -> dict[str, int]:
     """
     reason = f"Excel Import 롤백 {job.job_code}"
     rows = db.scalars(select(Handover).where(Handover.import_job_id == job.id,
-                                             Handover.is_deleted.is_(False))).all()
+                                             Handover.is_deleted == false())).all()
     removed = kept = 0
     stamp = now()
     from app.services.handover_service import snapshot

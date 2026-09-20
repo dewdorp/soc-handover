@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import false, func, select
 from sqlalchemy.orm import Session
 
 from app.audit import actions
@@ -50,14 +50,14 @@ def list_for(db: Session, handover_id: int) -> list[HandoverComment]:
     _handover(db, handover_id)
     return list(db.scalars(select(HandoverComment)
                            .where(HandoverComment.handover_id == handover_id,
-                                  HandoverComment.is_deleted.is_(False))
+                                  HandoverComment.is_deleted == false())
                            .order_by(HandoverComment.created_at, HandoverComment.id)))
 
 
 def count_for(db: Session, handover_id: int) -> int:
     return db.scalar(select(func.count()).select_from(HandoverComment)
                      .where(HandoverComment.handover_id == handover_id,
-                            HandoverComment.is_deleted.is_(False))) or 0
+                            HandoverComment.is_deleted == false())) or 0
 
 
 def create(db: Session, actor: User, handover_id: int, body: str,

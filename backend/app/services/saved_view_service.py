@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import or_, select, true
 from sqlalchemy.orm import Session
 
 from app.auth.rbac import has_permission
@@ -117,7 +117,7 @@ def set_default(db: Session, view_id: int, actor: User) -> SavedView:
 
     others = db.scalars(
         select(SavedView).where(SavedView.target == view.target,
-                                SavedView.is_default.is_(True), scope_filter)).all()
+                                SavedView.is_default == true(), scope_filter)).all()
     for other in others:
         other.is_default = False
     view.is_default = True
@@ -132,10 +132,10 @@ def resolve_default(db: Session, actor: User, target: str = "HANDOVER") -> Saved
         select(SavedView).where(SavedView.target == target,
                                 SavedView.scope == SCOPE_PERSONAL,
                                 SavedView.owner_id == actor.id,
-                                SavedView.is_default.is_(True)))
+                                SavedView.is_default == true()))
     if mine is not None:
         return mine
     return db.scalar(
         select(SavedView).where(SavedView.target == target,
                                 SavedView.scope == SCOPE_SHARED,
-                                SavedView.is_default.is_(True)))
+                                SavedView.is_default == true()))

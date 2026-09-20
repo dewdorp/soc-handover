@@ -68,6 +68,7 @@ zip 을 풀고 **`INSTALL.cmd` 더블클릭** → 권한 요청 [예] → `Y` �
 | PowerShell | Windows 기본 5.1 (설치 스크립트는 5.1 기준으로 작성, UTF-8 BOM) |
 | 한국어 Windows | 모든 경로 · 파일 이름은 영문. 스크립트 출력은 한글, DB 메시지는 영어(lc_messages=C) |
 | 다른 Python / PostgreSQL 이 이미 있는 PC | 영향 없음 — 설치 폴더 안의 것만 씀. DB 포트는 5432 부터 비어 있는 것을 고름 |
+| **Smart App Control** (Windows 11) | **켜져 있으면 설치 실패.** PostgreSQL 배포 파일(EnterpriseDB)에는 코드 서명이 없어 실행이 막힙니다(개발 PC 에서 실측 — `pg_ctl.exe` 차단). 설치 프로그램이 미리 확인하고 해결 방법을 안내합니다. 관리 대상 사내 PC · 업그레이드로 설치한 Windows 11 은 보통 꺼져 있습니다 |
 | 프록시 · 인터넷 차단 | 설치 · 실행 모두 인터넷을 쓰지 않음. 화면도 외부 글꼴 · CDN 을 쓰지 않음 |
 | 브라우저 | Chrome · Edge (최근 3년 안의 버전). Internet Explorer 불가 |
 

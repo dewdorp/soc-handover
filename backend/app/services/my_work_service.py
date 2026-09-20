@@ -16,7 +16,7 @@ from __future__ import annotations
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import false, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.time import KST, today, week_start
@@ -63,7 +63,7 @@ def collect(db: Session, actor: User, source: str = "all") -> tuple[list[dict[st
 
     if source in ("all", "task"):
         tasks = db.scalars(select(Task).where(
-            Task.assignee_id == actor.id, Task.is_deleted.is_(False), Task.status != TASK_CANCELED,
+            Task.assignee_id == actor.id, Task.is_deleted == false(), Task.status != TASK_CANCELED,
             or_(Task.status != TASK_DONE, Task.completed_at >= since)))
         for t in tasks:
             done = t.status == TASK_DONE
@@ -84,7 +84,7 @@ def collect(db: Session, actor: User, source: str = "all") -> tuple[list[dict[st
         handovers = db.execute(
             select(Handover, HandoverStatus.category)
             .join(HandoverStatus, HandoverStatus.code == Handover.status_code)
-            .where(Handover.assignee_id == actor.id, Handover.is_deleted.is_(False),
+            .where(Handover.assignee_id == actor.id, Handover.is_deleted == false(),
                    or_(HandoverStatus.category != "CLOSED",
                        Handover.updated_at >= since))).all()
         for h, category in handovers:

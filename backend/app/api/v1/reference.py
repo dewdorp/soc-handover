@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query, Response, status
-from sqlalchemy import select
+from sqlalchemy import select, true
 from sqlalchemy.orm import Session
 
 from app.audit import actions
@@ -124,14 +124,14 @@ def list_shifts(include_inactive: bool = False, db: Session = Depends(get_db),
     """기본은 운영 중인 교대만. 비활성 교대는 과거 기록 참조용으로 남아 있다."""
     stmt = select(Shift)
     if not include_inactive:
-        stmt = stmt.where(Shift.is_active.is_(True))
+        stmt = stmt.where(Shift.is_active == true())
     return list(db.scalars(stmt.order_by(Shift.sort_order)))
 
 
 def _check_schedule(db: Session) -> None:
     from app.services.shift_service import validate_coverage
     db.flush()
-    rows = db.scalars(select(Shift).where(Shift.is_active.is_(True))).all()
+    rows = db.scalars(select(Shift).where(Shift.is_active == true())).all()
     validate_coverage([(r.name, r.start_time, r.end_time) for r in rows])
 
 
@@ -200,7 +200,7 @@ def replace_schedule(payload: list[ShiftCreate], db: Session = Depends(get_db),
     record(db, action=actions.SETTING_CHANGE, ctx=ctx, user=actor, resource_type="SHIFT",
            resource_id="schedule", before={"shifts": before},
            after={"shifts": [p.model_dump(mode="json") for p in payload]})
-    return list(db.scalars(select(Shift).where(Shift.is_active.is_(True))
+    return list(db.scalars(select(Shift).where(Shift.is_active == true())
                            .order_by(Shift.sort_order)))
 
 

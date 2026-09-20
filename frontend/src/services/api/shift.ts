@@ -14,6 +14,9 @@ export interface ShiftWindow {
 export interface CockpitArea {
   label: string
   total: number
+  /** 건수를 상한(9,999)까지만 센 경우 — 화면에는 '9,999+' 로 */
+  capped: boolean
+  /** 지금 보고 있는 영역만 채워진다(나머지는 숫자만) */
   items: HandoverListItem[]
   request: SearchRequest
 }
@@ -21,6 +24,8 @@ export interface CockpitArea {
 export interface Cockpit {
   window: ShiftWindow
   next_window: ShiftWindow
+  /** 목록이 채워진 영역 */
+  area: string
   areas: Record<string, CockpitArea>
   basket_handover_ids: number[]
 }
@@ -105,7 +110,7 @@ export interface AppNotification {
 const P = '/shift-handovers'
 
 export const shiftApi = {
-  cockpit: () => api.get<Cockpit>(`${P}/cockpit`),
+  cockpit: (area?: string) => api.get<Cockpit>(`${P}/cockpit${area ? `?area=${encodeURIComponent(area)}` : ''}`),
   basket: () => api.get<Basket>(`${P}/basket`),
   addItems: (handoverIds: number[], note?: string) =>
     api.post<{ added: number[]; skipped: number[] }>(`${P}/basket/items`,

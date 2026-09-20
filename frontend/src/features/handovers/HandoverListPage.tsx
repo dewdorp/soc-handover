@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Bookmark, ChevronLeft, ChevronRight, Download, Plus, RotateCcw, Search, X } from 'lucide-react'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import CreateHandoverDialog from '@/features/handovers/CreateHandoverDialog'
 import ExportDialog from '@/features/handovers/ExportDialog'
 import HandoverDrawer from '@/features/handovers/HandoverDrawer'
@@ -39,6 +40,8 @@ export default function HandoverListPage() {
   useEffect(() => setDraftQ(grid.state.q), [grid.state.q])
   const [creating, setCreating] = useState(false)
   const [exporting, setExporting] = useState(false)
+  // 이름 입력은 앱 안에서 받는다(window.prompt 는 앱을 품은 창에서 그냥 취소되는 경우가 있다)
+  const [savingView, setSavingView] = useState(false)
 
   const { data: caps } = useQuery({
     queryKey: ['search-fields'], queryFn: searchApi.capabilities, staleTime: 10 * 60_000,
@@ -172,10 +175,8 @@ export default function HandoverListPage() {
             <button className="btn" onClick={() => setExporting(true)}>
               <Download size={12} /> Export
             </button>
-            <button className="btn" onClick={() => {
-              const name = window.prompt('현재 조건을 저장할 이름을 입력하십시오.')
-              if (name?.trim()) saveView.mutate(name.trim())
-            }}><Bookmark size={12} /> 보기 저장</button>
+            <button className="btn" onClick={() => setSavingView(true)}>
+              <Bookmark size={12} /> 보기 저장</button>
           </div>
 
           <form className="relative" onSubmit={(e) => { e.preventDefault(); grid.patch({ q: draftQ }) }}>
@@ -299,6 +300,15 @@ export default function HandoverListPage() {
 
       {exporting && (
         <ExportDialog request={grid.request} total={total} onClose={() => setExporting(false)} />
+      )}
+
+      {savingView && (
+        <ConfirmDialog title="지금 조건을 보기로 저장합니다" confirmLabel="저장" busy={saveView.isPending}
+                       input={{ label: '보기 이름', required: true, placeholder: '예: A사 미완료' }}
+                       onCancel={() => setSavingView(false)}
+                       onConfirm={(name) => { saveView.mutate(name); setSavingView(false) }}>
+          <p>검색어 · 필터 · 정렬 · 열 상태를 그대로 담습니다. 목록 위 칩에서 다시 불러옵니다.</p>
+        </ConfirmDialog>
       )}
 
       {creating && (

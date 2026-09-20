@@ -107,7 +107,7 @@ class ApiClient(TestClient):
     def logout(self):
         resp = self.post("/api/v1/auth/logout")
         self.headers.pop(CSRF_HEADER, None)
-        self.cookies.clear()
+        # 쿠키는 일부러 지우지 않는다 — 서버가 지워 주는지(로그아웃이 실제로 끊기는지) 시험이 보게 한다
         return resp
 
 

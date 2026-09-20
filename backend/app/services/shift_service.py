@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import false, select, true
 from sqlalchemy.orm import Session
 
 from app.audit import actions
@@ -37,7 +37,7 @@ MAX_CHAIN = 100
 # --------------------------------------------------------------------------- 교대 시각
 
 def _defs(db: Session) -> list[dict[str, Any]]:
-    rows = db.scalars(select(Shift).where(Shift.is_active.is_(True))
+    rows = db.scalars(select(Shift).where(Shift.is_active == true())
                       .order_by(Shift.sort_order)).all()
     return [{"code": s.code, "start_time": s.start_time.strftime("%H:%M"),
              "end_time": s.end_time.strftime("%H:%M"), "crosses_midnight": s.crosses_midnight}
@@ -146,22 +146,38 @@ def area_request(key: str, window: ShiftWindow, following: ShiftWindow,
     raise ValidationFailed(f"알 수 없는 영역입니다: {key}")
 
 
+#: 타일 숫자는 '얼마나 많은가'를 보는 자리다. 이 수를 넘으면 정확히 세지 않고 'N+' 로 보여 준다
+#: (50만 건에서 '지연 17만 건'을 정확히 세는 데만 0.6초가 걸린다).
+COUNT_CAP = 9_999
+
+
 def cockpit(db: Session, actor: User, *, shift_date: date | None = None,
-            shift_id: int | None = None, size: int = 50) -> dict[str, Any]:
+            shift_id: int | None = None, size: int = 50,
+            area: str | None = None) -> dict[str, Any]:
+    """교대 Cockpit. 목록은 **지금 보고 있는 영역만** 가져온다(나머지는 숫자만).
+
+    여섯 영역의 목록을 모두 만들면 50만 건에서 2초가 걸리는데, 화면에는 한 영역만 보인다.
+    """
     window = (window_for(db, shift_date, shift_id) if shift_date and shift_id
               else current_window(db))
     following = next_window(db, window)
+    selected = area if any(area == k for k, _ in AREAS) else AREAS[0][0]
     areas = {}
     for key, label in AREAS:
         req = area_request(key, window, following, size)
-        page = search_service.run(db, req, actor)
-        areas[key] = {"label": label, "total": page.total, "items": page.items,
-                      "request": req.model_dump(exclude={"page", "size"})}
+        common = {"label": label, "request": req.model_dump(exclude={"page", "size"})}
+        if key == selected:
+            page = search_service.run(db, req, actor)
+            areas[key] = {**common, "total": page.total, "capped": False, "items": page.items}
+        else:
+            total = search_service.count_only(db, req, actor, cap=COUNT_CAP)
+            areas[key] = {**common, "total": min(total, COUNT_CAP), "capped": total > COUNT_CAP,
+                          "items": []}
     basket = db.scalar(select(ShiftHandover).where(ShiftHandover.from_user_id == actor.id,
                                                    ShiftHandover.status == SESSION_DRAFT))
     in_basket = [i.handover_id for i in basket.items] if basket else []
     return {"window": describe(db, window), "next_window": describe(db, following),
-            "areas": areas, "basket_handover_ids": in_basket}
+            "area": selected, "areas": areas, "basket_handover_ids": in_basket}
 
 
 # --------------------------------------------------------------------------- Carry chain
@@ -214,7 +230,7 @@ def carry_candidates(db: Session, actor: User) -> list[tuple[ShiftHandoverItem, 
         select(ShiftHandoverItem, Handover)
         .join(Handover, Handover.id == ShiftHandoverItem.handover_id)
         .where(ShiftHandoverItem.session_id == previous.id,
-               Handover.is_deleted.is_(False),
+               Handover.is_deleted == false(),
                Handover.status_code.in_(_open_codes(db)))
         .order_by(ShiftHandoverItem.display_order, ShiftHandoverItem.id)
     ).all()
@@ -485,7 +501,7 @@ def inbox(db: Session, actor: User) -> list[dict[str, Any]]:
         .join(Handover, Handover.id == HandoverAcknowledgement.handover_id)
         .where(HandoverAcknowledgement.user_id == actor.id,
                HandoverAcknowledgement.state != ACK_ACKED,
-               Handover.is_deleted.is_(False))
+               Handover.is_deleted == false())
         .order_by(HandoverAcknowledgement.updated_at.desc(), HandoverAcknowledgement.id.desc())
     ).all()
     out = []

@@ -99,13 +99,34 @@ function Invoke-Quiet([string]$Exe, [string[]]$ArgList, [string]$LogName) {
     $logDir = Join-Path $InstallDir 'logs'
     $out = Join-Path $logDir "$LogName.out.log"
     $err = Join-Path $logDir "$LogName.err.log"
-    # -Wait 대신 WaitForExit: PS 5.1 의 -Wait 는 자손 프로세스까지 기다린다
-    $p = Start-Process -FilePath $Exe -ArgumentList $ArgList -NoNewWindow -PassThru `
-        -RedirectStandardOutput $out -RedirectStandardError $err
-    $null = $p.Handle
-    $p.WaitForExit()
-    return @{ Code = $p.ExitCode; Out = $out; Err = $err }
+    try {
+        # -Wait 대신 WaitForExit: PS 5.1 의 -Wait 는 자손 프로세스까지 기다린다
+        $p = Start-Process -FilePath $Exe -ArgumentList $ArgList -NoNewWindow -PassThru `
+            -RedirectStandardOutput $out -RedirectStandardError $err
+        $null = $p.Handle
+        $p.WaitForExit()
+        return @{ Code = $p.ExitCode; Out = $out; Err = $err; Message = '' }
+    } catch {
+        # 실행 자체가 막힌 경우(예: Smart App Control) — 종료코드가 없다
+        return @{ Code = -2; Out = $out; Err = $err; Message = $_.Exception.Message }
+    }
 }
+
+# Smart App Control(Windows 11): 0 끔 · 1 켬(적용) · 2 평가 중.
+# 켜져 있으면 서명되지 않은 실행 파일을 막는다 — PostgreSQL 배포 파일(EnterpriseDB)은 서명이 없다.
+function Get-SmartAppControlState {
+    $v = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\CI\Policy' -ErrorAction SilentlyContinue).VerifiedAndReputablePolicyState
+    if ($null -eq $v) { return 0 }
+    return [int]$v
+}
+
+$SacHelp = @(
+    '    Smart App Control 이 서명 없는 프로그램을 막고 있습니다. 다음 중 하나로 해결하십시오.',
+    '      1) Windows 보안 → 앱 및 브라우저 컨트롤 → Smart App Control 설정 → "끄기"',
+    '         (끄면 다시 켤 수 없습니다. 관리 대상 사내 PC 는 보통 꺼져 있습니다)',
+    '      2) 사내 코드서명 인증서가 있으면 runtime\pgsql\bin\*.exe 에 서명한 뒤 다시 설치',
+    '      3) Smart App Control 이 꺼져 있는 다른 PC 에 설치'
+) -join "`n"
 
 function Read-EnvFile([string]$Path) {
     $map = @{}
@@ -153,6 +174,10 @@ try {
     if ($PSVersionTable.PSVersion.Major -lt 5) { Fail 'PowerShell 5.1 이상이 필요합니다.' }
 
     $isAdmin = Test-Admin
+    $sacState = Get-SmartAppControlState
+    if ($sacState -ne 0) {
+        Warn "Smart App Control 이 $(if ($sacState -eq 1) {'켜져'} else {'평가 모드로'}) 있습니다 — 서명 없는 PostgreSQL 실행 파일이 막힐 수 있습니다(설치 중 확인합니다)."
+    }
 
     if (-not (Test-Path (Join-Path $Payload 'runtime\python\python.exe'))) {
         Fail "설치 파일이 온전하지 않습니다(payload 없음). 압축을 모두 푼 폴더에서 실행하십시오: $BundleRoot"
@@ -307,12 +332,21 @@ try {
     $pgBin = Join-Path $InstallDir 'runtime\pgsql\bin'
     $pgData = Join-Path $InstallDir 'data\pgdata'
 
-    # 번들 PostgreSQL 이 이 PC 에서 실행되는지(런타임 DLL) 먼저 확인
-    $check = Invoke-Quiet (Join-Path $pgBin 'postgres.exe') @('--version') 'check-postgres'
-    if ($check.Code -ne 0) {
-        Fail "PostgreSQL 실행 확인 실패(코드 $($check.Code)). Visual C++ 런타임이 설치되었는지 확인하고, 재부팅 후 다시 실행하십시오."
+    # 번들 PostgreSQL 이 이 PC 에서 실제로 실행되는지 먼저 확인한다(런타임 DLL · 실행 차단 정책).
+    # 서버(postgres)와 시작 도구(pg_ctl)를 모두 본다 — Smart App Control 은 파일마다 따로 막는다(실측).
+    foreach ($exe in @('postgres.exe', 'pg_ctl.exe')) {
+        $check = Invoke-Quiet (Join-Path $pgBin $exe) @('--version') "check-$($exe -replace '\.exe$', '')"
+        if ($check.Code -ne 0) {
+            if ($check.Message) { Warn $check.Message }
+            $sac = Get-SmartAppControlState
+            if ($sac -ne 0 -or $check.Code -eq -2) {
+                Write-Host $SacHelp -ForegroundColor Yellow
+                Fail "$exe 실행이 차단되었습니다(Smart App Control 상태 $sac)."
+            }
+            Fail "$exe 실행 확인 실패(코드 $($check.Code)). Visual C++ 런타임 설치 여부를 확인하고, 재부팅 후 다시 실행하십시오. 로그: $($check.Err)"
+        }
+        if ($exe -eq 'postgres.exe') { Ok "PostgreSQL: $((Get-Content $check.Out -TotalCount 1).Trim())" }
     }
-    Ok "PostgreSQL: $((Get-Content $check.Out -TotalCount 1).Trim())"
     $pyVer = & $py -c "import sys; print(sys.version.split()[0])"
     if ($LASTEXITCODE -ne 0) { Fail 'Python 실행 확인 실패.' }
     Ok "Python: $pyVer"

@@ -190,6 +190,11 @@ keep_files = {'pgsql/server_license.txt', 'pgsql/commandlinetools_3rd_party_lice
 skip_bin = {'stackbuilder.exe', 'isolationtester.exe', 'libpq_pipeline.exe', 'libpq_testclient.exe',
             'libpq_uri_regress.exe', 'pg_isolation_regress.exe', 'pg_regress.exe', 'pg_regress_ecpg.exe',
             'test_cloexec.exe', 'testplug.dll'}
+# 쓰지 않는 절차 언어 모듈 — 우리가 넣지 않는 Perl · Tcl · Python 3.11 런타임을 요구한다.
+# 남겨 두면 누군가 CREATE EXTENSION 할 때 '왜 안 되는지' 헷갈리므로 아예 뺀다(우리는 plpgsql · pg_trgm 만 쓴다).
+skip_lib = {'plperl.dll', 'bool_plperl.dll', 'hstore_plperl.dll', 'jsonb_plperl.dll',
+            'plpython3.dll', 'hstore_plpython3.dll', 'jsonb_plpython3.dll', 'ltree_plpython3.dll',
+            'pltcl.dll'}
 n = 0
 with zipfile.ZipFile(src) as z:
     for i in z.infolist():
@@ -199,7 +204,7 @@ with zipfile.ZipFile(src) as z:
         base = name.split('/')[-1].lower()
         if name.startswith('pgsql/bin/') and (base in skip_bin or base.startswith(('wxbase', 'wxmsw'))):
             continue
-        if name.startswith('pgsql/lib/') and base.endswith('.lib'):
+        if name.startswith('pgsql/lib/') and (base.endswith('.lib') or base in skip_lib):
             continue
         dest = os.path.join(out, *name.split('/')[1:])
         os.makedirs(os.path.dirname(dest), exist_ok=True)
@@ -227,6 +232,10 @@ print(n)
         $Version, "built $(Get-Date -Format 'yyyy-MM-dd HH:mm')", "python $pyVer", "$pgVer")
 
     # ------------------------------------------------------------ 4. 마무리 · 압축
+    Write-Step 'Windows 10 호환성 검사'
+    & $VenvPython (Join-Path $Root 'deploy\audit_pe.py') $Stage
+    if ($LASTEXITCODE -ne 0) { throw 'Windows 10 에서 실행할 수 없는 파일이 있습니다(위 목록 참고).' }
+
     Write-Step '인코딩 정리 · 무결성 목록 · 압축'
     $helper = Join-Path $Root 'deploy\pack_helper.py'
     & $VenvPython $helper normalize $Stage

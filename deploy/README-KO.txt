@@ -34,6 +34,8 @@ Visual C++ 런타임)이 모두 들어 있어 따로 받을 것이 없습니다.
  - 이 PC      : http://localhost:8080/
  - 다른 PC    : http://<이 PC 이름 또는 IP>:8080/   (설치 완료 화면에 표시)
  - 브라우저   : Chrome 또는 Microsoft Edge (Internet Explorer 불가)
+                ※ Windows 10 Enterprise LTSC 에는 Edge·Chrome 이 없습니다.
+                   접속해서 쓰는 PC 마다 Edge 또는 Chrome 을 설치하십시오(서버 PC 는 없어도 됩니다).
  - 처음 로그인하면 비밀번호를 한 번 더 바꿉니다.
 
 

@@ -81,6 +81,11 @@ zip 을 풀고 **`INSTALL.cmd` 더블클릭** → 권한 요청 [예] → `Y` �
 | 설치 · 운영 스크립트가 쓰는 PowerShell 명령 | NetTCPIP · NetSecurity(방화벽) · ScheduledTasks · Unblock-File · Expand-Archive — 모두 Windows 8/10 의 PowerShell 5.1 기본 제공 |
 | Windows 11 전용 기능 의존 | 없음. Smart App Control 확인은 레지스트리 키가 없으면 '꺼짐'으로 본다(Windows 10 에는 그 기능 자체가 없음) |
 | 32비트 Windows | 지원하지 않음(64비트 전용) |
+| PostgreSQL 절차 언어 모듈(plperl · plpython3 · pltcl) | 패키지에서 뺐다 — Perl · Tcl 런타임을 요구하는데 우리는 쓰지 않는다(plpgsql · pg_trgm 만 사용) |
+
+> **Windows 10 Enterprise LTSC 2019 주의**: LTSC 에는 Microsoft Edge · Chrome 이 **들어 있지 않습니다**(Internet Explorer 11만 있음).
+> 서버 PC 는 브라우저가 없어도 되지만, **접속해서 쓰는 PC 에는 Edge 또는 Chrome 을 설치**해야 합니다(IE 로는 화면이 열리지 않습니다).
+> 최신 Edge · Chrome 모두 Windows 10 1809(LTSC 2019)를 지원합니다.
 
 ---
 

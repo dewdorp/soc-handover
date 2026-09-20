@@ -10,7 +10,23 @@
 
 ---
 
-## 빠른 시작 (Windows 10/11)
+## 설치 (사내 PC — 인터넷 없이)
+
+**[Releases](https://github.com/dewdorp/soc-handover/releases/latest)** 에서 오프라인 설치 패키지를 받습니다.
+
+1. 인터넷이 되는 PC에서 `SOC-Handover-<버전>-offline.zip` 과 `.sha256` 을 내려받고 해시를 확인합니다.
+   ```powershell
+   Get-FileHash .\SOC-Handover-1.0.0-offline.zip -Algorithm SHA256   # .sha256 파일의 값과 같아야 합니다
+   ```
+2. USB·공유 폴더로 사내 PC에 옮겨 **압축을 풀고** `INSTALL.cmd` 를 더블클릭합니다.
+3. Python·PostgreSQL·VC++ 런타임이 모두 들어 있어 대상 PC에 미리 설치할 것이 없습니다.
+
+패키지를 새로 만들려면 인터넷 되는 PC에서 `.\package.ps1 -Download` — 자세한 내용은 [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md),
+설치 후 운영은 [docs/OPERATIONS.md](docs/OPERATIONS.md) 를 보십시오.
+
+---
+
+## 빠른 시작 — 개발 PC (소스에서)
 
 PowerShell을 열고 프로젝트 폴더에서 아래를 순서대로 실행합니다.
 자세한 절차와 문제 해결은 [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md)를 보십시오.
@@ -34,7 +50,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 | `.\status.ps1` | 프로세스·포트·DB·마이그레이션·백업 상태 점검 |
 | `.\backup.ps1` | DB + 첨부파일 백업 (`-KeepDays`, `-Destination`) |
 | `.\restore.ps1` | 백업에서 복구 (확인 문구 입력 필요) |
-| `.\package.ps1` | **다른 PC로 옮길 배포 패키지 생성** (`-Offline`, `-IncludeData`) |
+| `.\package.ps1` | **인터넷 없는 PC용 오프라인 설치 패키지 생성** (`-Download` 로 외부 배포 파일까지 받기) |
 
 ---
 

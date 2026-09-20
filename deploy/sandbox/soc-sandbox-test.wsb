@@ -1,0 +1,18 @@
+<Configuration>
+  <!-- 깨끗한 Windows + 인터넷 차단 상태에서 오프라인 설치 패키지를 검증한다.
+       share 폴더(패키지 zip · 검증 스크립트)를 샌드박스의 C:\share 로 연결하고,
+       로그인하자마자 검증 스크립트를 실행한다. 결과는 C:\share\result 에 쌓여 호스트에서도 보인다. -->
+  <VGpu>Disable</VGpu>
+  <Networking>Disable</Networking>
+  <MemoryInMB>8192</MemoryInMB>
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>F:\claude\rotation\soc-handover\build\sandbox\share</HostFolder>
+      <SandboxFolder>C:\share</SandboxFolder>
+      <ReadOnly>false</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <LogonCommand>
+    <Command>powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\share\run-in-sandbox.ps1</Command>
+  </LogonCommand>
+</Configuration>

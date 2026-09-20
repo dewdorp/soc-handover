@@ -72,6 +72,16 @@ zip 을 풀고 **`INSTALL.cmd` 더블클릭** → 권한 요청 [예] → `Y` �
 | 프록시 · 인터넷 차단 | 설치 · 실행 모두 인터넷을 쓰지 않음. 화면도 외부 글꼴 · CDN 을 쓰지 않음 |
 | 브라우저 | Chrome · Edge (최근 3년 안의 버전). Internet Explorer 불가 |
 
+**Windows 10 호환성 근거** (실제 Windows 10 PC 에서의 실행 확인은 현장 설치 때 함께 합니다)
+
+| 확인한 것 | 결과 |
+|---|---|
+| 패키지에 든 실행 파일의 최소 OS(PE 헤더) | Python · PostgreSQL · libpq · 확장 모듈 모두 `6.0`(Vista 이상) — Windows 10 에서 막히는 것 없음 |
+| 공급사 지원 범위 | Python 3.12 = Windows 8.1+, PostgreSQL 16 = Windows 10+, VC++ 2015-2022 재배포 = Windows 10+ |
+| 설치 · 운영 스크립트가 쓰는 PowerShell 명령 | NetTCPIP · NetSecurity(방화벽) · ScheduledTasks · Unblock-File · Expand-Archive — 모두 Windows 8/10 의 PowerShell 5.1 기본 제공 |
+| Windows 11 전용 기능 의존 | 없음. Smart App Control 확인은 레지스트리 키가 없으면 '꺼짐'으로 본다(Windows 10 에는 그 기능 자체가 없음) |
+| 32비트 Windows | 지원하지 않음(64비트 전용) |
+
 ---
 
 ## B. 소스 설치 (개발 PC)

@@ -29,7 +29,7 @@ def normalize(bundle: Path) -> None:
             continue
         suffix = p.suffix.lower()
         # 메모장이 인코딩을 헷갈리지 않게 안내문(README-KO.txt)에도 BOM
-        if suffix == ".ps1" or p.name == "README-KO.txt":
+        if suffix == ".ps1" or p.name in ("README-KO.txt", "README-PATCH.txt"):
             data = p.read_bytes()
             if not data.startswith(BOM):
                 data.decode("utf-8")  # UTF-8 이 아니면 여기서 실패

@@ -21,7 +21,9 @@
 2. USB·공유 폴더로 사내 PC에 옮겨 **압축을 풀고** `INSTALL.cmd` 를 더블클릭합니다.
 3. Python·PostgreSQL·VC++ 런타임이 모두 들어 있어 대상 PC에 미리 설치할 것이 없습니다.
 
-패키지를 새로 만들려면 인터넷 되는 PC에서 `.\package.ps1 -Download` — 자세한 내용은 [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md),
+이미 설치된 PC 는 패치 zip(수 MB)의 `UPDATE.cmd` 로 앞·화면만 바꿀 수 있습니다.
+
+패키지를 새로 만들려면 인터넷 되는 PC에서 `.\package.ps1 -Download`(전체) · `.\package.ps1 -AppOnly`(패치) — 자세한 내용은 [INSTALL_WINDOWS.md](INSTALL_WINDOWS.md),
 설치 후 운영은 [docs/OPERATIONS.md](docs/OPERATIONS.md) 를 보십시오.
 
 ---
@@ -51,6 +53,7 @@ Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
 | `.\backup.ps1` | DB + 첨부파일 백업 (`-KeepDays`, `-Destination`) |
 | `.\restore.ps1` | 백업에서 복구 (확인 문구 입력 필요) |
 | `.\package.ps1` | **인터넷 없는 PC용 오프라인 설치 패키지 생성** (`-Download` 로 외부 배포 파일까지 받기) |
+| `.\package.ps1 -AppOnly` | **이미 설치된 PC 용 패치 패키지 생성**(수 MB — 앱 · 화면만) |
 
 ---
 

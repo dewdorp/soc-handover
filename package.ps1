@@ -29,16 +29,31 @@
 .PARAMETER SkipFrontendBuild
     화면을 다시 빌드하지 않고 지금의 frontend\dist 를 씁니다.
 
+.PARAMETER AppOnly
+    이미 설치된 PC 용 **패치 zip**(수 MB)만 만듭니다. 앱 · 화면 · 스크립트 · 문서만 담고
+    Python · PostgreSQL 은 담지 않습니다(설치된 것을 그대로 씁니다).
+
+      SOC-Handover-<버전>-patch\
+        UPDATE.cmd               더블클릭 → 중지 · 백업 · 교체 · 마이그레이션 · 시작
+        setup\update.ps1         패치 프로그램 본체
+        patch\                   설치 폴더에 덮어쓰는 것(backend · frontend\dist · scripts · docs · *.ps1 *.cmd)
+        MANIFEST.sha256 · VERSION.txt · README-PATCH.txt
+
+    라이브러리(requirements.lock)가 바뀐 버전에는 쓸 수 없습니다 — 패치 프로그램이 확인하고
+    전체 패키지로 안내합니다.
+
 .PARAMETER OutDir
     zip 을 만들 폴더. 기본 build\dist.
 
 .EXAMPLE
     .\package.ps1 -Download
+    .\package.ps1 -AppOnly
 #>
 [CmdletBinding()]
 param(
     [switch]$Download,
     [switch]$SkipFrontendBuild,
+    [switch]$AppOnly,
     [string]$OutDir
 )
 
@@ -68,9 +83,104 @@ function Invoke-Robo([string]$From, [string]$To, [string[]]$Extra) {
     $global:LASTEXITCODE = 0
 }
 
+# 설치 폴더에 들어가는 '앱' — 전체 패키지와 패치가 똑같은 것을 담도록 한 곳에서 만든다.
+# 런타임(Python · PostgreSQL)은 여기 없다: 전체 패키지만 담고, 패치는 설치된 것을 그대로 쓴다.
+function Copy-AppFiles([string]$Dest) {
+    Invoke-Robo (Join-Path $BackendDir 'app') (Join-Path $Dest 'backend\app') @('/E', '/XD', '__pycache__')
+    Invoke-Robo (Join-Path $BackendDir 'alembic') (Join-Path $Dest 'backend\alembic') @('/E', '/XD', '__pycache__')
+    foreach ($f in @('alembic.ini', 'manage.py', 'requirements.txt', 'requirements.lock')) {
+        Copy-Item (Join-Path $BackendDir $f) (Join-Path $Dest "backend\$f")
+    }
+    Invoke-Robo (Join-Path $FrontendDir 'dist') (Join-Path $Dest 'frontend\dist') @('/E')
+    New-Item -ItemType Directory -Path (Join-Path $Dest 'scripts') -Force | Out-Null
+    foreach ($f in @('common.ps1', 'service-run.ps1')) { Copy-Item (Join-Path $Root "scripts\$f") (Join-Path $Dest "scripts\$f") }
+    foreach ($f in @('start.ps1', 'stop.ps1', 'status.ps1', 'backup.ps1', 'restore.ps1')) { Copy-Item (Join-Path $Root $f) $Dest }
+    Copy-Item (Join-Path $Root 'deploy\uninstall.ps1') $Dest
+    New-Item -ItemType Directory -Path (Join-Path $Dest 'docs') -Force | Out-Null
+    Copy-Item (Join-Path $Root 'docs\OPERATIONS.md') (Join-Path $Dest 'docs\OPERATIONS.md')
+    Copy-Item (Join-Path $Root 'deploy\README-KO.txt') (Join-Path $Dest 'README-KO.txt')
+
+    # 설치 폴더의 실행 파일(.cmd) — 서비스 모드면 관리자 권한을 요청한다(status 는 권한 없이)
+    $cmdTemplate = @'
+@echo off
+rem SOC Handover - {0}. See docs\OPERATIONS.md
+setlocal
+cd /d "%~dp0"
+if {1}=="elevate" if exist "%~dp0SERVICE_MODE" (
+  fltmc >nul 2>&1
+  if errorlevel 1 (
+    powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+    exit /b
+  )
+)
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0{0}.ps1" %*
+echo.
+pause
+'@
+    foreach ($op in @('start', 'stop', 'status', 'backup', 'restore', 'uninstall')) {
+        $mode = if ($op -eq 'status') { 'no' } else { 'elevate' }
+        $text = [string]::Format($cmdTemplate, $op, $mode)
+        [IO.File]::WriteAllText((Join-Path $Dest "$op.cmd"), $text, [Text.Encoding]::ASCII)
+    }
+}
+
 Write-Host '=====================================================' -ForegroundColor White
-Write-Host " 오프라인 설치 패키지 만들기 — $Name" -ForegroundColor White
+Write-Host $(if ($AppOnly) { " 패치 패키지 만들기 — $Name" } else { " 오프라인 설치 패키지 만들기 — $Name" }) -ForegroundColor White
 Write-Host '=====================================================' -ForegroundColor White
+
+# ---------------------------------------------------------------- 패치(앱만) 패키지
+if ($AppOnly) {
+    try {
+        if (-not $SkipFrontendBuild) {
+            Write-Step '화면(UI) 빌드'
+            $pm = Resolve-PackageManager
+            if (-not $pm) { throw 'Node/pnpm 을 찾지 못했습니다. -SkipFrontendBuild 로 지금의 dist 를 쓰거나 Node 를 설치하십시오.' }
+            Invoke-PackageManager $pm @('run', 'build') $FrontendDir
+            Write-Ok 'frontend\dist 빌드'
+        }
+        if (-not (Test-Path (Join-Path $FrontendDir 'dist\index.html'))) { throw 'frontend\dist 가 없습니다.' }
+
+        Write-Step '패치 구성'
+        $patchStage = Join-Path $BuildDir "stage\$Name-patch"
+        if (Test-Path $patchStage) { Remove-Item $patchStage -Recurse -Force }
+        $patchDir = Join-Path $patchStage 'patch'
+        New-Item -ItemType Directory -Path $patchDir -Force | Out-Null
+        Copy-AppFiles $patchDir
+        Write-Ok '앱 · 화면 · 운영 스크립트'
+
+        New-Item -ItemType Directory -Path (Join-Path $patchStage 'setup') -Force | Out-Null
+        Copy-Item (Join-Path $Root 'deploy\update.ps1') (Join-Path $patchStage 'setup\update.ps1')
+        Copy-Item (Join-Path $Root 'deploy\UPDATE.cmd') (Join-Path $patchStage 'UPDATE.cmd')
+        Copy-Item (Join-Path $Root 'deploy\README-PATCH.txt') (Join-Path $patchStage 'README-PATCH.txt')
+        Set-Content -Path (Join-Path $patchStage 'VERSION.txt') -Encoding ASCII -Value @(
+            $Version, "built $(Get-Date -Format 'yyyy-MM-dd HH:mm')", 'patch (app only)')
+        Write-Ok '패치 프로그램 · 안내문'
+
+        Write-Step '인코딩 정리 · 무결성 목록 · 압축'
+        $helper = Join-Path $Root 'deploy\pack_helper.py'
+        & $VenvPython $helper normalize $patchStage
+        if ($LASTEXITCODE -ne 0) { throw '인코딩 정리 실패' }
+        & $VenvPython $helper manifest $patchStage
+        if ($LASTEXITCODE -ne 0) { throw '무결성 목록 생성 실패' }
+        $patchZip = Join-Path $OutDir "$Name-patch.zip"
+        & $VenvPython $helper zip $patchStage $patchZip
+        if ($LASTEXITCODE -ne 0) { throw '압축 실패' }
+
+        Write-Host ''
+        Write-Host '=====================================================' -ForegroundColor Green
+        Write-Host ' 패치 패키지 생성 완료' -ForegroundColor Green
+        Write-Host '=====================================================' -ForegroundColor Green
+        Write-Host "  파일   : $patchZip ($([math]::Round((Get-Item $patchZip).Length / 1MB, 1))MB)"
+        Write-Host "  해시   : $patchZip.sha256"
+        Write-Host '  옮긴 뒤: 압축을 풀고 UPDATE.cmd 더블클릭 (README-PATCH.txt 참고)'
+        Write-Host '  주의   : 라이브러리(requirements.lock)가 바뀐 버전에는 쓸 수 없습니다 — 패치 프로그램이 확인합니다.'
+        Write-Host ''
+        exit 0
+    } catch {
+        Write-Err $_.Exception.Message
+        exit 1
+    }
+}
 
 try {
     # ------------------------------------------------------------ 1. 외부 배포 파일
@@ -113,43 +223,7 @@ try {
     if (Test-Path $Stage) { Remove-Item $Stage -Recurse -Force }
     New-Item -ItemType Directory -Path $PayloadDir -Force | Out-Null
 
-    # 앱
-    Invoke-Robo (Join-Path $BackendDir 'app') (Join-Path $PayloadDir 'backend\app') @('/E', '/XD', '__pycache__')
-    Invoke-Robo (Join-Path $BackendDir 'alembic') (Join-Path $PayloadDir 'backend\alembic') @('/E', '/XD', '__pycache__')
-    foreach ($f in @('alembic.ini', 'manage.py', 'requirements.txt', 'requirements.lock')) {
-        Copy-Item (Join-Path $BackendDir $f) (Join-Path $PayloadDir "backend\$f")
-    }
-    Invoke-Robo (Join-Path $FrontendDir 'dist') (Join-Path $PayloadDir 'frontend\dist') @('/E')
-    New-Item -ItemType Directory -Path (Join-Path $PayloadDir 'scripts') -Force | Out-Null
-    foreach ($f in @('common.ps1', 'service-run.ps1')) { Copy-Item (Join-Path $Root "scripts\$f") (Join-Path $PayloadDir "scripts\$f") }
-    foreach ($f in @('start.ps1', 'stop.ps1', 'status.ps1', 'backup.ps1', 'restore.ps1')) { Copy-Item (Join-Path $Root $f) $PayloadDir }
-    Copy-Item (Join-Path $Root 'deploy\uninstall.ps1') $PayloadDir
-    New-Item -ItemType Directory -Path (Join-Path $PayloadDir 'docs') -Force | Out-Null
-    Copy-Item (Join-Path $Root 'docs\OPERATIONS.md') (Join-Path $PayloadDir 'docs\OPERATIONS.md')
-    Copy-Item (Join-Path $Root 'deploy\README-KO.txt') (Join-Path $PayloadDir 'README-KO.txt')
-
-    # 설치 폴더의 실행 파일(.cmd) — 서비스 모드면 관리자 권한을 요청한다(status 는 권한 없이)
-    $cmdTemplate = @'
-@echo off
-rem SOC Handover - {0}. See docs\OPERATIONS.md
-setlocal
-cd /d "%~dp0"
-if {1}=="elevate" if exist "%~dp0SERVICE_MODE" (
-  fltmc >nul 2>&1
-  if errorlevel 1 (
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
-    exit /b
-  )
-)
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0{0}.ps1" %*
-echo.
-pause
-'@
-    foreach ($op in @('start', 'stop', 'status', 'backup', 'restore', 'uninstall')) {
-        $mode = if ($op -eq 'status') { 'no' } else { 'elevate' }
-        $text = [string]::Format($cmdTemplate, $op, $mode)
-        [IO.File]::WriteAllText((Join-Path $PayloadDir "$op.cmd"), $text, [Text.Encoding]::ASCII)
-    }
+    Copy-AppFiles $PayloadDir
     Write-Ok '앱 · 화면 · 운영 스크립트'
 
     # Python 런타임: 이 PC 의 Python 3.12(개발 venv 의 원본)를 복사하고, 라이브러리를 그 안에 설치한다

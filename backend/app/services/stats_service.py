@@ -18,7 +18,7 @@ from app.core.errors import ValidationFailed
 from app.core.time import KST, today
 from app.models.handover import Handover, HandoverAcknowledgement
 from app.models.reference import Company, HandoverStatus
-from app.models.shift import ShiftHandover, ShiftHandoverItem
+from app.models.shift import ShiftHandover, ShiftHandoverItem, ShiftHandoverRecipient
 from app.models.task import TASK_CLOSED_STATES, TASK_DONE, Task
 
 MAX_DAYS = 366
@@ -68,12 +68,16 @@ def summary(db: Session, start: date, end: date) -> dict[str, Any]:
                                                 .group_by(y, m).order_by(y, m))]
 
     # 교대 인계 확인율 · 걸린 시간
+    # 인수자마다 한 줄 — 여러 명에게 넘긴 인계는 사람 수만큼 확인해야 한다.
     items = db.execute(
-        select(ShiftHandover.to_user_id, ShiftHandover.sent_at, ShiftHandoverItem.handover_id)
+        select(ShiftHandoverRecipient.user_id, ShiftHandover.sent_at,
+               ShiftHandoverItem.handover_id)
+        .select_from(ShiftHandover)
         .join(ShiftHandoverItem, ShiftHandoverItem.session_id == ShiftHandover.id)
+        .join(ShiftHandoverRecipient, ShiftHandoverRecipient.session_id == ShiftHandover.id)
         .join(Handover, Handover.id == ShiftHandoverItem.handover_id)
         .where(ShiftHandover.sent_at >= t_from, ShiftHandover.sent_at < t_to,
-               ShiftHandover.to_user_id.is_not(None), Handover.is_deleted == false())).all()
+               Handover.is_deleted == false())).all()
     acks = {(a.handover_id, a.user_id): a for a in db.scalars(
         select(HandoverAcknowledgement).where(
             HandoverAcknowledgement.handover_id.in_({i.handover_id for i in items} or {0})))}

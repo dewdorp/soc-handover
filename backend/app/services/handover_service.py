@@ -602,15 +602,15 @@ def timeline(db: Session, handover_id: int) -> list[dict[str, Any]]:
         .where(ShiftHandoverItem.handover_id == handover_id,
                ShiftHandover.sent_at.is_not(None))).all()
     for item, session in transfers:
-        receiver = db.get(User, session.to_user_id) if session.to_user_id else None
+        receivers = [db.get(User, uid) for uid in session.recipient_ids]
+        names = " · ".join(u.display_name for u in receivers if u) or "-"
         events.append({
             "kind": "TRANSFER",
             "_seq": 4_000_000 + item.id,
             "at": session.sent_at,
             "actor_id": session.from_user_id,
-            "title": f"교대 인계 v{item.version_no_at_transfer} → "
-                     f"{receiver.display_name if receiver else '-'}",
-            "detail": {"session_id": session.id, "to_user_id": session.to_user_id,
+            "title": f"교대 인계 v{item.version_no_at_transfer} → {names}",
+            "detail": {"session_id": session.id, "to_user_ids": session.recipient_ids,
                        "version_no_at_transfer": item.version_no_at_transfer,
                        "item_note": item.item_note, "carried": item.is_carry_forward},
         })

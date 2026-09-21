@@ -70,7 +70,7 @@ export default function HistoryView() {
               <tr key={s.id} onClick={() => select(s.id)}
                   className={`border-t border-surface-border/60 cursor-pointer ${selected === s.id ? 'bg-brand-soft' : 'hover:bg-surface-sunken'}`}>
                 <td className="px-2 py-1 tabular-nums whitespace-nowrap">{when(s.sent_at)}</td>
-                <td className="px-2 py-1">{s.from_user} → {s.to_user}</td>
+                <td className="px-2 py-1">{s.from_user} → {s.to_users.join(' · ') || '-'}</td>
                 <td className="px-2 py-1 text-right tabular-nums">{s.item_count}</td>
                 <td className="px-2 py-1 tabular-nums">
                   <span className={s.acked_count === s.item_count ? 'text-state-done' : 'text-state-check'}>
@@ -115,7 +115,7 @@ function SessionDetail({ id, onClose }: { id: number; onClose: () => void }) {
           <button className="text-ink-faint hover:text-ink" onClick={onClose} aria-label="닫기">✕</button>
         </div>
         <p className="text-ink-muted">
-          {s.from_user} → {s.to_user} · {when(s.sent_at)} · 확인 {s.acked_count}/{s.item_count}
+          {s.from_user} → {s.to_users.join(' · ') || '-'} · {when(s.sent_at)} · 확인 {s.acked_count}/{s.item_count}
         </p>
       </div>
       <div className="flex-1 overflow-auto p-3 space-y-2">
@@ -134,12 +134,26 @@ function SessionDetail({ id, onClose }: { id: number; onClose: () => void }) {
               </div>
               <div className="text-sm">
                 {i.ack_state === 'ACKED' && <span className="text-state-done">✔ v{i.acked_version_no} 확인</span>}
-                {i.ack_state === 'PENDING' && <span className="text-state-wait">○ 아직 확인 안 함</span>}
+                {i.ack_state === 'PENDING' && (
+                  <span className="text-state-wait">
+                    ○ 아직 확인 안 함{i.ack_total > 1 ? ` (${i.ack_done}/${i.ack_total})` : ''}
+                  </span>
+                )}
                 {i.ack_state === 'REACK_REQUIRED' && (
                   <span className="text-state-check">⚠ 확인 후 변경됨 — 다시 확인 필요
                     {i.stale_reason?.length ? ` (${i.stale_reason.map(fieldLabel).join(', ')})` : ''}</span>
                 )}
               </div>
+              {i.ack_total > 1 && (
+                <div className="text-xs text-ink-muted flex flex-wrap gap-x-2">
+                  {i.acks.map((a) => (
+                    <span key={a.user_id}
+                          className={a.state === 'ACKED' ? 'text-state-done' : 'text-state-wait'}>
+                      {a.state === 'ACKED' ? '✔' : a.state === 'REACK_REQUIRED' ? '⚠' : '○'} {a.user}
+                    </span>
+                  ))}
+                </div>
+              )}
               {i.item_note && <div className="text-sm">📝 {i.item_note}</div>}
             </li>
           ))}

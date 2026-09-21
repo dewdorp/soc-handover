@@ -26,14 +26,14 @@ P = "/shift-handovers"
 def _session_out(db: Session, session: ShiftHandover, *, with_items: bool = True) -> dict:
     views = svc.item_views(db, session) if with_items else []
     sender = db.get(User, session.from_user_id)
-    receiver = db.get(User, session.to_user_id) if session.to_user_id else None
+    receivers = [db.get(User, r.user_id) for r in session.recipients]
     return {
         "id": session.id, "status": session.status, "shift_date": session.shift_date,
         "shift_id": session.shift_id, "to_shift_id": session.to_shift_id,
         "from_user_id": session.from_user_id,
         "from_user": sender.display_name if sender else None,
-        "to_user_id": session.to_user_id,
-        "to_user": receiver.display_name if receiver else None,
+        "to_user_ids": [r.user_id for r in session.recipients],
+        "to_users": [u.display_name for u in receivers if u],
         "sent_at": session.sent_at, "closed_at": session.closed_at,
         "summary_note": session.summary_note,
         "item_count": session.item_count or len(session.items),
@@ -108,8 +108,8 @@ def update_basket(payload: BasketUpdate, db: Session = Depends(get_db),
 def send(payload: SendRequest, db: Session = Depends(get_db),
          actor: User = Depends(require("shift:transfer")),
          ctx: RequestContext = Depends(get_context)):
-    """항목마다 전달 시점 버전을 고정하고, 받는 사람에게 확인(PENDING)을 만든다."""
-    session = svc.send(db, actor, to_user_id=payload.to_user_id,
+    """항목마다 전달 시점 버전을 고정하고, 인수자 **각각에게** 확인(PENDING)을 만든다."""
+    session = svc.send(db, actor, to_user_ids=payload.to_user_ids,
                        to_shift_id=payload.to_shift_id, summary_note=payload.summary_note,
                        ctx=ctx)
     return _session_out(db, session)

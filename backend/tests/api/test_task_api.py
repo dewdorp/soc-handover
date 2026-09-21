@@ -250,7 +250,7 @@ class TestMyWork:
         # 김철수가 교대 인계로 넘기면 확인필요
         other = _handover(kim, cid, "넘겨받은 건")
         kim.post("/api/v1/shift-handovers/basket/items", json={"handover_ids": [other]})
-        kim.post("/api/v1/shift-handovers/basket/send", json={"to_user_id": hong_id})
+        kim.post("/api/v1/shift-handovers/basket/send", json={"to_user_ids": [hong_id]})
 
         def ids(bucket, source="all"):
             return {(i["kind"], i["id"]) for i in hong.get(W, params={"bucket": bucket, "source": source}).json()["items"]}

@@ -73,12 +73,25 @@ export default function BasketPanel({ nextShiftLabel }: Props) {
   const summarySave = useAutosave((value) => {
     if (value !== (basket?.summary_note ?? '')) patch.mutate({ summary_note: value || null })
   })
+  const candidates = (users ?? []).filter((u) => u.id !== me?.id)
+  // 서버에 저장되기 전에도 고른 대로 보여 준다 — 두 명을 빠르게 고르면 먼저 고른 사람이
+  // 아직 안 담긴 목록을 읽어 사라진다(저장은 목록 전체를 보내므로).
+  const [localIds, setLocalIds] = useState<number[] | null>(null)
+  const chosenIds = localIds ?? basket?.to_user_ids ?? []
+  useEffect(() => {
+    if (localIds && basket && localIds.join() === basket.to_user_ids.join()) setLocalIds(null)
+  }, [basket, localIds])
+  const chosen = chosenIds.map((id) => ({
+    id, name: candidates.find((u) => u.id === id)?.display_name ?? `#${id}`,
+  }))
+  const setRecipients = (ids: number[]) => { setLocalIds(ids); patch.mutate({ to_user_ids: ids }) }
+
   const send = useMutation({
-    mutationFn: () => shiftApi.send({ to_user_id: basket!.to_user_id!, summary_note: summary || null }),
+    mutationFn: () => shiftApi.send({ to_user_ids: chosenIds, summary_note: summary || null }),
     onSuccess: (session) => {
       setError(null)
       setCarryNotice(0)
-      setSentMessage(`${session.to_user} 님에게 ${session.item_count}건을 인계했습니다.`)
+      setSentMessage(`${session.to_users.join(' · ')} 님에게 ${session.item_count}건을 인계했습니다.`)
       refresh()
       qc.invalidateQueries({ queryKey: ['shift-history'] })
     },
@@ -95,8 +108,6 @@ export default function BasketPanel({ nextShiftLabel }: Props) {
     ;[order[index], order[target]] = [order[target], order[index]]
     patch.mutate({ order })
   }
-
-  const recipients = (users ?? []).filter((u) => u.id !== me?.id)
 
   return (
     <aside className="w-full lg:w-[380px] shrink-0 max-lg:border-t lg:border-l border-surface-border bg-surface flex flex-col lg:min-h-0"
@@ -118,14 +129,33 @@ export default function BasketPanel({ nextShiftLabel }: Props) {
           </p>
         )}
 
-        <label className="block space-y-0.5">
-          <span className="text-ink-muted">받는 사람 ({nextShiftLabel})</span>
-          <select className="input w-full" value={basket?.to_user_id ?? ''}
-                  onChange={(e) => patch.mutate({ to_user_id: e.target.value ? Number(e.target.value) : null })}>
-            <option value="">(선택)</option>
-            {recipients.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
+        <div className="space-y-0.5">
+          <span className="text-ink-muted" id="recipients-label">받는 사람 ({nextShiftLabel})</span>
+          {chosen.length > 0 && (
+            <ul className="flex flex-wrap gap-1" aria-labelledby="recipients-label">
+              {chosen.map((r) => (
+                <li key={r.id} className="chip flex items-center gap-1">
+                  {r.name}
+                  <button aria-label={`${r.name} 빼기`} className="text-ink-faint hover:text-state-urgent"
+                          onClick={() => setRecipients(chosenIds.filter((id) => id !== r.id))}>
+                    <X size={11} />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <select className="input w-full" value="" aria-label="받는 사람 추가"
+                  onChange={(e) => {
+                    if (e.target.value) setRecipients([...chosenIds, Number(e.target.value)])
+                  }}>
+            <option value="">{chosen.length ? '+ 인수자 추가' : '(선택)'}</option>
+            {candidates.filter((u) => !chosenIds.includes(u.id))
+              .map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
           </select>
-        </label>
+          {chosen.length > 1 && (
+            <p className="text-xs text-ink-faint">{chosen.length}명 모두가 확인해야 인계가 끝납니다.</p>
+          )}
+        </div>
 
         {items.length === 0 && (
           <p className="text-ink-faint text-sm py-4 text-center">
@@ -159,21 +189,21 @@ export default function BasketPanel({ nextShiftLabel }: Props) {
 
       <div className="p-3 border-t border-surface-border">
         <button className="btn btn-primary w-full justify-center h-8"
-                disabled={!items.length || !basket?.to_user_id || send.isPending}
+                disabled={!items.length || !chosen.length || send.isPending}
                 onClick={() => setConfirming(true)}>
           <Send size={13} /> 다음 근무자에게 인계
         </button>
         {confirming && (
           <ConfirmDialog
-            title={`${recipients.find((u) => u.id === basket?.to_user_id)?.display_name ?? '받는 사람'} 님에게 ${items.length}건을 인계합니다`}
+            title={`${chosen.map((r) => r.name).join(' · ') || '받는 사람'} 님에게 ${items.length}건을 인계합니다`}
             confirmLabel="인계" busy={send.isPending}
             onCancel={() => setConfirming(false)}
             onConfirm={() => { setConfirming(false); send.mutate() }}>
-            <p>항목마다 지금 버전이 기록되고, 받는 사람이 확인해야 끝납니다.</p>
+            <p>항목마다 지금 버전이 기록되고, 받는 사람{chosen.length > 1 ? ' 모두가' : '이'} 확인해야 끝납니다.</p>
             {!summary.trim() && <p className="text-state-check">교대 총평이 비어 있습니다.</p>}
           </ConfirmDialog>
         )}
-        {!basket?.to_user_id && items.length > 0 && (
+        {!chosen.length && items.length > 0 && (
           <p className="text-xs text-ink-faint mt-1 text-center">받는 사람을 먼저 고르십시오.</p>
         )}
       </div>

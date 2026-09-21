@@ -23,15 +23,18 @@ from app.audit.recorder import record
 from app.core.context import RequestContext
 from app.core.errors import Conflict, Forbidden, NotFound, ValidationFailed
 from app.core.time import KST, ShiftWindow, now, resolve_shift
-from app.models.handover import (ACK_ACKED, Handover, HandoverAcknowledgement)
+from app.models.handover import (ACK_ACKED, ACK_PENDING, ACK_REACK, Handover,
+                                 HandoverAcknowledgement)
 from app.models.reference import HandoverStatus, Shift
 from app.models.shift import (SESSION_CLOSED, SESSION_DRAFT, SESSION_SENT, ShiftHandover,
-                              ShiftHandoverItem)
+                              ShiftHandoverItem, ShiftHandoverRecipient)
 from app.models.user import User
 from app.search.dsl import Filter, SearchRequest, Sort
 from app.services import ack_service, notification_service, search_service, settings_service
 
 MAX_CHAIN = 100
+#: 한 번에 고를 수 있는 인수자 수. 교대 인원을 넉넉히 넘는 값 — 실수로 전원을 고르는 것을 막는다.
+MAX_RECIPIENTS = 20
 
 
 # --------------------------------------------------------------------------- 교대 시각
@@ -200,9 +203,16 @@ def _open_codes(db: Session):
     return select(HandoverStatus.code).where(HandoverStatus.category != "CLOSED")
 
 
+def _received_by(user_id: int):
+    """이 사람이 인수자로 들어 있는 인계."""
+    return select(ShiftHandoverRecipient.id).where(
+        ShiftHandoverRecipient.session_id == ShiftHandover.id,
+        ShiftHandoverRecipient.user_id == user_id).exists()
+
+
 def last_received(db: Session, user_id: int) -> ShiftHandover | None:
     return db.scalar(select(ShiftHandover)
-                     .where(ShiftHandover.to_user_id == user_id,
+                     .where(_received_by(user_id),
                             ShiftHandover.status.in_((SESSION_SENT, SESSION_CLOSED)))
                      .order_by(ShiftHandover.sent_at.desc(), ShiftHandover.id.desc())
                      .limit(1))
@@ -318,9 +328,9 @@ def update_item(db: Session, actor: User, item_id: int, note: str | None) -> Shi
 
 def update_basket(db: Session, actor: User, changes: dict[str, Any]) -> ShiftHandover:
     basket, _ = get_basket(db, actor)
-    if "to_user_id" in changes:
-        _check_recipient(db, actor, changes["to_user_id"], required=False)
-        basket.to_user_id = changes["to_user_id"]
+    if "to_user_ids" in changes:
+        _set_recipients(db, basket, _check_recipients(db, actor, changes["to_user_ids"],
+                                                      required=False))
     if "to_shift_id" in changes:
         if changes["to_shift_id"] is not None and db.get(Shift, changes["to_shift_id"]) is None:
             raise ValidationFailed("존재하지 않는 교대입니다.")
@@ -336,28 +346,58 @@ def update_basket(db: Session, actor: User, changes: dict[str, Any]) -> ShiftHan
     return basket
 
 
-def _check_recipient(db: Session, actor: User, user_id: int | None, *, required: bool) -> User | None:
-    if user_id is None:
+def _check_recipients(db: Session, actor: User, user_ids: list[int] | None,
+                      *, required: bool) -> list[User]:
+    """고른 인수자를 검사해 **고른 순서대로** 돌려준다. 같은 사람을 두 번 골라도 한 번만 센다."""
+    wanted = list(dict.fromkeys(user_ids or []))
+    if not wanted:
         if required:
-            raise ValidationFailed("인계받을 사람을 지정하십시오.", detail={"field": "to_user_id"})
-        return None
-    if user_id == actor.id:
-        raise ValidationFailed("자기 자신에게는 인계할 수 없습니다.", detail={"field": "to_user_id"})
-    user = db.get(User, user_id)
-    if user is None or not user.is_active:
-        raise ValidationFailed("인계받을 사용자를 찾을 수 없습니다.", detail={"field": "to_user_id"})
-    return user
+            raise ValidationFailed("인계받을 사람을 지정하십시오.", detail={"field": "to_user_ids"})
+        return []
+    if len(wanted) > MAX_RECIPIENTS:
+        raise ValidationFailed(f"인수자는 한 번에 {MAX_RECIPIENTS}명까지 고를 수 있습니다.",
+                               detail={"field": "to_user_ids"})
+    if actor.id in wanted:
+        raise ValidationFailed("자기 자신에게는 인계할 수 없습니다.", detail={"field": "to_user_ids"})
+    found = {u.id: u for u in db.scalars(select(User).where(User.id.in_(wanted),
+                                                            User.is_active == true()))}
+    missing = [uid for uid in wanted if uid not in found]
+    if missing:
+        raise ValidationFailed("인계받을 사용자를 찾을 수 없습니다.",
+                               detail={"field": "to_user_ids", "user_ids": missing})
+    return [found[uid] for uid in wanted]
+
+
+def _set_recipients(db: Session, session: ShiftHandover, users: list[User]) -> None:
+    """인수자 목록을 고른 대로 맞춘다.
+
+    그대로 남는 사람은 행을 지우지 않는다 — 지웠다 다시 넣으면 같은 flush 안에서
+    (session_id, user_id) 가 겹쳐 유일 제약에 걸린다.
+    """
+    wanted = [u.id for u in users]
+    existing = {r.user_id: r for r in session.recipients}
+    for user_id, row in existing.items():
+        if user_id not in wanted:
+            session.recipients.remove(row)
+    for order, user_id in enumerate(wanted):
+        row = existing.get(user_id)
+        if row is None:
+            session.recipients.append(ShiftHandoverRecipient(user_id=user_id, display_order=order))
+        else:
+            row.display_order = order
+    db.flush()
+    db.refresh(session)
 
 
 # --------------------------------------------------------------------------- 전달
 
-def send(db: Session, actor: User, *, to_user_id: int | None, to_shift_id: int | None,
+def send(db: Session, actor: User, *, to_user_ids: list[int] | None, to_shift_id: int | None,
          summary_note: str | None, ctx: RequestContext | None = None) -> ShiftHandover:
     basket = _draft(db, actor)
     if basket is None or not basket.items:
         raise ValidationFailed("Basket 이 비어 있습니다. 인계할 항목을 먼저 담으십시오.")
-    recipient = _check_recipient(db, actor, to_user_id if to_user_id is not None
-                                 else basket.to_user_id, required=True)
+    recipients = _check_recipients(db, actor, to_user_ids if to_user_ids
+                                   else basket.recipient_ids, required=True)
 
     stamp = now()
     items_detail = []
@@ -371,7 +411,9 @@ def send(db: Session, actor: User, *, to_user_id: int | None, to_shift_id: int |
         depth = chain_depth(db, item)
         handover.carry_count = depth
         handover.last_transferred_at = stamp
-        ack_service.mark_pending(db, handover, recipient.id, session_id=basket.id)
+        # 인수자마다 따로 확인해야 한다 — 한 명이 확인해도 나머지는 그대로 미확인으로 남는다.
+        for person in recipients:
+            ack_service.mark_pending(db, handover, person.id, session_id=basket.id)
         items_detail.append({"handover_id": handover.id, "version": handover.current_version_no,
                              "carry_depth": depth})
 
@@ -379,7 +421,7 @@ def send(db: Session, actor: User, *, to_user_id: int | None, to_shift_id: int |
     shift = _shift_by_code(db, window.code)
     basket.shift_date = window.shift_date
     basket.shift_id = shift.id if shift else basket.shift_id
-    basket.to_user_id = recipient.id
+    _set_recipients(db, basket, recipients)
     if to_shift_id is not None:
         basket.to_shift_id = to_shift_id
     if summary_note is not None:
@@ -390,15 +432,18 @@ def send(db: Session, actor: User, *, to_user_id: int | None, to_shift_id: int |
     db.flush()
 
     carried = sum(1 for d in items_detail if d["carry_depth"] > 1)
-    notification_service.notify(
-        db, user_id=recipient.id, type_=notification_service.T_TRANSFER,
-        title=f"{actor.display_name} 님이 인수인계 {len(items_detail)}건을 전달했습니다",
-        body=(f"이어서 인계된 미완료 {carried}건 포함. " if carried else "")
-        + (basket.summary_note or ""),
-        link_type="SHIFT", link_id=basket.id)
+    others = len(recipients) - 1
+    for person in recipients:
+        notification_service.notify(
+            db, user_id=person.id, type_=notification_service.T_TRANSFER,
+            title=f"{actor.display_name} 님이 인수인계 {len(items_detail)}건을 전달했습니다",
+            body=(f"이어서 인계된 미완료 {carried}건 포함. " if carried else "")
+            + (f"같이 받은 사람 {others}명. " if others else "")
+            + (basket.summary_note or ""),
+            link_type="SHIFT", link_id=basket.id)
     record(db, action=actions.HANDOVER_TRANSFER, ctx=ctx, user=actor,
            resource_type="SHIFT_HANDOVER", resource_id=basket.id,
-           detail={"to_user_id": recipient.id, "count": len(items_detail),
+           detail={"to_user_ids": [p.id for p in recipients], "count": len(items_detail),
                    "items": items_detail})
     return basket
 
@@ -412,18 +457,45 @@ def session_or_404(db: Session, session_id: int) -> ShiftHandover:
     return session
 
 
+def _combine_ack(states: list[str | None]) -> str | None:
+    """인수자 여러 명의 확인 상태를 하나로. **모두** 확인해야 확인된 것이다.
+
+    아직 보내지 않은 Basket 은 확인 자체가 없으므로 None(표시할 상태 없음).
+    """
+    if not states or all(s is None for s in states):
+        return None
+    if any(s in (None, ACK_PENDING) for s in states):
+        return ACK_PENDING
+    if any(s == ACK_REACK for s in states):
+        return ACK_REACK
+    return ACK_ACKED
+
+
 def item_views(db: Session, session: ShiftHandover) -> list[dict[str, Any]]:
-    """항목마다: 전달 당시 버전 · 지금 버전 · 수신자 확인 상태 · 몇 교대째인지."""
+    """항목마다: 전달 당시 버전 · 지금 버전 · 인수자별 확인 상태 · 몇 교대째인지."""
     handover_ids = [i.handover_id for i in session.items]
-    acks = {}
-    if session.to_user_id and handover_ids:
-        acks = {a.handover_id: a for a in db.scalars(select(HandoverAcknowledgement).where(
-            HandoverAcknowledgement.handover_id.in_(handover_ids),
-            HandoverAcknowledgement.user_id == session.to_user_id))}
+    recipient_ids = session.recipient_ids
+    acks: dict[tuple[int, int], HandoverAcknowledgement] = {}
+    if recipient_ids and handover_ids:
+        acks = {(a.handover_id, a.user_id): a for a in db.scalars(
+            select(HandoverAcknowledgement).where(
+                HandoverAcknowledgement.handover_id.in_(handover_ids),
+                HandoverAcknowledgement.user_id.in_(recipient_ids)))}
+    names = {u.id: u.display_name for u in
+             db.scalars(select(User).where(User.id.in_(recipient_ids)))} if recipient_ids else {}
     out = []
     for item in session.items:
         handover = db.get(Handover, item.handover_id)
-        ack = acks.get(item.handover_id)
+        per_person = [{"user_id": uid, "user": names.get(uid),
+                       "state": (a.state if (a := acks.get((item.handover_id, uid))) else None),
+                       "acked_version_no": a.acked_version_no if a else None,
+                       "acked_at": a.acked_at if a else None,
+                       "stale_reason": a.stale_reason if a else None}
+                      for uid in recipient_ids]
+        # 대표로 보여 줄 값은 '마지막으로 확인한 사람'의 것 — 인수자 1명이면 지금까지와 같다.
+        done = sorted((p for p in per_person if p["acked_at"]), key=lambda p: p["acked_at"])
+        ack = done[-1] if done else None
+        stale = sorted({reason for p in per_person for reason in (p["stale_reason"] or [])})
         out.append({
             "item_id": item.id, "handover_id": item.handover_id,
             "title": handover.title if handover else "(삭제됨)",
@@ -439,10 +511,13 @@ def item_views(db: Session, session: ShiftHandover) -> list[dict[str, Any]]:
                                            and handover.current_version_no > item.version_no_at_transfer),
             "item_note": item.item_note, "display_order": item.display_order,
             "is_carry_forward": item.is_carry_forward, "carry_depth": chain_depth(db, item),
-            "ack_state": ack.state if ack else None,
-            "acked_version_no": ack.acked_version_no if ack else None,
-            "acked_at": ack.acked_at if ack else None,
-            "stale_reason": ack.stale_reason if ack else None,
+            "ack_state": _combine_ack([p["state"] for p in per_person]),
+            "acked_version_no": ack["acked_version_no"] if ack else None,
+            "acked_at": ack["acked_at"] if ack else None,
+            "stale_reason": stale or None,
+            "ack_total": len(per_person),
+            "ack_done": sum(1 for p in per_person if p["state"] == ACK_ACKED),
+            "acks": per_person,
         })
     return out
 
@@ -459,10 +534,9 @@ def list_sessions(db: Session, *, user_id: int | None = None, direction: str = "
         if direction == "sent":
             stmt = stmt.where(ShiftHandover.from_user_id == user_id)
         elif direction == "received":
-            stmt = stmt.where(ShiftHandover.to_user_id == user_id)
+            stmt = stmt.where(_received_by(user_id))
         else:
-            stmt = stmt.where((ShiftHandover.from_user_id == user_id)
-                              | (ShiftHandover.to_user_id == user_id))
+            stmt = stmt.where((ShiftHandover.from_user_id == user_id) | _received_by(user_id))
     if date_from:
         stmt = stmt.where(ShiftHandover.shift_date >= date_from)
     if date_to:
@@ -476,7 +550,7 @@ def close(db: Session, actor: User, session_id: int) -> ShiftHandover:
     session = session_or_404(db, session_id)
     if session.status == SESSION_CLOSED:
         raise Conflict("이미 종료된 인계입니다.")
-    if actor.id not in (session.from_user_id, session.to_user_id) \
+    if actor.id != session.from_user_id and actor.id not in session.recipient_ids \
             and actor.role_code not in ("MANAGER", "ADMIN"):
         raise Forbidden("보낸 사람·받은 사람·관리자만 종료할 수 있습니다.")
     views = item_views(db, session)
@@ -505,8 +579,14 @@ def inbox(db: Session, actor: User) -> list[dict[str, Any]]:
         .order_by(HandoverAcknowledgement.updated_at.desc(), HandoverAcknowledgement.id.desc())
     ).all()
     out = []
+    co_recipients: dict[int, list[str]] = {}
     for ack, handover in rows:
         session = db.get(ShiftHandover, ack.required_by_session_id) if ack.required_by_session_id else None
+        if session is not None and session.id not in co_recipients:
+            # 같은 인계를 나 말고 누가 또 받았는지 — 서로 미루다 빠지는 것을 막는다.
+            co_recipients[session.id] = [u.display_name for u in db.scalars(
+                select(User).where(User.id.in_([uid for uid in session.recipient_ids
+                                                if uid != actor.id])))]
         item = None
         if session is not None:
             item = db.scalar(select(ShiftHandoverItem).where(
@@ -524,6 +604,7 @@ def inbox(db: Session, actor: User) -> list[dict[str, Any]]:
             "session_id": session.id if session else None,
             "sent_at": session.sent_at if session else None,
             "from_user": sender.display_name if sender else None,
+            "also_to": co_recipients.get(session.id, []) if session else [],
             "summary_note": session.summary_note if session else None,
             "version_no_at_transfer": item.version_no_at_transfer if item else None,
             "item_note": item.item_note if item else None,

@@ -47,7 +47,20 @@ export interface SessionItem {
   display_order: number
   is_carry_forward: boolean
   carry_depth: number
+  /** 인수자 전원 기준 — 한 명이라도 확인하지 않았으면 확인된 것이 아니다. */
   ack_state: 'PENDING' | 'ACKED' | 'REACK_REQUIRED' | null
+  acked_version_no: number | null
+  acked_at: string | null
+  stale_reason: string[] | null
+  ack_total: number
+  ack_done: number
+  acks: AckByUser[]
+}
+
+export interface AckByUser {
+  user_id: number
+  user: string | null
+  state: 'PENDING' | 'ACKED' | 'REACK_REQUIRED' | null
   acked_version_no: number | null
   acked_at: string | null
   stale_reason: string[] | null
@@ -61,8 +74,8 @@ export interface ShiftSession {
   to_shift_id: number | null
   from_user_id: number
   from_user: string | null
-  to_user_id: number | null
-  to_user: string | null
+  to_user_ids: number[]
+  to_users: string[]
   sent_at: string | null
   closed_at: string | null
   summary_note: string | null
@@ -90,6 +103,8 @@ export interface InboxItem {
   session_id: number | null
   sent_at: string | null
   from_user: string | null
+  /** 같은 인계를 나 말고 또 받은 사람 */
+  also_to: string[]
   summary_note: string | null
   version_no_at_transfer: number | null
   item_note: string | null
@@ -118,9 +133,9 @@ export const shiftApi = {
   removeItem: (itemId: number) => api.delete<void>(`${P}/basket/items/${itemId}`),
   noteItem: (itemId: number, note: string | null) =>
     api.patch<SessionItem>(`${P}/basket/items/${itemId}`, { item_note: note }),
-  updateBasket: (body: { to_user_id?: number | null; summary_note?: string | null; order?: number[] }) =>
+  updateBasket: (body: { to_user_ids?: number[]; summary_note?: string | null; order?: number[] }) =>
     api.patch<Basket>(`${P}/basket`, body),
-  send: (body: { to_user_id: number; summary_note?: string | null }) =>
+  send: (body: { to_user_ids: number[]; summary_note?: string | null }) =>
     api.post<ShiftSession>(`${P}/basket/send`, body),
   inbox: () => api.get<InboxItem[]>(`${P}/inbox`),
   history: (direction: 'all' | 'sent' | 'received' | 'team') =>

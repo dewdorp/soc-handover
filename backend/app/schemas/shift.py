@@ -38,6 +38,15 @@ class CockpitOut(BaseModel):
     basket_handover_ids: list[int]
 
 
+class AckByUser(BaseModel):
+    user_id: int
+    user: str | None
+    state: str | None
+    acked_version_no: int | None
+    acked_at: datetime | None
+    stale_reason: list[str] | None
+
+
 class SessionItemOut(BaseModel):
     item_id: int
     handover_id: int
@@ -55,10 +64,15 @@ class SessionItemOut(BaseModel):
     display_order: int
     is_carry_forward: bool
     carry_depth: int
+    #: 인수자 전원 기준. 한 명이라도 확인하지 않았으면 확인된 것이 아니다.
     ack_state: str | None
     acked_version_no: int | None
     acked_at: datetime | None
     stale_reason: list[str] | None
+    ack_total: int = 0
+    ack_done: int = 0
+    #: 인수자별 확인 상태(누가 아직 안 봤는지 화면에서 바로 보이게)
+    acks: list[AckByUser] = []
 
 
 class SessionOut(BaseModel):
@@ -69,8 +83,9 @@ class SessionOut(BaseModel):
     to_shift_id: int | None
     from_user_id: int
     from_user: str | None = None
-    to_user_id: int | None
-    to_user: str | None = None
+    #: 인수자(고른 순서대로). 여러 명에게 한 번에 인계할 수 있다.
+    to_user_ids: list[int] = []
+    to_users: list[str] = []
     sent_at: datetime | None
     closed_at: datetime | None
     summary_note: str | None
@@ -95,7 +110,7 @@ class ItemNoteRequest(BaseModel):
 
 
 class BasketUpdate(BaseModel):
-    to_user_id: int | None = None
+    to_user_ids: list[int] | None = Field(default=None, max_length=20)
     to_shift_id: int | None = None
     summary_note: str | None = Field(default=None, max_length=5000)
     #: 항목 id 를 원하는 순서대로
@@ -103,7 +118,8 @@ class BasketUpdate(BaseModel):
 
 
 class SendRequest(BaseModel):
-    to_user_id: int | None = None
+    #: 생략하면 Basket 에 골라 둔 인수자로 보낸다.
+    to_user_ids: list[int] | None = Field(default=None, max_length=20)
     to_shift_id: int | None = None
     summary_note: str | None = Field(default=None, max_length=5000)
 
@@ -122,6 +138,8 @@ class InboxItem(BaseModel):
     session_id: int | None
     sent_at: datetime | None
     from_user: str | None
+    #: 같은 인계를 나 말고 또 받은 사람(서로 미루다 빠지는 것을 막는다)
+    also_to: list[str] = []
     summary_note: str | None      # 보낸 사람의 교대 총평
     version_no_at_transfer: int | None
     item_note: str | None

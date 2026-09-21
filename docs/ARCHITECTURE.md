@@ -218,8 +218,12 @@ handover_versions    ← append-only 스냅샷 (수정 금지, 삭제 금지)
 shifts               DAY 주간(09:00-18:00) / NIGHT 야간(18:00-09:00, crosses_midnight)
                      관리자 편집 가능 — 24시간 빈틈·겹침 없이 덮어야 저장
 
-shift_handovers      (세션) shift_date, shift_id, from_user_id, to_user_id | to_shift_id,
+shift_handovers      (세션) shift_date, shift_id, from_user_id, to_shift_id,
                      status: DRAFT → SENT → (CLOSED), sent_at, note, ack_summary
+
+shift_handover_recipients
+                     인수자(여러 명). 한 번의 인계를 다음 근무자 여러 명에게 동시에 넘긴다 —
+                     확인은 사람마다 따로, **모두** 확인해야 인계가 끝난다
 
 shift_handover_items handover_id, version_no_at_transfer(스냅샷 고정),
                      item_note, carried_from_item_id, display_order
@@ -453,7 +457,7 @@ soc-handover/
 | R-06 | 동시 수정 충돌 빈발 | 사용성 저하 | 필드 단위 충돌 판정(같은 필드 아니면 병합 제안), Drawer 실시간 stale 배지 |
 | R-07 | 알림/재확인 폭주 | 알림 피로 | 재확인 트리거 필드를 설정화, 동일 handover 알림 병합 |
 | R-08 | OneDrive 동기화 폴더에서 node_modules/DB 파일 충돌 | 빌드 오류·동기화 지연 | `.gitignore`/OneDrive 제외 안내, data/ 는 로컬 경로 권장 |
-| R-11 | Windows 11 Smart App Control 이 서명 없는 PostgreSQL 실행을 차단 | 설치 실패 | 설치 프로그램이 미리 확인하고 해결 방법 안내(INSTALL_WINDOWS.md A-3) |
+| R-11 | Windows 11 Smart App Control 이 서명 없는 PostgreSQL 실행을 차단 | 설치 실패 | 설치 프로그램이 미리 확인하고 해결 방법 안내(INSTALL_WINDOWS.md A-4) |
 | R-12 | `IS false` 로 질의해 부분 인덱스를 놓침(SQLite 에서는 안 보임) | 50만 건에서 전체 스캔 | 질의는 `= false` 로 통일, PostgreSQL 로도 전체 테스트(docs/PERFORMANCE.md §3.1) |
 | R-10 | 단일 노드 장애 | 업무 중단 | 일 1회 자동 백업 + restore 리허설 문서화 + 읽기 전용 Export 백업 |
 

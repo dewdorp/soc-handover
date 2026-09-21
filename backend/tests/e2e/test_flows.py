@@ -130,14 +130,20 @@ def test_shift_transfer_and_ack(login, server, page: Page):
     page.get_by_role("button", name=re.compile("인계 대상에 추가")).click()
     basket = page.get_by_role("complementary", name=re.compile("Basket"))
     expect(basket.get_by_text("E2E 야간 인계 건")).to_be_visible(timeout=10000)
-    basket.locator("select").first.select_option(label="야간근무자")
+    # 인수자 두 명 — 고른 사람은 칩으로 남고, 목록에서는 빠진다
+    recipients = basket.get_by_label("받는 사람 추가")
+    recipients.select_option(label="야간근무자")
+    recipients.select_option(label="시스템 관리자")
+    expect(basket.get_by_text(re.compile("2명 모두가 확인해야"))).to_be_visible(timeout=10000)
+
     basket.get_by_role("button", name=re.compile("다음 근무자에게 인계")).click()
     page.get_by_role("alertdialog").get_by_role("button", name="인계", exact=True).click()
-    expect(page.get_by_text(re.compile("1건을 인계했습니다"))).to_be_visible(timeout=15000)
+    expect(page.get_by_text(re.compile("야간근무자 · 시스템 관리자 님에게 1건을 인계했습니다"))).to_be_visible(timeout=15000)
 
-    # 야간 근무자: 인수 확인함에서 확인
+    # 야간 근무자: 인수 확인함에서 확인 — 같이 받은 사람이 보인다
     login("e2e_night", USER_PW)   # 로그인 고정구가 쿠키를 비우고 새로 로그인한다
     page.goto(server["base"] + "/shift/inbox")
     expect(page.get_by_text("E2E 야간 인계 건")).to_be_visible(timeout=15000)
+    expect(page.get_by_text(re.compile("같이 받음: 시스템 관리자"))).to_be_visible(timeout=10000)
     page.get_by_role("button", name=re.compile("^확인$")).first.click()
     expect(page.get_by_text(re.compile("확인할 인수인계가 없습니다|확인함"))).to_be_visible(timeout=15000)

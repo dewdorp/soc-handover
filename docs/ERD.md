@@ -228,15 +228,21 @@ INDEX `(handover_id, created_at)`
 | shift_id | BIGINT FK shifts NOT NULL | 인계하는 쪽 근무 |
 | to_shift_id | BIGINT FK shifts NULL | 인수 근무 |
 | from_user_id | BIGINT FK users NOT NULL | |
-| to_user_id | BIGINT FK users NULL | 개인 지정 인계 |
 | status | VARCHAR(20) NOT NULL | DRAFT / SENT / CLOSED |
 | sent_at | TIMESTAMPTZ NULL | |
 | closed_at | TIMESTAMPTZ NULL | 전 항목 확인 완료 시각 |
 | summary_note | TEXT NULL | 교대 총평 |
 | item_count / acked_count | INT | 캐시 |
 
-INDEX: `(shift_date DESC, shift_id)`, `(to_user_id, status)`, `(from_user_id, status)`
+INDEX: `(shift_date DESC, shift_id)`, `(from_user_id, status)`
 UNIQUE: `(from_user_id, status)` WHERE status='DRAFT' — 사용자당 Basket 1개
+
+### shift_handover_recipients (인수자)
+`id PK`, `session_id FK shift_handovers ON DELETE CASCADE`, `user_id FK users NOT NULL`, `display_order SMALLINT`(고른 순서)
+UNIQUE `(session_id, user_id)` / INDEX `(user_id, session_id)`
+
+인계 하나를 여러 명이 받을 수 있다. 확인(handover_acknowledgements)은 사람마다 따로 만들어지고,
+항목이 확인된 것으로 보려면 인수자 **전원**이 확인해야 한다.
 
 ### shift_handover_items
 `id PK`, `session_id FK`, `handover_id FK`, `version_no_at_transfer INT NULL`(SENT 시 고정), `item_note TEXT`, `display_order SMALLINT`, `carried_from_item_id BIGINT NULL`, `is_carry_forward BOOLEAN`

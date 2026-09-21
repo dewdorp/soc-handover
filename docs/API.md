@@ -103,10 +103,12 @@ GET    /shift-handovers/cockpit?shift_date=&shift_id=&area=   area 는 목록을
 GET    /shift-handovers/basket                       내 DRAFT 세션(없으면 자동 생성)
 POST   /shift-handovers/basket/items    {handover_ids[], item_note?}
 DELETE /shift-handovers/basket/items/{item_id}
-PATCH  /shift-handovers/basket          {to_user_id?, to_shift_id?, summary_note, order[]}
+PATCH  /shift-handovers/basket          {to_user_ids?[], to_shift_id?, summary_note, order[]}
 GET    /shift-handovers/basket/carry-forward-candidates   직전 세션 미완료 항목(기본 선택 상태)
-POST   /shift-handovers/basket/send     {to_user_id|to_shift_id, summary_note}
-       → 항목별 version_no_at_transfer 고정, ack(PENDING) 생성, 알림, Audit(HANDOVER_TRANSFER)
+POST   /shift-handovers/basket/send     {to_user_ids?[], to_shift_id?, summary_note}
+       인수자를 여러 명 고를 수 있다(비우면 Basket 에 골라 둔 사람). 생략 시 Basket 기준
+       → 항목별 version_no_at_transfer 고정, 인수자 **각각** ack(PENDING) 생성, 알림, Audit(HANDOVER_TRANSFER)
+       → 항목의 ack_state 는 인수자 전원 기준 — 한 명이라도 확인 안 했으면 PENDING
 
 GET    /shift-handovers?shift_date=&from=&to=&status=      인계 이력
 GET    /shift-handovers/{id}                               항목 + 확인 현황

@@ -88,7 +88,7 @@ class TestAuditCoverage:
         hong.post(f"{H}/{h['id']}/comments", json={"body": "확인 부탁"})                  # COMMENT
         hong.post("/api/v1/shift-handovers/basket/items", json={"handover_ids": [h["id"]]})
         hong.post("/api/v1/shift-handovers/basket/send",                                  # TRANSFER
-                  json={"to_user_id": ids["manager"]["id"]})
+                  json={"to_user_ids": [ids["manager"]["id"]]})
         mgr.post(f"{H}/{h['id']}/acknowledge", json={})                                   # ACKNOWLEDGE
         mgr.request("DELETE", f"{H}/{h['id']}", json={"reason": "중복"})                   # DELETE
         admin.post(f"{H}/{h['id']}/undelete")                                             # UNDELETE
@@ -375,7 +375,7 @@ class TestStats:
         a = _handover(hong, cid, "A", registered_date=today().isoformat())
         _handover(hong, cid, "B", registered_date=today().isoformat(), status_code="DONE")
         hong.post("/api/v1/shift-handovers/basket/items", json={"handover_ids": [a["id"]]})
-        hong.post("/api/v1/shift-handovers/basket/send", json={"to_user_id": people["ids"]["manager"]["id"]})
+        hong.post("/api/v1/shift-handovers/basket/send", json={"to_user_ids": [people["ids"]["manager"]["id"]]})
         mgr.post(f"{H}/{a['id']}/acknowledge", json={})
         body = mgr.get("/api/v1/stats/summary").json()
         assert body["total"] == 2

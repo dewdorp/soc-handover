@@ -121,8 +121,11 @@ function Row({ r, picked, onToggle, onOpen, onAck, busy }: {
       <td className="px-2 py-1.5 whitespace-nowrap">
         {r.session_id ? (
           <>
-            {r.from_user} → 나
-            <div className="text-xs text-ink-faint">{when(r.sent_at)}</div>
+            {r.from_user} → 나{r.also_to.length > 0 && ` 외 ${r.also_to.length}명`}
+            <div className="text-xs text-ink-faint">
+              {when(r.sent_at)}
+              {r.also_to.length > 0 && ` · 같이 받음: ${r.also_to.join(', ')}`}
+            </div>
           </>
         ) : (
           <span className="text-ink-faint" title="교대 인계로 받은 것이 아니라, 전에 확인한 인수인계가 바뀐 것">

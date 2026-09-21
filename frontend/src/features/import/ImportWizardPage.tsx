@@ -1,5 +1,5 @@
 /**
- * Excel Import 마법사 (UI_STRUCTURE §7).
+ * Excel · CSV Import 마법사 (UI_STRUCTURE §7).
  *   ① 파일 → ② Sheet 분석 → ③ 컬럼 매핑 → ④ 미리보기 → ⑤ 검증 → ⑥ 중복검사 → ⑦ Import → ⑧ 결과
  *
  * 진행 중인 Job 은 URL(?job=)에 있다. 새로고침하거나 창을 닫았다 열어도 이어서 본다.
@@ -57,7 +57,7 @@ export default function ImportWizardPage() {
   const kick = () => qc.invalidateQueries({ queryKey: ['import-job', jobId] })
 
   if (!can('import:run')) {
-    return <div className="p-6 text-ink-muted">Excel Import 는 근무 관리자 이상만 사용할 수 있습니다.</div>
+    return <div className="p-6 text-ink-muted">Import 는 근무 관리자 이상만 사용할 수 있습니다.</div>
   }
 
   const step = stepOf(job)
@@ -65,7 +65,7 @@ export default function ImportWizardPage() {
   return (
     <div className="p-4 space-y-3 max-w-[1280px]">
       <div className="flex items-center gap-2">
-        <h1 className="text-md font-medium">Excel Import</h1>
+        <h1 className="text-md font-medium">Excel · CSV Import</h1>
         {job && <span className="text-ink-muted">· {job.file_name} <span className="text-ink-faint">({job.job_code})</span></span>}
         <span className="flex-1" />
         {job && <button className="btn" onClick={() => setJob(null)}>새 파일</button>}
@@ -142,14 +142,17 @@ function UploadStep({ onUploaded }: { onUploaded: (job: ImportJob) => void }) {
            className={`card border-dashed border-2 p-8 grid place-items-center gap-2 text-center
                        ${dragging ? 'border-brand bg-brand-soft' : ''}`}>
         <FileSpreadsheet size={28} className="text-ink-faint" />
-        <p>① 인수인계 Excel 파일(.xlsx)을 끌어다 놓거나</p>
+        <p>① 인수인계 파일(Excel .xlsx 또는 CSV .csv · .tsv)을 끌어다 놓거나</p>
         <button className="btn btn-primary" disabled={up.isPending} onClick={() => input.current?.click()}>
           <Upload size={12} /> {up.isPending ? '분석 중…' : '파일 선택'}
         </button>
-        <input ref={input} type="file" accept=".xlsx,.xlsm" className="hidden"
+        <input ref={input} type="file" accept=".xlsx,.xlsm,.csv,.tsv" className="hidden"
                onChange={(e) => pick(e.target.files)} />
         <p className="text-sm text-ink-faint">
           바로 반영되지 않습니다. 분석 → 매핑 → 검증 → 중복검사를 거쳐 확인한 행만 가져옵니다.
+        </p>
+        <p className="text-xs text-ink-faint">
+          CSV 는 인코딩(한국어 Windows Excel 의 cp949 · UTF-8)과 구분자(쉼표 · 탭 · 세미콜론)를 알아서 맞춥니다.
         </p>
       </div>
       {error && (

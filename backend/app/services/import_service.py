@@ -38,7 +38,9 @@ from app.models.reference import Company, HandoverStatus
 from app.models.user import User
 from app.utils.fingerprint import norm
 
-ALLOWED_EXT = (".xlsx", ".xlsm")
+EXCEL_EXT = (".xlsx", ".xlsm")
+CSV_EXT = (".csv", ".tsv")
+ALLOWED_EXT = EXCEL_EXT + CSV_EXT
 _ZIP_MAGIC = b"PK\x03\x04"
 _OLE_MAGIC = b"\xd0\xcf\x11\xe0"   # 구형 .xls
 
@@ -70,8 +72,9 @@ async def upload(db: Session, file: UploadFile, actor: User) -> ExcelImportJob:
         if name.lower().endswith(".xls"):
             raise ValidationFailed("구형 .xls 는 읽을 수 없습니다. Excel 에서 '다른 이름으로 저장 → "
                                    "Excel 통합 문서(*.xlsx)' 로 저장한 뒤 올려 주십시오.")
-        raise ValidationFailed("Excel 파일(.xlsx)만 올릴 수 있습니다.",
+        raise ValidationFailed("Excel(.xlsx) 또는 CSV(.csv · .tsv) 파일만 올릴 수 있습니다.",
                                detail={"allowed": list(ALLOWED_EXT)})
+    is_csv = name.lower().endswith(CSV_EXT)
 
     code = f"IMP-{now().strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:4].upper()}"
     folder = settings.imports_dir / code
@@ -93,15 +96,22 @@ async def upload(db: Session, file: UploadFile, actor: User) -> ExcelImportJob:
                     raise ValidationFailed(f"파일이 너무 큽니다(최대 {settings.IMPORT_MAX_MB}MB).")
                 digest.update(chunk)
                 out.write(chunk)
-        if head.startswith(_OLE_MAGIC):
-            raise ValidationFailed("확장자는 .xlsx 지만 실제로는 구형 .xls 파일입니다. "
-                                   "Excel 에서 xlsx 로 다시 저장해 주십시오.")
-        if not head.startswith(_ZIP_MAGIC):
-            raise ValidationFailed("Excel 파일이 아닙니다(내용이 xlsx 형식이 아님).")
+        if not is_csv:
+            if head.startswith(_OLE_MAGIC):
+                raise ValidationFailed("확장자는 .xlsx 지만 실제로는 구형 .xls 파일입니다. "
+                                       "Excel 에서 xlsx 로 다시 저장해 주십시오.")
+            if not head.startswith(_ZIP_MAGIC):
+                raise ValidationFailed("Excel 파일이 아닙니다(내용이 xlsx 형식이 아님).")
+        elif head.startswith(_ZIP_MAGIC) or head.startswith(_OLE_MAGIC):
+            raise ValidationFailed("확장자는 CSV 지만 실제 내용은 Excel 파일입니다. "
+                                   "확장자를 .xlsx 로 바꾸거나 CSV 로 다시 저장해 주십시오.")
         try:
-            sheets = analyze(stored, db=db)
+            sheets = analyze(stored, db=db, original_name=name)
         except Exception as exc:
-            raise ValidationFailed(f"Excel 파일을 열 수 없습니다: {type(exc).__name__}") from exc
+            kind = "CSV" if is_csv else "Excel"
+            raise ValidationFailed(f"{kind} 파일을 열 수 없습니다: {type(exc).__name__}") from exc
+        if is_csv and not sheets[0]["headers"]:
+            raise ValidationFailed("CSV 에서 컬럼(헤더)을 찾지 못했습니다. 첫 줄에 컬럼 이름이 있는지 확인해 주십시오.")
     except Exception:
         shutil.rmtree(folder, ignore_errors=True)
         raise

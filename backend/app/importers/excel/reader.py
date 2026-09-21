@@ -14,6 +14,7 @@ from typing import Any
 from openpyxl import load_workbook
 
 from app.importers.excel import aliases as al
+from app.importers.excel import csv_source
 from app.importers.excel.parsing import clean_text, to_json, year_from_sheet
 from app.utils.fingerprint import norm
 
@@ -64,9 +65,14 @@ def header_names(values: list[Any]) -> list[str]:
     return names
 
 
-def analyze(path: Path, *, db=None) -> list[dict[str, Any]]:
-    """Sheet 별 행 수 · 헤더 · 샘플. 전체를 읽지 않고 앞부분만 본다."""
+def analyze(path: Path, *, db=None, original_name: str | None = None) -> list[dict[str, Any]]:
+    """Sheet 별 행 수 · 헤더 · 샘플. 전체를 읽지 않고 앞부분만 본다.
+
+    CSV · TSV 는 Sheet 가 하나인 파일로 본다 — 마법사 이후 단계는 Excel 과 똑같이 돈다.
+    """
     lookup = al.build_lookup(al.header_aliases(db))
+    if csv_source.is_csv(path):
+        return [_analyze_csv(path, lookup, original_name)]
     wb = open_workbook(path)
     try:
         sheets = []
@@ -97,6 +103,28 @@ def analyze(path: Path, *, db=None) -> list[dict[str, Any]]:
         return sheets
     finally:
         wb.close()
+
+
+
+def _analyze_csv(path: Path, lookup: dict[str, str], original_name: str | None) -> dict[str, Any]:
+    head = csv_source.read_rows(path, limit=HEADER_SCAN_ROWS)
+    name = csv_source.sheet_name(path, original_name)
+    if not head:
+        return {"name": name, "header_row": None, "headers": [], "estimated_rows": 0,
+                "samples": [], "recognized": 0, "year_hint": year_from_sheet(name)}
+    h = detect_header(head, lookup)
+    headers = header_names(head[h])
+    samples = [{headers[i]: to_json(v) for i, v in enumerate(values[:len(headers)])}
+               for values in head[h + 1: h + 1 + SAMPLE_ROWS] if any(clean_text(v) for v in values)]
+    return {
+        "name": name,
+        "header_row": h + 1,
+        "headers": headers,
+        "estimated_rows": max(0, csv_source.count_rows(path) - (h + 1)),
+        "samples": samples,
+        "recognized": _header_score(head[h], lookup),
+        "year_hint": year_from_sheet(name),
+    }
 
 
 def suggest_mapping(sheet_headers: list[list[str]], *, db=None) -> dict[str, str | None]:
@@ -139,6 +167,12 @@ def iter_rows(path: Path, sheet_name: str, header_row: int) -> Iterator[tuple[in
     완전히 빈 행은 빈 dict 로 흘려보낸다. 적재는 하지 않지만 호출자가 '빈 행 N건'을
     보고서에 남길 수 있게 한다(행이 조용히 사라지면 누락처럼 보인다).
     """
+    if csv_source.is_csv(path):
+        head = csv_source.read_rows(path, limit=header_row)
+        headers = header_names(head[header_row - 1]) if len(head) >= header_row else []
+        yield from csv_source.iter_rows(path, header_row, headers)
+        return
+
     wb = open_workbook(path)
     try:
         ws = wb[sheet_name]

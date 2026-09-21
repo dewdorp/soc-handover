@@ -81,3 +81,32 @@ def build_large(rows_per_sheet: int, sheets: int = 2) -> bytes:
 
 
 XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+
+
+# --------------------------------------------------------------------------- CSV
+
+CSV_HEADERS = ["관계사", "날짜", "진행상황", "내용", "전달자", "확인자", "비고"]
+CSV_ROWS = [
+    ["A보안", "2025-03-02", "완료", "방화벽 정책 변경", "홍길동", "김철수", ""],
+    ["B금융", "2025.03.05", "진행중", 'EDR 경고 조사, "우선순위 높음"', "김철수", "", "회신대기"],
+    ["", "", "", "", "", "", ""],                                    # 빈 줄
+    ["A보안", "3월 7일", "확인필요", "SSL VPN 이상징후", "홍길동", "", ""],
+]
+
+
+def build_csv(encoding: str = "utf-8-sig", delimiter: str = ",", *, banner: bool = True) -> bytes:
+    """현장 CSV 를 흉내 낸다 — 위에 제목 줄이 있고, 따옴표 · 쉼표가 값 안에 들어 있다."""
+    import csv as _csv
+    import io as _io
+    buf = _io.StringIO()
+    writer = _csv.writer(buf, delimiter=delimiter, lineterminator="\n")
+    if banner:
+        writer.writerow(["2025년 SOC 인수인계 대장"])
+        writer.writerow([])
+    writer.writerow(CSV_HEADERS)
+    for row in CSV_ROWS:
+        writer.writerow(row)
+    return buf.getvalue().encode(encoding)
+
+
+CSV_MIME = "text/csv"

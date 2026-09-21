@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
 import { Download, Paperclip, ShieldCheck, Trash2, Upload } from 'lucide-react'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import ImageLightbox from '@/components/ui/ImageLightbox'
 import { useFeatures } from '@/hooks/useAuth'
 import { adminApi, formatBytes, type AttachmentRow, type EntityType } from '@/services/api/admin'
 import { ApiRequestError } from '@/services/api/client'
@@ -29,6 +30,7 @@ export default function Attachments({ entityType, entityId, canUpload, invalidat
   const [busy, setBusy] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const [removing, setRemoving] = useState<AttachmentRow | null>(null)
+  const [viewing, setViewing] = useState<number | null>(null)
   const key = ['attachments', entityType, entityId]
   const { data, isLoading } = useQuery({ queryKey: key, queryFn: () => adminApi.attachments(entityType, entityId) })
 
@@ -39,6 +41,8 @@ export default function Attachments({ entityType, entityId, canUpload, invalidat
 
   const allowed = (features?.attachment.allowed_ext ?? []).map((x) => x.toLowerCase().replace(/^\./, ''))
   const maxMb = features?.attachment.max_size_mb ?? 0
+  //: 크게 보기는 그림끼리만 넘긴다(← →). 목록 순서를 그대로 따른다.
+  const images = (data ?? []).filter((a) => a.is_image)
 
   /** 여러 파일을 차례로 올린다. 하나가 막혀도 나머지는 계속한다. */
   const uploadAll = async (files: File[]) => {
@@ -86,9 +90,23 @@ export default function Attachments({ entityType, entityId, canUpload, invalidat
         <ul className="divide-y divide-surface-border/70">
           {data?.map((a) => (
             <li key={a.id} className="py-1.5 flex items-center gap-2 min-w-0">
-              <Paperclip size={13} className="text-ink-faint shrink-0" />
+              {a.is_image ? (
+                <button className="shrink-0 rounded border border-surface-border overflow-hidden hover:border-brand focus:border-brand"
+                        aria-label={`${a.name} 크게 보기`}
+                        onClick={() => setViewing(images.findIndex((i) => i.id === a.id))}>
+                  <img src={adminApi.attachmentPreviewUrl(a.id)} alt="" loading="lazy"
+                       className="w-12 h-12 object-cover bg-surface-sunken" />
+                </button>
+              ) : (
+                <Paperclip size={13} className="text-ink-faint shrink-0" />
+              )}
               <div className="min-w-0 flex-1">
-                <a href={adminApi.attachmentUrl(a.id)} className="text-brand hover:underline break-all" download>{a.name}</a>
+                {a.is_image ? (
+                  <button className="text-brand hover:underline break-all text-left"
+                          onClick={() => setViewing(images.findIndex((i) => i.id === a.id))}>{a.name}</button>
+                ) : (
+                  <a href={adminApi.attachmentUrl(a.id)} className="text-brand hover:underline break-all" download>{a.name}</a>
+                )}
                 <p className="text-xs text-ink-faint">
                   {formatBytes(a.size)} · {a.uploaded_by ?? '알 수 없음'} · {format(parseISO(a.created_at), 'MM-dd HH:mm')}
                   {a.scan_status === 'CLEAN'
@@ -104,6 +122,10 @@ export default function Attachments({ entityType, entityId, canUpload, invalidat
           ))}
           {data?.length === 0 && <li className="py-2 text-ink-faint">첨부가 없습니다.</li>}
         </ul>
+      )}
+
+      {viewing !== null && viewing >= 0 && (
+        <ImageLightbox images={images} index={viewing} onIndex={setViewing} onClose={() => setViewing(null)} />
       )}
 
       {removing && (

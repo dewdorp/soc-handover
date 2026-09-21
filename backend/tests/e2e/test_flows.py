@@ -1,16 +1,19 @@
-"""E2E 5종 (ARCHITECTURE §10 완료 판정) — 실제 브라우저(Edge)로 실제 서버를 쓴다.
+"""E2E 6종 (ARCHITECTURE §10 완료 판정) — 실제 브라우저(Edge)로 실제 서버를 쓴다.
 
   1. 로그인 · 대시보드
   2. 인수인계 등록 → 수정(새 버전) → 이전 버전으로 복원          (시나리오 B)
   3. 목록 검색 · Quick Filter                                    (시나리오 C)
   4. 할일 등록 → 완료 → 보드 확인                                (시나리오 D)
   5. 교대 인계: 바스켓 담기 → 보내기 → 받는 사람이 확인(Ack)      (시나리오 E)
+  6. 그림 첨부: 올리기 → 목록의 미리보기 → 크게 보기
 
 실행: backend 에서 `python -m pytest tests/e2e -q` (Edge 필요). 느리므로 기본 테스트와 따로 돌린다.
 """
 from __future__ import annotations
 
 import re
+import struct
+import zlib
 
 import pytest
 from playwright.sync_api import Page, expect
@@ -29,6 +32,8 @@ def _new_handover(page: Page, title: str, content: str = "E2E 점검용 내용")
     page.get_by_role("button", name=re.compile("^인수인계$")).click()
     dialog = page.get_by_role("dialog")
     expect(dialog).to_be_visible()
+    # 관계사 목록이 도착해야 기본값이 잡힌다 — 비어 있을 때 누르면 '존재하지 않는 관계사'로 거절당한다
+    expect(dialog.get_by_label("관계사 *").locator("option")).not_to_have_count(0, timeout=15000)
     dialog.get_by_label("제목 *").fill(title)
     dialog.get_by_label("내용").fill(content)
     dialog.get_by_role("button", name="등록").click()
@@ -147,3 +152,45 @@ def test_shift_transfer_and_ack(login, server, page: Page):
     expect(page.get_by_text(re.compile("같이 받음: 시스템 관리자"))).to_be_visible(timeout=10000)
     page.get_by_role("button", name=re.compile("^확인$")).first.click()
     expect(page.get_by_text(re.compile("확인할 인수인계가 없습니다|확인함"))).to_be_visible(timeout=15000)
+
+
+def _png_bytes() -> bytes:
+    """진짜 PNG 한 장(8x8). 미리보기는 파일 내용으로 판단하므로 헤더가 진짜여야 한다."""
+    width = height = 8
+    raw = b"".join(b"\x00" + b"\x1e\x6e\xc8" * width for _ in range(height))
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        body = tag + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw))
+            + chunk(b"IEND", b""))
+
+
+def test_image_attachment_preview(login, server, page: Page):
+    """그림을 올리면 내려받지 않고 화면에서 본다(현장 요청)."""
+    login()
+    _menu(page, "인수인계").click()
+    _new_handover(page, "E2E 화면 캡처 첨부")
+
+    page.get_by_text("E2E 화면 캡처 첨부").first.click()
+    drawer = page.get_by_role("complementary")
+    drawer.get_by_role("tab", name=re.compile("^첨부")).click()
+    drawer.get_by_label("첨부 파일").set_input_files({
+        "name": "방화벽 화면.png", "mimeType": "image/png", "buffer": _png_bytes(),
+    })
+
+    # 목록에 미리보기(작은 그림)가 생긴다
+    thumb = drawer.get_by_role("button", name=re.compile("크게 보기"))
+    expect(thumb).to_be_visible(timeout=15000)
+
+    # 눌러서 크게 보고, Esc 로 닫는다(뒤의 서랍은 열린 채로 남아야 한다)
+    thumb.click()
+    viewer = page.get_by_role("dialog", name=re.compile("그림 보기"))
+    expect(viewer).to_be_visible(timeout=10000)
+    expect(viewer.get_by_role("img", name="방화벽 화면.png")).to_be_visible()
+    page.keyboard.press("Escape")
+    expect(viewer).not_to_be_visible(timeout=10000)
+    expect(drawer).to_be_visible()

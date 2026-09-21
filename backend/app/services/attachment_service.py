@@ -43,6 +43,19 @@ ENTITY_TYPES = ("HANDOVER", "TASK")
 CHUNK = 1024 * 1024
 _UNSAFE = re.compile(r'[\x00-\x1f<>:"|?*]')
 
+#: 화면에서 그대로 보여 줘도 되는 그림 — 파일 **내용**의 앞부분으로 판단한다.
+#: 이름 · 확장자 · 올릴 때 추측한 mime 은 믿지 않는다(내용이 HTML 인 'x.png' 을 그대로
+#: 내보내면 브라우저가 실행할 수 있다). SVG 는 스크립트를 품을 수 있어 넣지 않는다
+#: (BLOCKED_EXT 에서 올리는 것부터 막는다).
+IMAGE_MAGIC: tuple[tuple[bytes, str], ...] = (
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"\xff\xd8\xff", "image/jpeg"),
+    (b"GIF87a", "image/gif"),
+    (b"GIF89a", "image/gif"),
+    (b"BM", "image/bmp"),
+)
+SNIFF_BYTES = 16
+
 
 def _entity(db: Session, entity_type: str, entity_id: int):
     model = {"HANDOVER": Handover, "TASK": Task}.get(entity_type)
@@ -156,6 +169,44 @@ def file_path(att: Attachment) -> Path:
     return path
 
 
+def image_type(path: Path) -> str | None:
+    """그림이면 내보낼 미디어 타입, 아니면 None."""
+    try:
+        with path.open("rb") as f:
+            head = f.read(SNIFF_BYTES)
+    except OSError:
+        return None
+    for magic, mime in IMAGE_MAGIC:
+        if head.startswith(magic):
+            return mime
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def is_image(att: Attachment) -> bool:
+    """목록에서 '미리 볼 수 있는가'. 파일이 없거나 그림이 아니면 False."""
+    try:
+        return image_type(file_path(att)) is not None
+    except NotFound:
+        return False
+
+
+def preview(db: Session, attachment_id: int) -> tuple[Path, Attachment, str]:
+    """그림을 화면에 그대로 보여 주기 위한 경로 · 타입.
+
+    내려받기와 달리 감사에 남기지 않는다 — 인수인계 화면을 여는 것과 같은 행위이고,
+    그림 하나에 요청이 여러 번 갈 수 있어 남기면 감사로그가 이것으로 채워진다.
+    파일을 손에 넣는 '받기'는 그대로 감사에 남는다(ASSUMPTIONS I-02).
+    """
+    att = get_or_404(db, attachment_id)
+    path = file_path(att)
+    mime = image_type(path)
+    if mime is None:
+        raise ValidationFailed("미리 볼 수 있는 그림이 아닙니다. 내려받아서 여십시오.")
+    return path, att, mime
+
+
 def download(db: Session, actor: User, attachment_id: int, ctx: RequestContext | None = None) -> tuple[Path, Attachment]:
     att = get_or_404(db, attachment_id)
     path = file_path(att)
@@ -203,4 +254,5 @@ def to_out(db: Session, actor: User, att: Attachment) -> dict[str, Any]:
     return {"id": att.id, "entity_type": att.entity_type, "entity_id": att.entity_id,
             "name": att.original_name, "size": att.size_bytes, "mime": att.mime, "sha256": att.sha256,
             "scan_status": att.scan_status, "uploaded_by": uploader.display_name if uploader else None,
-            "created_at": att.created_at, "can_delete": can_delete(db, actor, att)}
+            "created_at": att.created_at, "can_delete": can_delete(db, actor, att),
+            "is_image": is_image(att)}

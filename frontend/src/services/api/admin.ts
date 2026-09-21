@@ -123,6 +123,8 @@ export interface AttachmentRow {
   uploaded_by: string | null
   created_at: string
   can_delete: boolean
+  /** 화면에서 바로 미리 볼 수 있는 그림인가(서버가 파일 내용으로 판단) */
+  is_image: boolean
 }
 
 // ------------------------------------------------------------------ 통계
@@ -188,6 +190,7 @@ export const adminApi = {
   },
   deleteAttachment: (id: number) => api.delete<void>(`/attachments/${id}`),
   attachmentUrl: (id: number) => `/api/v1/attachments/${id}/download`,
+  attachmentPreviewUrl: (id: number) => `/api/v1/attachments/${id}/preview`,
 
   stats: (start: string, end: string) => api.get<StatsSummary>(`/stats/summary?start=${start}&end=${end}`),
 }

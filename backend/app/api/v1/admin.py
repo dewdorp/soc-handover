@@ -120,6 +120,23 @@ def download_attachment(attachment_id: int, db: Session = Depends(get_db),
     return FileResponse(path, media_type="application/octet-stream", headers=headers)
 
 
+@router.get("/attachments/{attachment_id}/preview")
+def preview_attachment(attachment_id: int, db: Session = Depends(get_db),
+                       _: User = Depends(require("handover:read"))):
+    """그림 첨부를 화면에서 바로 보여 준다(내려받기와 달리 감사에 남기지 않는다 — 화면을 여는 것과 같다).
+
+    그림인지는 파일 **내용**으로 판단하고, 아니면 거절한다. 브라우저가 내용을 다른 것으로
+    해석하지 않도록(nosniff) 하고, 혹시 모를 경우에 대비해 스스로 아무것도 불러오지
+    못하게(CSP) 막는다.
+    """
+    path, att, mime = attachment_service.preview(db, attachment_id)
+    headers = {"Content-Disposition": f"inline; filename*=UTF-8''{quote(att.original_name)}",
+               "X-Content-Type-Options": "nosniff",
+               "Content-Security-Policy": "default-src 'none'; img-src 'self'; sandbox",
+               "Cache-Control": "private, max-age=300"}
+    return FileResponse(path, media_type=mime, headers=headers)
+
+
 @router.delete("/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_attachment(attachment_id: int, db: Session = Depends(get_db),
                       actor: User = Depends(require("handover:read")),

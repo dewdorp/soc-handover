@@ -83,3 +83,5 @@ class AttachmentOut(BaseModel):
     uploaded_by: str | None
     created_at: datetime
     can_delete: bool
+    #: 화면에서 바로 미리 볼 수 있는 그림인가(파일 내용으로 판단)
+    is_image: bool = False

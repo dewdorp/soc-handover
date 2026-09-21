@@ -5,10 +5,12 @@
 """
 from __future__ import annotations
 
+import struct
+import zlib
 from datetime import datetime, timedelta
 
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 
 from app.audit import actions
 from app.core.config import settings
@@ -60,6 +62,20 @@ def _period(days: int = 1) -> dict:
 def _upload(client, entity_id, name="log.txt", data=b"hello", entity_type="HANDOVER"):
     return client.post(A, data={"entity_type": entity_type, "entity_id": str(entity_id)},
                        files={"file": (name, data, "application/octet-stream")})
+
+
+def _png(width: int = 2, height: int = 2) -> bytes:
+    """진짜 PNG 한 장(2x2). 미리보기는 파일 내용으로 판단하므로 헤더가 진짜여야 한다."""
+    raw = b"".join(b"\x00" + b"\xc8\x1e\x1e" * width for _ in range(height))
+
+    def chunk(tag: bytes, data: bytes) -> bytes:
+        body = tag + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+
+    return (b"\x89PNG\r\n\x1a\n"
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw))
+            + chunk(b"IEND", b""))
 
 
 # --------------------------------------------------------------------------- 감사 35종
@@ -333,6 +349,66 @@ class TestAttachments:
         row.rel_path = "../../test.db"
         db.commit()
         assert people["hong"].get(f"{A}/{att['id']}/download").status_code == 404
+
+
+class TestImagePreview:
+    """그림 첨부는 내려받지 않고 화면에서 바로 본다(현장 요청).
+
+    키는 '그림인지를 파일 내용으로 판단하는 것' — 이름만 믿고 inline 으로 내보내면
+    내용이 HTML 인 'x.png' 을 브라우저가 실행할 수 있다.
+    """
+
+    def test_image_is_previewed_in_place(self, people, cid):
+        h = _handover(people["hong"], cid)
+        up = _upload(people["hong"], h["id"], name="방화벽 화면.png", data=_png())
+        assert up.status_code == 201, up.text
+        assert up.json()["is_image"] is True
+
+        listed = people["kim"].get(A, params={"entity_type": "HANDOVER", "entity_id": h["id"]}).json()
+        assert [a["is_image"] for a in listed] == [True]
+
+        got = people["kim"].get(f"{A}/{up.json()['id']}/preview")
+        assert got.status_code == 200
+        assert got.content == _png(), "그림은 손대지 않고 그대로 보낸다"
+        assert got.headers["content-type"] == "image/png"
+        assert got.headers["content-disposition"].startswith("inline; filename*=UTF-8''")
+        assert got.headers["x-content-type-options"] == "nosniff"
+        assert "default-src 'none'" in got.headers["content-security-policy"]
+
+    def test_non_image_is_not_previewable(self, people, cid):
+        h = _handover(people["hong"], cid)
+        att = _upload(people["hong"], h["id"], name="log.txt", data=b"deny tcp").json()
+        assert att["is_image"] is False
+        assert people["hong"].get(f"{A}/{att['id']}/preview").status_code == 422
+
+    def test_html_named_as_png_is_not_served_inline(self, people, cid):
+        """확장자만 png 인 HTML — 올리더라도 미리보기로는 나가지 않는다."""
+        h = _handover(people["hong"], cid)
+        att = _upload(people["hong"], h["id"], name="x.png",
+                      data=b"<html><script>alert(1)</script></html>").json()
+        assert att["is_image"] is False
+        assert people["hong"].get(f"{A}/{att['id']}/preview").status_code == 422
+
+    def test_preview_does_not_fill_the_audit_log(self, people, cid, db):
+        """미리보기는 화면을 여는 것과 같아 남기지 않는다 — 파일을 받는 것은 남는다."""
+        h = _handover(people["hong"], cid)
+        att = _upload(people["hong"], h["id"], name="화면.png", data=_png()).json()
+        count = lambda: db.scalar(select(func.count()).select_from(AuditLog).where(
+            AuditLog.action == actions.ATTACHMENT_DOWNLOAD)) or 0
+
+        before = count()
+        for _ in range(3):
+            assert people["kim"].get(f"{A}/{att['id']}/preview").status_code == 200
+        assert count() == before, "미리보기는 감사로그를 채우지 않는다"
+
+        assert people["kim"].get(f"{A}/{att['id']}/download").status_code == 200
+        assert count() == before + 1, "받기는 그대로 남는다"
+
+    def test_deleted_attachment_has_no_preview(self, people, cid):
+        h = _handover(people["hong"], cid)
+        att = _upload(people["hong"], h["id"], name="화면.png", data=_png()).json()
+        assert people["hong"].delete(f"{A}/{att['id']}").status_code == 204
+        assert people["hong"].get(f"{A}/{att['id']}/preview").status_code == 404
 
 
 # --------------------------------------------------------------------------- 알림

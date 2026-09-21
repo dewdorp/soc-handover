@@ -158,6 +158,8 @@ GET/POST /handovers/{id}/comments     PATCH/DELETE /handover-comments/{id}
 GET    /attachments?entity_type=HANDOVER|TASK&entity_id=
 POST   /attachments  (multipart: entity_type, entity_id, file)
 GET    /attachments/{id}/download     (attachment; filename*=UTF-8'' · nosniff)     DELETE /attachments/{id}
+GET    /attachments/{id}/preview      그림만(파일 내용으로 판단, 아니면 422)
+                                      inline · nosniff · CSP — 받기와 달리 감사에 남기지 않는다
 GET    /stats/summary?start=&end=     (MANAGER+, 기본 최근 30일, ≤366일)
 ```
 ```

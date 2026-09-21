@@ -152,6 +152,12 @@ Import 시 자동 생성 OFF가 기본. 매칭 실패해도 `*_name_raw` 텍스�
   (지우기는 올린 본인도), 받기는 모든 역할. 지우기는 표시만 하고 파일은 남긴다(증적). 올리기·받기·지우기 모두 감사.
   백신 연동은 `.env` 의 `ATTACHMENT_SCAN_COMMAND` — 비우면 검사 안 함(NOT_SCANNED), 있으면 종료코드 0 만 통과,
   실행 실패도 거절(안전한 쪽).
+- **그림 미리보기**: 화면 캡처를 내려받지 않고 그 자리에서 본다. 그림인지는 **파일 내용**(앞부분 바이트)으로만
+  판단한다 — 이름·확장자를 믿고 inline 으로 내보내면 내용이 HTML 인 `x.png` 을 브라우저가 실행할 수 있다.
+  PNG·JPEG·GIF·WEBP·BMP 만 내보내고 SVG 는 제외한다(애초에 올리지도 못한다).
+  `nosniff` 와 `CSP: default-src 'none'; sandbox` 를 함께 보낸다.
+  **미리보기는 감사에 남기지 않는다** — 인수인계 화면을 여는 것과 같은 행위이고, 그림 하나에 요청이 여러 번
+  가므로 남기면 감사로그가 이것으로 찬다. 파일을 손에 넣는 '받기'는 그대로 `ATTACHMENT_DOWNLOAD` 로 남는다.
 - **알림 7종(ERD §66) 대응**: HANDOVER_ASSIGNED(담당 지정) · ACK_REQUIRED → `HANDOVER_TRANSFER`(인계 받음) ·
   CHANGED_AFTER_TRANSFER → `HANDOVER_REACK`(재확인 필요) · TASK_ASSIGNED · TASK_DUE_SOON(마감 오늘·내일) ·
   TASK_OVERDUE(마감 지남) · IMPORTANT_HANDOVER(중요 표시·긴급 → MANAGER+ 에게). 여기에 TASK_COMMENT · SCHEDULE_ASSIGNED 가 더 있다.

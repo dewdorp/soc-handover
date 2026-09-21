@@ -20,7 +20,7 @@ DEFAULTS: dict[str, tuple[Any, str, str, bool]] = {
         False,
     ),
     "attachment.allowed_ext": (
-        ["png", "jpg", "jpeg", "gif", "pdf", "txt", "log", "csv",
+        ["png", "jpg", "jpeg", "gif", "webp", "pdf", "txt", "log", "csv",
          "xlsx", "xls", "docx", "pptx", "zip", "7z"],
         "attachment", "업로드 허용 확장자", False,
     ),

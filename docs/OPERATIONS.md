@@ -108,6 +108,9 @@ powershell -ExecutionPolicy Bypass -File .\status.ps1
   `backup.ps1 -Destination \\서버\공유\soc-backup` 로 한 벌 더 복사합니다.
   (예약 작업을 바꾸려면 `taskschd.msc` 에서 `SOC-Handover-Backup` 의 인수 끝에 `-Destination ...` 추가)
 - 화면 **관리자 > 백업** 에서 마지막 백업 시각과 목록을 볼 수 있습니다(26시간 넘으면 경고).
+- **`.env` 도 한 벌 따로 보관하십시오.** 비밀번호 보관(장비 계정) 기능의 암호화 키(`VAULT_KEY`)가
+  거기에만 있습니다. DB 백업에는 암호문만 들어가므로, 키를 잃으면 보관된 비밀번호는 되살릴 수 없습니다
+  (인수인계 · 할일 등 나머지 데이터는 백업만으로 복구됩니다).
 
 ### 복구
 

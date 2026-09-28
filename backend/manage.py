@@ -98,6 +98,46 @@ def cmd_archive_audit(args) -> int:
     return 0
 
 
+
+def cmd_vault_key(_args) -> int:
+    """비밀번호 보관용 키를 만들어 준다(.env 에 넣는 것은 사람이 한다).
+
+    이미 키가 있으면 만들지 않는다 — 덮어쓰면 보관된 비밀번호를 전부 못 읽게 된다.
+    """
+    from app.core import crypto
+    from app.core.config import settings
+    if settings.VAULT_KEY.strip():
+        print("VAULT_KEY 가 이미 .env 에 있습니다. 바꾸려면 vault-rekey 를 쓰십시오"
+              "(그냥 바꾸면 보관된 비밀번호를 못 읽습니다).")
+        return 1
+    print("아래 한 줄을 .env 에 넣고 앱을 다시 시작하십시오. 이 값을 잃으면 되살릴 수 없습니다.")
+    print(f"VAULT_KEY={crypto.generate_key()}")
+    return 0
+
+
+def cmd_vault_rekey(_args) -> int:
+    """보관된 비밀번호를 새 키(.env 의 VAULT_KEY_NEXT)로 다시 암호화한다."""
+    from app.core import crypto
+    from app.core.config import settings
+    from app.services import credential_service
+    if not settings.VAULT_KEY_NEXT.strip():
+        print("먼저 .env 에 새 키를 넣으십시오:", file=sys.stderr)
+        print(f"VAULT_KEY_NEXT={crypto.generate_key()}", file=sys.stderr)
+        return 1
+    with SessionLocal() as db:
+        try:
+            r = credential_service.rekey(db)
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            print(f"다시 암호화 실패(아무것도 바꾸지 않았습니다): {exc}", file=sys.stderr)
+            return 1
+    print(f"{r['reencrypted']}건을 새 키로 다시 암호화했습니다.")
+    print("이제 .env 에서 VAULT_KEY 를 새 값으로 바꾸고(VAULT_KEY_NEXT 의 값), "
+          "VAULT_KEY_NEXT 줄은 지운 뒤 앱을 다시 시작하십시오.")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(prog="manage.py", description="SOC Handover 관리 CLI")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -112,6 +152,9 @@ def main() -> int:
 
     sub.add_parser("check", help="DB 연결/마이그레이션 상태 확인")
 
+    sub.add_parser("vault-key", help="비밀번호 보관용 키(VAULT_KEY) 만들기")
+    sub.add_parser("vault-rekey", help="보관된 비밀번호를 VAULT_KEY_NEXT 로 다시 암호화")
+
     p_arch = sub.add_parser("archive-audit", help="보존기간 지난 감사로그를 보관 파일로 옮긴 뒤 정리")
     p_arch.add_argument("--days", type=int, default=None, help="보존 일수(기본: 설정 retention.audit_days, 최소 365)")
     p_arch.add_argument("--dry-run", action="store_true", help="대상 건수만 확인")
@@ -122,6 +165,8 @@ def main() -> int:
         "create-admin": cmd_create_admin,
         "check": cmd_check,
         "archive-audit": cmd_archive_audit,
+        "vault-key": cmd_vault_key,
+        "vault-rekey": cmd_vault_rekey,
     }
     return handlers[args.command](args)
 

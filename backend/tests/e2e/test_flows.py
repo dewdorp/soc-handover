@@ -1,4 +1,4 @@
-"""E2E 6종 (ARCHITECTURE §10 완료 판정) — 실제 브라우저(Edge)로 실제 서버를 쓴다.
+"""E2E 7종 (ARCHITECTURE §10 완료 판정) — 실제 브라우저(Edge)로 실제 서버를 쓴다.
 
   1. 로그인 · 대시보드
   2. 인수인계 등록 → 수정(새 버전) → 이전 버전으로 복원          (시나리오 B)
@@ -6,6 +6,7 @@
   4. 할일 등록 → 완료 → 보드 확인                                (시나리오 D)
   5. 교대 인계: 바스켓 담기 → 보내기 → 받는 사람이 확인(Ack)      (시나리오 E)
   6. 그림 첨부: 올리기 → 목록의 미리보기 → 크게 보기
+  7. 비밀번호 보관: 등록 → 목록에는 값이 안 보임 → 본인 확인 뒤 보기
 
 실행: backend 에서 `python -m pytest tests/e2e -q` (Edge 필요). 느리므로 기본 테스트와 따로 돌린다.
 """
@@ -194,3 +195,40 @@ def test_image_attachment_preview(login, server, page: Page):
     page.keyboard.press("Escape")
     expect(viewer).not_to_be_visible(timeout=10000)
     expect(drawer).to_be_visible()
+
+
+def test_credential_vault(login, server, page: Page):
+    """장비 비밀번호는 목록에 나오지 않고, 본인 확인을 거쳐야 한 번 보인다(현장 요청)."""
+    secret = "Device#Pw2026!"
+    login()
+    _menu(page, "비밀번호").click()
+
+    page.get_by_role("button", name=re.compile("^등록$")).click()
+    dialog = page.get_by_role("dialog", name=re.compile("비밀번호 등록"))
+    expect(dialog).to_be_visible(timeout=10000)
+    dialog.get_by_label("장비명 *").fill("E2E 방화벽-01")
+    dialog.get_by_label("접속 방법").fill("SSH 10.0.0.9:22")
+    dialog.get_by_label("계정").fill("socadmin")
+    dialog.get_by_label(re.compile("^비밀번호")).fill(secret)
+    dialog.get_by_role("button", name="저장").click()
+    expect(dialog).not_to_be_visible(timeout=10000)
+
+    row = page.get_by_role("row").filter(has_text="E2E 방화벽-01")
+    expect(row).to_be_visible(timeout=10000)
+    assert secret not in page.content(), "목록 화면에 비밀번호가 실려 오면 안 된다"
+
+    row.get_by_role("button", name=re.compile("보기")).click()
+    viewer = page.get_by_role("dialog", name=re.compile("E2E 방화벽-01"))
+    expect(viewer).to_be_visible(timeout=10000)
+
+    viewer.get_by_label("본인 계정 비밀번호").fill("이건 틀린 비밀번호")
+    viewer.get_by_role("button", name=re.compile("보기")).click()
+    expect(viewer.get_by_text(re.compile("본인 비밀번호가 맞지 않습니다"))).to_be_visible(timeout=10000)
+
+    viewer.get_by_label("본인 계정 비밀번호").fill(ADMIN_PW)
+    viewer.get_by_role("button", name=re.compile("보기")).click()
+    expect(viewer.get_by_label("비밀번호 값")).to_have_value(secret, timeout=10000)
+    expect(viewer.get_by_text(re.compile("초 뒤에 저절로 닫힙니다"))).to_be_visible()
+
+    viewer.get_by_role("button", name="닫기").click()
+    expect(viewer).not_to_be_visible(timeout=10000)

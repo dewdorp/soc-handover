@@ -28,6 +28,10 @@ _BASE: Final[frozenset[str]] = frozenset({
     "notification:read",
     "audit:read_self",
     "search:use",
+    # 장비 비밀번호: 등록은 누구나, 보기는 범위(SHARED/PERSONAL)와 본인 확인으로 가른다
+    "credential:read",
+    "credential:create",
+    "credential:update_own",
 })
 
 _MANAGER_EXTRA: Final[frozenset[str]] = frozenset({
@@ -42,6 +46,7 @@ _MANAGER_EXTRA: Final[frozenset[str]] = frozenset({
     "audit:read_all",
     "user:read",
     "company:manage",
+    "credential:update_any",
     "stats:read_all",
 })
 

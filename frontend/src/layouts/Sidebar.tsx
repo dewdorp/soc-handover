@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom'
 import clsx from 'clsx'
 import {
   LayoutDashboard, ClipboardList, ArrowLeftRight, UserCheck, ListTodo,
-  CalendarDays, Search, FileSpreadsheet, BarChart3, ShieldCheck,
+  CalendarDays, Search, FileSpreadsheet, BarChart3, ShieldCheck, KeyRound,
   Settings, Users,
 } from 'lucide-react'
 import { useCan } from '@/hooks/useAuth'
@@ -31,6 +31,7 @@ const GROUPS: { title?: string; items: NavEntry[] }[] = [
     items: [
       { to: '/tasks', label: '할일', icon: ListTodo },
       { to: '/schedules', label: '일정', icon: CalendarDays },
+      { to: '/credentials', label: '비밀번호', icon: KeyRound, permission: 'credential:read' },
     ],
   },
   {

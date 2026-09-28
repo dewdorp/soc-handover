@@ -106,11 +106,30 @@ class AuthProvider(Protocol):
 ```
 .env            (git 제외, 설치 시 생성)
   SECRET_KEY=<64byte random>
+  VAULT_KEY=<32byte random, base64>      # 장비 비밀번호 보관용(§7.1)
   DATABASE_URL=postgresql+psycopg://soc_app:<pw>@127.0.0.1:5432/soc_handover
 ```
 - 소스·문서·스크립트에 실제 비밀번호/키를 넣지 않는다. `.env.example`에는 자리표시자만.
 - DB 계정 분리 권장: 마이그레이션용(DDL)과 애플리케이션용(DML, `handover_versions`·`audit_logs`에 UPDATE/DELETE 없음).
 - 설정 API는 `is_secret=true` 값을 마스킹해서 반환하고, 변경 시 이전 값을 Audit에 남기지 않는다(변경 사실만 기록).
+
+### 7.1 장비 비밀번호 보관 (credentials)
+
+| 항목 | 방식 |
+|---|---|
+| 암호 | AES-256-GCM, 항목마다 무작위 nonce(12B), 인증 태그로 변조 탐지 |
+| 묶음(AAD) | `credential:{id}` — 다른 항목의 암호문을 옮겨 붙여도 열리지 않는다 |
+| 키 | `.env` 의 `VAULT_KEY`(base64 32B). DB 에는 키가 없다 — 덤프만으로는 못 읽는다 |
+| 키 교체 | 암호문 첫 바이트에 키 버전. `VAULT_KEY_NEXT` + `manage.py vault-rekey` 로 전부 재암호화 |
+| 열람 | 본인 계정 비밀번호 재확인 → 한 건씩 `CREDENTIAL_REVEAL` 감사(실패는 `CREDENTIAL_REVEAL_DENIED`) |
+| 범위 | SHARED(교대 근무자 전원) · PERSONAL(등록자만). 남의 PERSONAL 은 404 로 존재 자체를 감춘다 |
+| 이력 | 바꾸기 전 값을 암호문으로 최근 5개까지. 옛 값 열람도 같은 감사 기록 |
+| 나가는 곳 | `/reveal` 두 경로뿐. 목록 · 상세 · 이력 · 검색 · Export 어디에도 값이 없다 |
+
+- 운영(`APP_ENV=prod`)에서 `VAULT_KEY` 가 없으면 **그 기능만** 꺼진다(다른 기능은 그대로 동작).
+  개발·테스트에서는 `SECRET_KEY` 에서 만들어 쓴다 — 운영에서 그렇게 하면 SECRET_KEY 교체가
+  보관된 비밀번호를 전부 잠근다.
+- **`.env` 를 잃으면 보관된 비밀번호는 복구할 수 없다.** DB 백업과 별도로 `.env` 를 안전한 곳에 둔다.
 
 ---
 

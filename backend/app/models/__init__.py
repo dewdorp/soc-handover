@@ -5,6 +5,7 @@ from app.models.common import (Attachment, AuditLog, Notification, SavedView,
 from app.models.handover import (Handover, HandoverAcknowledgement, HandoverComment,
                                  HandoverStar, HandoverTag, HandoverVersion)
 from app.models.importjob import ExcelImportError, ExcelImportJob, ExcelImportRow
+from app.models.credential import Credential, CredentialVersion
 from app.models.reference import Company, HandoverStatus, Priority, Shift, Tag
 from app.models.schedule import Schedule
 from app.models.shift import ShiftHandover, ShiftHandoverItem, ShiftHandoverRecipient
@@ -20,6 +21,7 @@ __all__ = [
     "ShiftHandover", "ShiftHandoverItem", "ShiftHandoverRecipient",
     "Task", "TaskChecklist", "TaskComment",
     "Schedule",
+    "Credential", "CredentialVersion",
     "Attachment", "SavedView", "Notification", "AuditLog", "SystemSetting",
     "SearchFeedback",
     "ExcelImportJob", "ExcelImportRow", "ExcelImportError",

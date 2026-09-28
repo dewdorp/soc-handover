@@ -94,6 +94,13 @@ function New-Secret([int]$Length) {
     return -join ($bytes | ForEach-Object { $chars[$_ % $chars.Length] })
 }
 
+function New-VaultKey {
+    # 장비 비밀번호 보관용 키 — 32바이트 난수를 base64(url) 로. app/core/crypto.py 가 이 형식을 읽는다.
+    $bytes = New-Object byte[] 32
+    [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+    return ([Convert]::ToBase64String($bytes)).Replace('+', '-').Replace('/', '_')
+}
+
 function Invoke-Quiet([string]$Exe, [string[]]$ArgList, [string]$LogName) {
     # 자식이 표준출력 핸들을 물고 있어도(pg_ctl) 멈추지 않도록 출력은 파일로 받는다
     $logDir = Join-Path $InstallDir 'logs'
@@ -365,6 +372,9 @@ try {
             "APP_PORT=$AppPort",
             'ENABLE_DOCS=false',
             "SECRET_KEY=$secretKey",
+            '# 장비 비밀번호 보관용 키. 이 값을 잃으면 보관된 비밀번호를 되살릴 수 없습니다.',
+            '# (DB 백업에는 암호문만 들어갑니다 — .env 도 따로 안전한 곳에 보관하십시오)',
+            "VAULT_KEY=$(New-VaultKey)",
             'ACCESS_TOKEN_MINUTES=15',
             'REFRESH_TOKEN_HOURS=12',
             'COOKIE_SECURE=false',
@@ -381,6 +391,18 @@ try {
         [IO.File]::WriteAllLines($envPath, $envLines, (New-Object Text.UTF8Encoding($false)))
         & icacls.exe $envPath /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' "*$($script:UserSid):M" /Q | Out-Null
         Ok '.env 생성 (비밀값 자동 생성, 관리자 · 설치한 사용자만 읽기)'
+    } elseif (-not $oldEnv['VAULT_KEY']) {
+        # 1.2.0 에서 생긴 값 — 예전 설치에는 없다. 이미 있으면 **절대 바꾸지 않는다**
+        # (바꾸면 그 키로 넣어 둔 비밀번호를 다시 읽을 수 없다).
+        Step '설정 파일(.env) — 비밀번호 보관 키 추가'
+        $envPath = Join-Path $InstallDir '.env'
+        $lines = @(Get-Content $envPath -Encoding UTF8) + @(
+            '',
+            '# 장비 비밀번호 보관용 키. 이 값을 잃으면 보관된 비밀번호를 되살릴 수 없습니다.',
+            "VAULT_KEY=$(New-VaultKey)")
+        [IO.File]::WriteAllLines($envPath, $lines, (New-Object Text.UTF8Encoding($false)))
+        & icacls.exe $envPath /inheritance:r /grant:r '*S-1-5-18:F' '*S-1-5-32-544:F' "*$($script:UserSid):M" /Q | Out-Null
+        Ok 'VAULT_KEY 생성 (비밀번호 보관 기능에 필요)'
     }
 
     # common.ps1 을 불러 이후 단계(DB 시작 · 마이그레이션)를 설치본 기준으로 한다

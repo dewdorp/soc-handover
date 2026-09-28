@@ -161,6 +161,14 @@ GET    /attachments/{id}/download     (attachment; filename*=UTF-8'' · nosniff)
 GET    /attachments/{id}/preview      그림만(파일 내용으로 판단, 아니면 422)
                                       inline · nosniff · CSP — 받기와 달리 감사에 남기지 않는다
 GET    /stats/summary?start=&end=     (MANAGER+, 기본 최근 30일, ≤366일)
+
+GET    /credentials?scope=&company_id=&q=   장비 비밀번호 목록(공용 전부 + 내 개인 것, 값은 없음)
+POST   /credentials                  {scope, company_id?, device_name, access_method?, username?, secret, note?}
+GET    /credentials/{id}             PATCH(같은 필드 + change_note) · DELETE(소프트)
+POST   /credentials/{id}/reveal      {password: 본인 계정 비밀번호} → {secret}
+       비밀번호 값이 나가는 유일한 경로. 본인 확인 + CREDENTIAL_REVEAL 감사(실패는 ..._DENIED)
+GET    /credentials/{id}/versions    변경 이력(값 없음, has_secret 로 옛 값 보유 여부만)
+POST   /credentials/{id}/versions/{no}/reveal   {password} → 그때의 비밀번호(최근 5개까지 보관)
 ```
 ```
 

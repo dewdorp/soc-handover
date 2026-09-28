@@ -42,6 +42,9 @@ ACTION_LABELS: dict[str, str] = {
     actions.EXCEL_EXPORT: "Excel 내보내기",
     actions.ATTACHMENT_UPLOAD: "첨부 올림", actions.ATTACHMENT_DOWNLOAD: "첨부 받음",
     actions.ATTACHMENT_DELETE: "첨부 삭제",
+    actions.CREDENTIAL_CREATE: "비밀번호 등록", actions.CREDENTIAL_UPDATE: "비밀번호 수정",
+    actions.CREDENTIAL_DELETE: "비밀번호 삭제", actions.CREDENTIAL_REVEAL: "비밀번호 열람",
+    actions.CREDENTIAL_REVEAL_DENIED: "비밀번호 열람 거부",
     actions.USER_CREATE: "사용자 등록", actions.USER_UPDATE: "사용자 수정", actions.ROLE_CHANGE: "권한 변경",
     actions.SETTING_CHANGE: "설정 변경",
     actions.BACKUP: "백업", actions.RESTORE: "복구", actions.AUDIT_ARCHIVE: "감사로그 보관 정리",
@@ -57,6 +60,8 @@ ACTION_GROUPS: dict[str, list[str]] = {
               actions.CALENDAR_CREATE, actions.CALENDAR_UPDATE, actions.CALENDAR_DELETE],
     "데이터 이동": [actions.EXCEL_IMPORT, actions.EXCEL_IMPORT_ROLLBACK, actions.EXCEL_EXPORT,
                actions.ATTACHMENT_UPLOAD, actions.ATTACHMENT_DOWNLOAD, actions.ATTACHMENT_DELETE],
+    "비밀번호 보관": [actions.CREDENTIAL_CREATE, actions.CREDENTIAL_UPDATE, actions.CREDENTIAL_DELETE,
+                actions.CREDENTIAL_REVEAL, actions.CREDENTIAL_REVEAL_DENIED],
     "관리": [actions.USER_CREATE, actions.USER_UPDATE, actions.ROLE_CHANGE, actions.SETTING_CHANGE,
            actions.BACKUP, actions.RESTORE, actions.AUDIT_ARCHIVE],
 }

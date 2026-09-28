@@ -11,6 +11,7 @@ import ShiftPage from '@/features/shift/ShiftPage'
 import MyWorkPage from '@/features/mywork/MyWorkPage'
 import TaskPage from '@/features/tasks/TaskPage'
 import CalendarPage from '@/features/calendar/CalendarPage'
+import CredentialsPage from '@/features/credentials/CredentialsPage'
 import SearchPage from '@/features/search/SearchPage'
 import AuditPage from '@/features/audit/AuditPage'
 import AdminPage from '@/features/admin/AdminPage'
@@ -46,6 +47,7 @@ export default function App() {
             <Route path="/my-work" element={<MyWorkPage />} />
             <Route path="/tasks/*" element={<TaskPage />} />
             <Route path="/schedules" element={<CalendarPage />} />
+            <Route path="/credentials" element={<CredentialsPage />} />
             <Route path="/search" element={<SearchPage />} />
             <Route path="/import/*" element={<ImportWizardPage />} />
             <Route path="/stats" element={<StatsPage />} />

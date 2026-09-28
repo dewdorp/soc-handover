@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     SSL_KEYFILE: str | None = None
     LOGIN_MAX_FAILS: int = 5
     LOGIN_LOCK_MINUTES: int = 5
+    #: 비밀번호 보관(장비 계정)의 암호화 키 — base64 32바이트. 설치 프로그램이 .env 에 만들어 넣는다.
+    #: SECRET_KEY 와 따로 두는 이유: SECRET_KEY 는 유출 시 바꾸는 값인데, 거기서 파생하면
+    #: 바꾸는 순간 보관된 비밀번호가 전부 잠긴다.
+    VAULT_KEY: str = ""
+    #: 키 교체용 새 키. 넣고 manage.py vault-rekey 를 돌리면 전부 새 키로 다시 암호화한다.
+    VAULT_KEY_NEXT: str = ""
 
     # --- DB ---
     DATABASE_URL: str = ""

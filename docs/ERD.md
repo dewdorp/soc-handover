@@ -218,6 +218,36 @@ INDEX `(handover_id, created_at)`
 
 ---
 
+## 4-1. 장비 비밀번호 보관
+
+### credentials
+| 컬럼 | 타입 | 비고 |
+|---|---|---|
+| id | BIGSERIAL PK | |
+| scope | VARCHAR(10) NOT NULL | SHARED(교대 근무자 전원) / PERSONAL(등록자만) |
+| owner_id | BIGINT FK users NOT NULL | 등록한 사람 — 고치기 · 지우기는 이 사람과 MANAGER+ |
+| company_id | BIGINT FK companies NULL | 관계사 |
+| device_name | VARCHAR(200) NOT NULL | 장비명 |
+| access_method | TEXT NULL | 접속 방법(SSH 10.0.0.1:22 · 웹 · 콘솔) |
+| username | VARCHAR(200) NULL | 계정 |
+| secret_cipher | BYTEA NOT NULL | **AES-256-GCM 암호문**(키버전 1B + nonce 12B + 본문) |
+| note | TEXT NULL | |
+| rotated_at / rotated_by | TIMESTAMPTZ / BIGINT FK users | 비밀번호를 마지막으로 바꾼 때 · 사람 |
+| current_version_no | INT NOT NULL | |
+| is_deleted | BOOLEAN NOT NULL | |
+
+INDEX: `(scope, owner_id, is_deleted)`, `(device_name)`, `(company_id)`
+
+### credential_versions
+`id PK`, `credential_id FK CASCADE`, `version_no INT`, `secret_cipher BYTEA NULL`(오래되면 값만 지움),
+`changed_fields JSONB`, `changed_by FK users`, `change_note TEXT`, `device_name`, `username`, `key_version SMALLINT`
+INDEX `(credential_id, version_no)`
+
+평문 비밀번호는 DB 어디에도 없다. 키는 `.env`(VAULT_KEY)에 있고, 열람은 본인 확인 + 감사 기록을 거친다
+(docs/SECURITY.md §7.1).
+
+---
+
 ## 5. 교대 인수인계
 
 ### shift_handovers (세션)

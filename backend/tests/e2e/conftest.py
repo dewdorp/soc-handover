@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import base64
 import os
 import shutil
 import socket
@@ -43,6 +44,9 @@ def server(tmp_path_factory):
         "APP_ENV": "prod", "APP_HOST": "127.0.0.1", "APP_PORT": str(port),
         "DATABASE_URL": url,
         "SECRET_KEY": "e2e-only-secret-key-0123456789-0123456789",
+        # 운영과 같게 APP_ENV=prod 로 띄우므로 비밀번호 보관 키도 운영처럼 명시해 준다
+        # (키가 없으면 그 기능만 꺼진 채로 뜬다 — 그것도 의도한 동작이다)
+        "VAULT_KEY": base64.urlsafe_b64encode(os.urandom(32)).decode(),
         "DATA_DIR": str(data_dir / "data"), "BACKUP_DIR": str(data_dir / "backup"),
         "LOG_DIR": str(data_dir / "logs"), "COOKIE_SECURE": "false",
         "REMINDER_INTERVAL_MIN": "0", "ENABLE_DOCS": "false",

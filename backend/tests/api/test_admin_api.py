@@ -82,7 +82,7 @@ def _png(width: int = 2, height: int = 2) -> bytes:
 
 class TestAuditCoverage:
     def test_every_defined_action_is_recorded(self, people, cid, db):
-        """정의된 감사 행위 전부(34종)를 실제 API · 배치로 한 번씩 일으킨다(완료 기준: 30종 이상)."""
+        """정의된 감사 행위 전부(39종)를 실제 API · 배치로 한 번씩 일으킨다(완료 기준: 30종 이상)."""
         admin, mgr, hong = people["admin"], people["mgr"], people["hong"]
         ids = people["ids"]
 
@@ -132,6 +132,16 @@ class TestAuditCoverage:
         att = up.json()
         hong.get(f"{A}/{att['id']}/download")                                             # ATTACHMENT_DOWNLOAD
         hong.delete(f"{A}/{att['id']}")                                                   # ATTACHMENT_DELETE
+
+        # 장비 비밀번호 보관 — 등록 · 수정 · 열람 · 열람 거부 · 삭제
+        cred = hong.post("/api/v1/credentials", json={                                    # CREDENTIAL_CREATE
+            "device_name": "감사확인 방화벽", "secret": "Audit#Pw2026!"}).json()
+        hong.patch(f"/api/v1/credentials/{cred['id']}", json={"note": "감사 확인용"})       # CREDENTIAL_UPDATE
+        hong.post(f"/api/v1/credentials/{cred['id']}/reveal",                             # CREDENTIAL_REVEAL
+                  json={"password": ANALYST_PW})
+        hong.post(f"/api/v1/credentials/{cred['id']}/reveal",                             # ..._DENIED
+                  json={"password": "틀린비밀번호"})
+        hong.delete(f"/api/v1/credentials/{cred['id']}")                                  # CREDENTIAL_DELETE
 
         # 관리
         u = admin.post("/api/v1/users", json={"username": "newbie", "display_name": "신입",   # USER_CREATE

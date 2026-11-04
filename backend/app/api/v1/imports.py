@@ -164,6 +164,15 @@ def errors_xlsx(job_id: int, db: Session = Depends(get_db),
                                    "spreadsheetml.sheet")
 
 
+@router.post("/jobs/{job_id}/cancel")
+def cancel(job_id: int, db: Session = Depends(get_db),
+           actor: User = Depends(require("import:run")),
+           ctx: RequestContext = Depends(get_context)):
+    """잘못 올린 작업 중단 — 반영 전이면 폐기, 반영 중이면 배치 경계에서 멈춘다."""
+    job = svc.get_or_404(db, job_id)
+    return svc.cancel(db, job, actor, ctx)
+
+
 @router.post("/jobs/{job_id}/rollback", response_model=ImportJobOut, status_code=_ACCEPTED)
 def rollback(job_id: int, bg: BackgroundTasks, db: Session = Depends(get_db),
              actor: User = Depends(require("import:rollback")),

@@ -158,7 +158,14 @@ def prepare(db: Session, job: ExcelImportJob, progress: Progress) -> dict[str, i
     total = job.total_rows or 1
     done = 0
     last_id = 0
+    canceled = False
     while True:
+        # 배치 경계에서만 멈춘다 — 이미 넣은 행은 ROW_IMPORTED 로 확정되어 다시 넣지 않는다.
+        # 별도 세션이 바꾼 값이므로 매번 다시 읽는다.
+        if db.scalar(select(ExcelImportJob.cancel_requested)
+                     .where(ExcelImportJob.id == job.id)):
+            canceled = True
+            break
         rows = db.scalars(
             select(ExcelImportRow)
             .where(ExcelImportRow.job_id == job.id, ExcelImportRow.id > last_id,
@@ -185,6 +192,9 @@ def prepare(db: Session, job: ExcelImportJob, progress: Progress) -> dict[str, i
         db.commit()
         progress(min(90, int(done * 90 / total)))
 
+    if canceled:
+        db.commit()
+        return {**summarize(db, job), "canceled": True}
     _mark_duplicates(db, job)
     db.commit()
     return summarize(db, job)
@@ -239,6 +249,12 @@ def summarize(db: Session, job: ExcelImportJob) -> dict[str, int]:
         "will_import": count(will_import_condition()),
         "blank": job.skipped_rows or 0,
     }
+    # 반영된 것 중 사람이 그 뒤에 고친 건 — 되돌리기에서 남겨 두는 수(화면·보고서가 같은 수를 본다)
+    stats["modified_after_import"] = db.scalar(
+        select(func.count()).select_from(Handover)
+        .where(Handover.import_job_id == job.id, Handover.is_deleted == false(),
+               Handover.current_version_no > 1)) or 0
+    stats["not_imported"] = max(stats["total"] - stats["imported"] - stats["blank"], 0)
     job.error_rows = stats["error"]
     job.duplicate_rows = stats["duplicate"]
     return stats
@@ -298,7 +314,14 @@ def commit_rows(db: Session, job: ExcelImportJob, actor: User,
                                     will_import_condition())) or 0
     done = 0
     last_id = 0
+    canceled = False
     while True:
+        # 배치 경계에서만 멈춘다 — 이미 넣은 행은 ROW_IMPORTED 로 확정되어 다시 넣지 않는다.
+        # 중단 요청은 다른 세션이 쓰므로 매번 다시 읽는다.
+        if db.scalar(select(ExcelImportJob.cancel_requested)
+                     .where(ExcelImportJob.id == job.id)):
+            canceled = True
+            break
         rows = db.scalars(
             select(ExcelImportRow)
             .where(ExcelImportRow.job_id == job.id, ExcelImportRow.id > last_id,
@@ -362,6 +385,10 @@ def commit_rows(db: Session, job: ExcelImportJob, actor: User,
     job.success_rows = stats["imported"]
     stats["committed_now"] = done
     stats["companies_created"] = len(created_companies)
+    stats["canceled"] = canceled
+    if canceled:
+        # 남은 행은 그대로 둔다 — 다시 '반영'을 누르면 멈춘 자리에서 이어서 넣는다.
+        stats["remaining"] = max(target_total - done, 0)
     return stats
 
 

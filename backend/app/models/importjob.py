@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import BigInteger, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, BigInteger, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, JSONType, TimestampMixin, TZDateTime
@@ -21,6 +21,8 @@ JOB_RUNNING = "RUNNING"
 JOB_COMPLETED = "COMPLETED"
 JOB_FAILED = "FAILED"
 JOB_ROLLED_BACK = "ROLLED_BACK"
+#: 사람이 중단한 작업 — 반영 전이면 폐기, 반영 중이면 배치 경계에서 멈춘 상태
+JOB_CANCELED = "CANCELED"
 
 
 class ExcelImportJob(Base, TimestampMixin):
@@ -50,6 +52,8 @@ class ExcelImportJob(Base, TimestampMixin):
     finished_at: Mapped[datetime | None] = mapped_column(TZDateTime)
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     error_message: Mapped[str | None] = mapped_column(Text)
+    #: 중단 요청. 반영 루프가 **배치 경계에서** 보고 멈춘다(행 중간에 끊지 않는다).
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
 class ExcelImportRow(Base):

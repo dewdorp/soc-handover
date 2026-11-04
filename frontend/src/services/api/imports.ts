@@ -5,7 +5,7 @@ import type { SearchRequest } from '@/types/handover'
 
 export type JobStatus =
   | 'UPLOADED' | 'ANALYZED' | 'MAPPED' | 'STAGED' | 'VALIDATED' | 'DEDUPED'
-  | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'ROLLED_BACK'
+  | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'ROLLED_BACK' | 'CANCELED'
 
 export interface SheetInfo {
   name: string
@@ -54,6 +54,13 @@ export interface ImportReport {
   imported?: number
   will_import?: number
   blank?: number
+  /** 반영되지 않은 행(오류 · 중복 · 제외) */
+  not_imported?: number
+  /** 반영 뒤 사람이 고친 건 — 되돌리기에서 남긴다 */
+  modified_after_import?: number
+  /** 배치 경계에서 멈췄는가 */
+  canceled?: boolean
+  remaining?: number
   rollback?: { removed: number; kept_modified: number }
 }
 
@@ -125,6 +132,9 @@ export const importApi = {
   commit: (id: number) => api.post<ImportJob>(`${J}/${id}/commit`),
   report: (id: number) => api.get<ImportReport>(`${J}/${id}/report`),
   rollback: (id: number) => api.post<ImportJob>(`${J}/${id}/rollback`),
+  /** 반영 전이면 폐기, 반영 중이면 배치 경계에서 중단 */
+  cancel: (id: number) => api.post<{ mode: 'discarded' | 'stopping'; message: string }>(
+    `${J}/${id}/cancel`, {}),
   downloadErrors: (id: number) => downloadUrl(`${J}/${id}/errors.xlsx`),
 }
 

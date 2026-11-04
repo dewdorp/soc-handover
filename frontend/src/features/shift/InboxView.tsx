@@ -22,7 +22,7 @@ export default function InboxView() {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const [picked, setPicked] = useState<Set<number>>(new Set())
-  const { data } = useQuery({ queryKey: ['inbox'], queryFn: shiftApi.inbox, refetchInterval: 30_000 })
+  const { data, isPending, isError, refetch } = useQuery({ queryKey: ['inbox'], queryFn: shiftApi.inbox, refetchInterval: 30_000 })
   const rows = data ?? []
   // 보낸 사람의 교대 총평 — 항목만 보고 확인하면 교대 전체 상황을 놓친다
   const summaries = [...new Map(rows.filter((r) => r.session_id && r.summary_note)
@@ -32,7 +32,7 @@ export default function InboxView() {
     mutationFn: (ids: number[]) => shiftApi.bulkAck(ids),
     onSuccess: () => {
       setPicked(new Set())
-      for (const key of ['inbox', 'me', 'cockpit', 'handovers', 'shift-history']) {
+      for (const key of ['inbox', 'me', 'cockpit', 'handover', 'handovers', 'shift-history', 'my-work', 'kpi']) {
         qc.invalidateQueries({ queryKey: [key] })
       }
     },
@@ -48,7 +48,9 @@ export default function InboxView() {
     <div className="p-3 space-y-2 overflow-auto">
       <div className="flex items-center gap-2">
         <p className={rows.length ? 'text-state-check font-medium' : 'text-ink-muted'}>
-          {rows.length ? `⚠ 확인하지 않은 인수인계 ${rows.length}건이 있습니다.` : '확인할 인수인계가 없습니다.'}
+          {isError ? <>확인함을 불러오지 못했습니다. {data && '마지막 조회 결과를 표시합니다.'}{' '}
+            <button className="btn btn-sm" onClick={() => refetch()}>다시 시도</button></>
+            : isPending ? '확인함을 불러오는 중…' : rows.length ? `⚠ 확인하지 않은 인수인계 ${rows.length}건이 있습니다.` : '확인할 인수인계가 없습니다.'}
         </p>
         <span className="flex-1" />
         <button className="btn btn-primary btn-sm" disabled={!picked.size || ack.isPending}

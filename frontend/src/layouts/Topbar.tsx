@@ -25,23 +25,23 @@ export default function Topbar({ onToggleSidebar, onOpenSearch, onOpenHelp }: {
   const unreadCount = unread?.unread ?? me?.unread_notification_count ?? 0
 
   return (
-    <header className="h-12 shrink-0 border-b border-surface-border bg-surface flex items-center gap-3 px-3">
+    <header className="h-14 shrink-0 border-b border-surface-border bg-surface flex items-center gap-1.5 px-2 sm:gap-3 sm:px-3">
       <button className="btn btn-sm" onClick={onToggleSidebar} aria-label="메뉴 접기/펼치기">
         <Menu size={15} />
       </button>
 
-      <div className="font-semibold tracking-tight text-md whitespace-nowrap">
+      <div className="border-l-2 border-brand pl-2 font-semibold tracking-tight text-md whitespace-nowrap">
         SOC 인수인계
       </div>
 
       <button
-        className="flex-1 max-w-xl h-7 px-2.5 rounded border border-surface-border
+        className="min-w-0 flex-1 max-w-xl h-8 px-2 sm:px-2.5 rounded-md border border-surface-border
                    bg-surface-sunken text-ink-faint flex items-center gap-2 hover:bg-white"
         onClick={onOpenSearch} aria-label="통합 검색 (Ctrl+K)" title="인수인계 · 할일 · 일정을 한 번에 찾습니다"
       >
         <Search size={14} />
-        <span className="text-sm whitespace-nowrap">통합 검색</span>
-        <kbd className="ml-auto text-xs border border-surface-border rounded px-1 bg-surface">
+        <span className="text-sm truncate">통합 검색</span>
+        <kbd className="ml-auto hidden sm:inline text-xs border border-surface-border rounded px-1 bg-surface">
           Ctrl K
         </kbd>
       </button>

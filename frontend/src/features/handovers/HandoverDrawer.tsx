@@ -106,7 +106,12 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
 
   const ack = useMutation({
     mutationFn: () => handoverApi.acknowledge(handoverId),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      invalidate()
+      for (const key of ['inbox', 'me', 'my-work', 'cockpit', 'shift-history', 'kpi']) {
+        qc.invalidateQueries({ queryKey: [key] })
+      }
+    },
   })
 
   const star = useMutation({

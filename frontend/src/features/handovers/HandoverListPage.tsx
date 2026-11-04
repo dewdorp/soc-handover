@@ -92,7 +92,7 @@ export default function HandoverListPage() {
     mutationFn: (id: number) => handoverApi.acknowledge(id),
     onSuccess: (_res, id) => {
       say(`#${id} 확인했습니다.`)
-      for (const key of ['handovers', 'handover', 'me', 'inbox', 'my-work', 'timeline']) qc.invalidateQueries({ queryKey: [key] })
+      for (const key of ['handovers', 'handover', 'me', 'inbox', 'my-work', 'timeline', 'kpi']) qc.invalidateQueries({ queryKey: [key] })
     },
     onError: fail,
   })

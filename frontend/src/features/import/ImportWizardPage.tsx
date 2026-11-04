@@ -63,22 +63,22 @@ export default function ImportWizardPage() {
   const step = stepOf(job)
 
   return (
-    <div className="p-4 space-y-3 max-w-[1280px]">
-      <div className="flex items-center gap-2">
-        <h1 className="text-md font-medium">Excel · CSV Import</h1>
+    <div className="p-3 sm:p-4 space-y-4 max-w-[1280px]">
+      <div className="flex flex-wrap items-center gap-2">
+        <h1 className="text-xl font-semibold tracking-tight">Excel · CSV Import</h1>
         {job && <span className="text-ink-muted">· {job.file_name} <span className="text-ink-faint">({job.job_code})</span></span>}
         <span className="flex-1" />
         {job && <button className="btn" onClick={() => setJob(null)}>새 파일</button>}
       </div>
 
-      <ol className="flex flex-wrap gap-1 text-sm" aria-label="진행 단계">
+      <ol className="card grid grid-cols-2 gap-1 p-2 text-sm sm:grid-cols-4 xl:grid-cols-8" aria-label="진행 단계">
         {STEPS.map((label, i) => {
           const n = i + 1
           const state = n < step ? 'done' : n === step ? 'current' : 'todo'
           return (
             <li key={label} aria-current={state === 'current' ? 'step' : undefined}
-                className={`chip ${state === 'current' ? 'bg-brand text-white border-brand'
-                  : state === 'done' ? 'text-state-done' : 'text-ink-faint'}`}>
+                className={`flex items-center justify-center rounded-md px-1.5 py-1.5 font-medium ${state === 'current' ? 'bg-brand text-white'
+                  : state === 'done' ? 'bg-brand-soft text-brand' : 'bg-surface-sunken text-ink-muted'}`}>
               {state === 'done' ? '✔' : `${'①②③④⑤⑥⑦⑧'[i]}`} {label}
             </li>
           )
@@ -139,11 +139,11 @@ function UploadStep({ onUploaded }: { onUploaded: (job: ImportJob) => void }) {
       <div onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
            onDragLeave={() => setDragging(false)}
            onDrop={(e) => { e.preventDefault(); setDragging(false); pick(e.dataTransfer.files) }}
-           className={`card border-dashed border-2 p-8 grid place-items-center gap-2 text-center
-                       ${dragging ? 'border-brand bg-brand-soft' : ''}`}>
-        <FileSpreadsheet size={28} className="text-ink-faint" />
-        <p>① 인수인계 파일(Excel .xlsx 또는 CSV .csv · .tsv)을 끌어다 놓거나</p>
-        <button className="btn btn-primary" disabled={up.isPending} onClick={() => input.current?.click()}>
+           className={`card border-dashed border-2 px-4 py-6 sm:py-8 grid place-items-center gap-2 text-center
+                       ${dragging ? 'border-brand bg-brand-soft' : 'border-brand/40'}`}>
+        <FileSpreadsheet size={28} className="box-content rounded-lg bg-brand-soft p-2.5 text-brand" />
+        <p className="text-md font-medium">① 인수인계 파일(Excel .xlsx 또는 CSV .csv · .tsv)을 끌어다 놓거나</p>
+        <button className="btn btn-primary h-8 px-4" disabled={up.isPending} onClick={() => input.current?.click()}>
           <Upload size={12} /> {up.isPending ? '분석 중…' : '파일 선택'}
         </button>
         <input ref={input} type="file" accept=".xlsx,.xlsm,.csv,.tsv" className="hidden"
@@ -263,27 +263,27 @@ function RecentJobs({ onOpen }: { onOpen: (id: number) => void }) {
     RUNNING: '진행 중', COMPLETED: '완료', FAILED: '실패', ROLLED_BACK: '되돌림',
   }
   return (
-    <section className="card">
-      <h2 className="font-medium px-3 pt-2 pb-1">최근 Import</h2>
+    <section className="card overflow-auto">
+      <h2 className="px-3 py-3 text-md font-semibold">최근 Import</h2>
       <table className="w-full text-base">
-        <thead className="text-ink-muted bg-surface-sunken">
+        <thead className="whitespace-nowrap text-ink-muted bg-surface-sunken">
           <tr>
-            <th className="text-left font-medium px-3 py-1">작업</th>
-            <th className="text-left font-medium px-3 py-1">파일</th>
-            <th className="text-left font-medium px-3 py-1">상태</th>
-            <th className="text-right font-medium px-3 py-1">가져옴</th>
-            <th className="text-left font-medium px-3 py-1">시각</th>
+            <th className="text-left font-medium px-3 py-2">작업</th>
+            <th className="text-left font-medium px-3 py-2">파일</th>
+            <th className="text-left font-medium px-3 py-2">상태</th>
+            <th className="text-right font-medium px-3 py-2">가져옴</th>
+            <th className="text-left font-medium px-3 py-2">시각</th>
           </tr>
         </thead>
         <tbody>
           {data.map((j) => (
             <tr key={j.id} className="border-t border-surface-border/60 hover:bg-surface-sunken cursor-pointer"
                 onClick={() => onOpen(j.id)}>
-              <td className="px-3 py-1 tabular-nums">{j.job_code}</td>
-              <td className="px-3 py-1 truncate max-w-[280px]">{j.file_name}</td>
-              <td className="px-3 py-1">{LABEL[j.status] ?? j.status}</td>
-              <td className="px-3 py-1 text-right tabular-nums">{j.success_rows.toLocaleString()}</td>
-              <td className="px-3 py-1 text-ink-muted tabular-nums">
+              <td className="px-3 py-2 tabular-nums">{j.job_code}</td>
+              <td className="px-3 py-2 truncate max-w-[280px]">{j.file_name}</td>
+              <td className="px-3 py-2"><span className="chip whitespace-nowrap">{LABEL[j.status] ?? j.status}</span></td>
+              <td className="px-3 py-2 text-right tabular-nums">{j.success_rows.toLocaleString()}</td>
+              <td className="px-3 py-2 text-ink-muted tabular-nums">
                 {new Date(j.created_at).toLocaleString('ko-KR', { hour12: false })}
               </td>
             </tr>

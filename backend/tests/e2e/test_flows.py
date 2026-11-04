@@ -43,10 +43,13 @@ def _new_handover(page: Page, title: str, content: str = "E2E 점검용 내용")
 
 def test_login_and_dashboard(login, server):
     page = login()
-    expect(page.get_by_role("heading", name="구현 현황")).to_be_visible(timeout=15000)
+    expect(page.get_by_role("heading", name="근무 대시보드")).to_be_visible(timeout=15000)
+    page.get_by_text("시스템 상태 및 구현 현황", exact=True).click()
+    expect(page.get_by_role("heading", name="구현 현황")).to_be_visible()
     expect(page.get_by_role("heading", name="시스템 상태")).to_be_visible()
     # 왼쪽 메뉴가 권한대로 보인다(관리자)
     expect(_menu(page, "인수인계")).to_be_visible()
+    page.get_by_role("navigation", name="주 메뉴").get_by_role("button", name="운영·관리").click()
     expect(_menu(page, "관리자")).to_be_visible()
 
     # 로그아웃하면 로그인 화면으로 돌아온다
@@ -69,7 +72,7 @@ def test_handover_version_and_restore(login, server):
     expect(drawer.get_by_text("고친 내용")).to_be_visible(timeout=10000)
 
     drawer.get_by_role("tab", name="변경이력").click()
-    expect(drawer.get_by_text("수정")).to_be_visible()
+    expect(drawer.get_by_role("listitem").get_by_text("수정", exact=True)).to_be_visible()
 
     # v1 로 복원 → 새 버전(v3)이 생기고 내용이 처음으로 돌아온다
     drawer.get_by_role("button", name="복원").first.click()
@@ -105,7 +108,8 @@ def test_search_and_quick_filter(login, server):
 
 def test_task_create_and_complete(login, server):
     page = login()
-    _menu(page, "할일").click()
+    _menu(page, "내 업무").click()
+    page.get_by_role("navigation", name="업무 메뉴").get_by_role("link", name="팀 할일").click()
     page.get_by_role("button", name="할일", exact=True).click()
     dialog = page.get_by_role("dialog")
     expect(dialog).to_be_visible()
@@ -129,7 +133,7 @@ def test_shift_transfer_and_ack(login, server, page: Page):
     _menu(page, "인수인계").click()
     _new_handover(page, "E2E 야간 인계 건", "야간에 확인 필요")
 
-    _menu(page, "교대 인수인계").click()
+    page.get_by_role("navigation", name="인수인계 메뉴").get_by_role("link", name="인계 준비").click()
     page.get_by_role("tab", name=re.compile("근무 중 신규")).click()   # Cockpit 영역 타일
     row = page.get_by_role("row").filter(has_text="E2E 야간 인계 건")
     row.get_by_role("checkbox").check()
@@ -148,11 +152,12 @@ def test_shift_transfer_and_ack(login, server, page: Page):
 
     # 야간 근무자: 인수 확인함에서 확인 — 같이 받은 사람이 보인다
     login("e2e_night", USER_PW)   # 로그인 고정구가 쿠키를 비우고 새로 로그인한다
-    page.goto(server["base"] + "/shift/inbox")
+    expect(page.get_by_text("E2E 야간 인계 건", exact=True).first).to_be_visible(timeout=15000)
+    page.get_by_role("link", name="확인함 전체", exact=False).click()
     expect(page.get_by_text("E2E 야간 인계 건")).to_be_visible(timeout=15000)
     expect(page.get_by_text(re.compile("같이 받음: 시스템 관리자"))).to_be_visible(timeout=10000)
     page.get_by_role("button", name=re.compile("^확인$")).first.click()
-    expect(page.get_by_text(re.compile("확인할 인수인계가 없습니다|확인함"))).to_be_visible(timeout=15000)
+    expect(page.get_by_text("확인할 인수인계가 없습니다.", exact=True)).to_be_visible(timeout=15000)
 
 
 def _png_bytes() -> bytes:

@@ -21,12 +21,13 @@ export default function CreateHandoverDialog(
 ) {
   useEscape(onClose)
   const [form, setForm] = useState({
-    company_id: companies[0]?.id ?? 0,
+    company_id: null as number | null,
     title: '', content: '', remark: '',
     status_code: 'NEW', priority_code: 'NORMAL',
     work_date: '', assignee_id: '', tags: '',
     is_important: false,
   })
+  const companyId = form.company_id ?? companies[0]?.id
   const [error, setError] = useState<string | null>(null)
 
   const { data: users } = useQuery({
@@ -34,8 +35,8 @@ export default function CreateHandoverDialog(
   })
 
   const create = useMutation({
-    mutationFn: () => handoverApi.create({
-      company_id: form.company_id,
+    mutationFn: (selectedCompany: number) => handoverApi.create({
+      company_id: selectedCompany,
       title: form.title.trim(),
       content: form.content,
       remark: form.remark || null,
@@ -60,7 +61,11 @@ export default function CreateHandoverDialog(
       setError('제목은 필수입니다.')
       return
     }
-    create.mutate()
+    if (companyId == null) {
+      setError('관계사 목록에서 사용할 항목을 확인해 주세요.')
+      return
+    }
+    create.mutate(companyId)
   }
 
   return (
@@ -75,7 +80,7 @@ export default function CreateHandoverDialog(
 
         <div className="grid grid-cols-2 gap-2">
           <Labeled label="관계사 *">
-            <select className="input w-full" value={form.company_id}
+            <select className="input w-full" value={companyId ?? ''}
                     onChange={(e) => set('company_id', Number(e.target.value))}>
               {companies.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
             </select>
@@ -139,7 +144,7 @@ export default function CreateHandoverDialog(
 
         <div className="flex justify-end gap-2 pt-1">
           <button type="button" className="btn" onClick={onClose}>취소</button>
-          <button className="btn btn-primary" disabled={create.isPending}>등록</button>
+          <button className="btn btn-primary" disabled={create.isPending || companyId == null}>등록</button>
         </div>
       </form>
     </div>

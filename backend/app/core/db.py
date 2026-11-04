@@ -15,6 +15,7 @@ def _make_engine() -> Engine:
         eng = create_engine(
             settings.DATABASE_URL,
             echo=settings.DB_ECHO,
+            hide_parameters=True,
             future=True,
             connect_args={"check_same_thread": False, "timeout": 30},
         )
@@ -32,6 +33,7 @@ def _make_engine() -> Engine:
     eng = create_engine(
         settings.DATABASE_URL,
         echo=settings.DB_ECHO,
+        hide_parameters=True,
         future=True,
         pool_size=settings.SQL_POOL_SIZE,
         max_overflow=5,

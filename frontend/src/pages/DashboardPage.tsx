@@ -1,9 +1,15 @@
+import { useState } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, Database, ShieldCheck } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { format, parseISO } from 'date-fns'
+import { ArrowRight, Inbox, Send } from 'lucide-react'
 import { api } from '@/services/api/client'
 import { handoverApi } from '@/services/api/handovers'
-import { useFeatures, useMe } from '@/hooks/useAuth'
+import { shiftApi, type InboxItem } from '@/services/api/shift'
+import { taskApi, type MyWorkItem } from '@/services/api/tasks'
+import UpcomingSchedules from '@/features/calendar/UpcomingSchedules'
+import { fieldLabel } from '@/features/handovers/VersionHistory'
+import { useFeatures } from '@/hooks/useAuth'
 import type { Company, HandoverStatus, Shift } from '@/types/api'
 import type { Filter } from '@/types/handover'
 
@@ -17,9 +23,9 @@ interface Kpi { key: string; label: string; hint?: string; quick: string[]; filt
 const KPI: Kpi[] = [
   { key: 'new_today', label: '금일 신규', quick: ['TODAY'] },
   { key: 'in_progress', label: '진행 중', quick: ['IN_PROGRESS'] },
-  { key: 'need_ack', label: '확인 필요', hint: '내가 확인하거나 다시 확인해야 할 것', quick: ['NEED_ACK'], tone: 'text-state-check' },
+  { key: 'need_ack', label: '내 확인 필요', hint: '내가 확인하거나 다시 확인해야 할 것', quick: ['NEED_ACK'], tone: 'text-state-check' },
   { key: 'important', label: '중요', hint: '미완료인 중요 업무', quick: ['IMPORTANT', 'OPEN'] },
-  { key: 'due_today', label: '오늘 마감', hint: '수행일이 오늘인 미완료',
+  { key: 'due_today', label: '오늘 수행 예정', hint: '수행일이 오늘인 미완료',
     quick: ['OPEN'], filters: [{ field: 'work_date', op: 'between', value: 'TODAY' }] },
   { key: 'overdue', label: '지연', hint: '수행일이 지났는데 끝나지 않은 것', quick: ['OVERDUE'], tone: 'text-state-urgent' },
 ]
@@ -31,82 +37,148 @@ function listUrl(k: Pick<Kpi, 'quick' | 'filters'>): string {
   return `/handovers?${params.toString()}`
 }
 
+function Retry({ onRetry }: { onRetry: () => void }) {
+  return <button className="btn btn-sm" onClick={onRetry}>다시 시도</button>
+}
+
+function WorkRow({ item }: { item: MyWorkItem }) {
+  const target = {
+    TASK: [`/my-work?task=${item.id}`, '할일 열기'],
+    SCHEDULE: [`/my-work?schedule=${item.id}`, '일정 보기'],
+    HANDOVER: [`/handovers?id=${item.id}`, '인수인계 보기'],
+    ACK: [`/handovers?id=${item.handover_id ?? item.id}`, item.ack_state === 'REACK_REQUIRED' ? '변경 보기' : '내용 보기'],
+  }[item.kind]
+  const date = item.kind === 'SCHEDULE' && item.start_at
+    ? format(parseISO(item.start_at), item.all_day ? 'yyyy-MM-dd' : 'yyyy-MM-dd HH:mm') : item.due
+  return <li>
+    <Link to={target[0]} className="block rounded py-2 hover:bg-surface-sunken">
+      <span className="block break-words font-medium">{item.title}</span>
+      <span className="flex flex-wrap items-center gap-x-2 text-sm text-ink-muted">
+        {item.company && <span className="break-words">{item.company}</span>}
+        <span>{date || '날짜 미지정'}</span><span className="text-brand">{target[1]} →</span>
+      </span>
+    </Link>
+  </li>
+}
+
+function WorkBucket({ bucket, label }: { bucket: 'today' | 'overdue'; label: string }) {
+  const work = useQuery({ queryKey: ['my-work', bucket, 'all'], queryFn: () => taskApi.myWork(bucket, 'all'),
+    staleTime: 30_000, refetchInterval: 60_000 })
+  return <section className="min-w-0">
+    <h3 className="border-b border-surface-border pb-2 font-semibold">
+      <Link to={`/my-work?bucket=${bucket}`} className="hover:underline">{label}
+        {work.data && <span className={`ml-2 tabular-nums ${bucket === 'overdue' && work.data.counts.overdue ? 'text-state-urgent' : 'text-brand'}`}>{work.data.counts[bucket]}건</span>}
+      </Link>
+    </h3>
+    {work.isError && <p className="my-2 text-sm">{work.data ? '업무 갱신에 실패했습니다. 마지막 조회 결과입니다.' : '업무를 불러오지 못했습니다.'} <Retry onRetry={() => work.refetch()} /></p>}
+    {work.isPending && <p className="py-3 text-ink-muted">불러오는 중…</p>}
+    {work.data && (work.data.items.length
+      ? <ul className="divide-y divide-surface-border">{work.data.items.slice(0, 3).map(item => <WorkRow key={`${item.kind}-${item.id}`} item={item} />)}</ul>
+      : !work.isError && <p className="py-3 text-sm text-ink-muted">{label} 업무가 없습니다.</p>)}
+  </section>
+}
+
+function InboxRow({ row }: { row: InboxItem }) {
+  const reack = row.state === 'REACK_REQUIRED'
+  const prior = reack ? row.acked_version_no : row.version_no_at_transfer
+  return <li>
+    <Link to={`/handovers?id=${row.handover_id}`} className="block rounded py-2 hover:bg-surface-sunken">
+      <span className="block break-words font-medium">{row.title}</span>
+      <span className="block break-words text-sm text-ink-muted">
+        {row.priority_code === 'URGENT' && <strong className="mr-1 text-state-urgent">긴급</strong>}
+        {row.company && `${row.company} · `}{reack ? '확인 후 변경' : '확인 대기'}
+        {prior != null && prior < row.current_version_no && ` · ${reack ? '확인' : '인계'} v${prior} →`}
+        {' '}현재 v{row.current_version_no}{row.from_user && ` · ${row.from_user}`}
+      </span>
+      {!!row.stale_reason?.length && <span className="block break-words text-sm text-ink-muted">변경 항목 · {row.stale_reason.map(fieldLabel).join(', ')}</span>}
+      <span className="text-sm text-brand">{reack ? '최신 내용 보기' : '내용 보기'} →</span>
+    </Link>
+  </li>
+}
+
 export default function DashboardPage() {
-  const { data: me } = useMe()
-  const { data: features } = useFeatures()
-  const companies = useQuery({ queryKey: ['companies'], queryFn: () => api.get<Company[]>('/companies') })
-  const statuses = useQuery({ queryKey: ['statuses'], queryFn: () => api.get<HandoverStatus[]>('/statuses') })
-  const shifts = useQuery({ queryKey: ['shifts'], queryFn: () => api.get<Shift[]>('/shifts') })
-  const navigate = useNavigate()
-  const counts = useQueries({
-    queries: KPI.map((k) => ({
-      queryKey: ['kpi', k.key],
-      queryFn: () => handoverApi.search({ quick: k.quick, filters: k.filters ?? [], page: 1, size: 1 }),
-      staleTime: 30_000,
-      refetchInterval: 60_000,
-    })),
-  })
+  const system = useFeatures()
+  const features = system.data
+  const [expanded, setExpanded] = useState(false)
+  const companies = useQuery({ queryKey: ['companies'], queryFn: () => api.get<Company[]>('/companies'), enabled: expanded })
+  const statuses = useQuery({ queryKey: ['statuses'], queryFn: () => api.get<HandoverStatus[]>('/statuses'), enabled: expanded })
+  const shifts = useQuery({ queryKey: ['shifts'], queryFn: () => api.get<Shift[]>('/shifts'), enabled: expanded })
+  const inbox = useQuery({ queryKey: ['inbox'], queryFn: shiftApi.inbox, staleTime: 15_000, refetchInterval: 30_000 })
+  const preview = inbox.data?.slice().sort((a, b) => Number(b.priority_code === 'URGENT') - Number(a.priority_code === 'URGENT')).slice(0, 3)
+  const counts = useQueries({ queries: KPI.map(k => ({ queryKey: ['kpi', k.key],
+    queryFn: () => handoverApi.search({ quick: k.quick, filters: k.filters ?? [], page: 1, size: 1 }),
+    staleTime: 30_000, refetchInterval: 60_000 })) })
 
-  return (
-    <div className="p-3 space-y-3">
-      {(me?.pending_ack_count ?? 0) > 0 && (
-        <div className="card px-3 py-2 flex items-center gap-2 border-amber-300 bg-amber-50">
-          <AlertTriangle size={15} className="text-amber-600" />
-          <span className="text-sm">
-            확인하지 않은 인수인계 <b>{me?.pending_ack_count}건</b>이 있습니다.
-          </span>
-          <button className="btn btn-sm ml-auto" onClick={() => navigate('/shift/inbox')}>
-            확인하러 가기
-          </button>
+  return <div className="mx-auto max-w-screen-2xl space-y-4 p-3 sm:p-5">
+    <header className="flex flex-wrap items-center justify-between gap-2">
+      <h1 className="text-xl font-semibold tracking-tight">근무 대시보드</h1>
+      <Link className="btn" to="/shift"><Send size={14} /> 다음 교대에 인계하기</Link>
+    </header>
+    <UpcomingSchedules />
+    <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+      <section className="card min-w-0 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="flex items-center gap-2 text-lg font-semibold"><Inbox size={17} className="text-brand" /> 인수 확인
+            {inbox.data && <span className="text-state-check">{inbox.data.length}건</span>}</h2>
+          <Link className="text-sm text-brand hover:underline" to="/shift/inbox">확인함 전체 →</Link>
         </div>
-      )}
-
-      <div className="grid grid-cols-6 gap-2">
-        {KPI.map((k, i) => {
-          const total = counts[i].data?.total
-          return (
-            <button key={k.key} onClick={() => navigate(listUrl(k))} title={k.hint}
-                    className="card px-3 py-2 text-left hover:border-brand focus-visible:border-brand">
-              <div className="text-xs text-ink-faint">{k.label}</div>
-              <div className={`text-lg font-semibold tabular-nums ${total ? (k.tone ?? 'text-ink') : 'text-ink-faint'}`}>
-                {total === undefined ? '–' : total.toLocaleString()}
-              </div>
-            </button>
-          )
-        })}
+        {inbox.isError && <p className="mt-3">{inbox.data ? '확인함 갱신에 실패했습니다. 마지막 조회 결과입니다.' : '확인함을 불러오지 못했습니다.'} <Retry onRetry={() => inbox.refetch()} /></p>}
+        {inbox.isPending && <p className="mt-3 text-ink-muted">불러오는 중…</p>}
+        {preview && (preview.length
+          ? <ul className="mt-2 divide-y divide-surface-border">{preview.map(row => <InboxRow key={row.handover_id} row={row} />)}</ul>
+          : !inbox.isError && <p className="mt-3 text-ink-muted">확인할 인수인계가 없습니다.</p>)}
+      </section>
+      <section className="card min-w-0 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-semibold">내 업무 요약</h2>
+          <div className="flex items-center gap-3 text-sm text-brand">
+            <Link className="hover:underline" to="/my-work/notes">내 메모</Link>
+            <Link className="hover:underline" to="/my-work">내 업무 전체 →</Link>
+          </div></div>
+        <div className="mt-3 grid gap-4 sm:grid-cols-2"><WorkBucket bucket="overdue" label="지연" /><WorkBucket bucket="today" label="오늘" /></div>
+      </section>
+    </div>
+    <section aria-label="인수인계 현황">
+      <h2 className="mb-2 text-lg font-semibold">인수인계 현황</h2>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+        {KPI.map((k, i) => <Link key={k.key} to={listUrl(k)} title={k.hint} className="card min-w-0 p-3 hover:border-brand">
+          <span className="flex items-center justify-between gap-1 text-sm font-medium text-ink-muted">{k.label}<ArrowRight size={12} /></span>
+          <span className={`mt-1 block text-2xl font-semibold tabular-nums ${counts[i].data?.total ? k.tone ?? 'text-ink' : 'text-ink-faint'}`}>
+            {counts[i].data?.total.toLocaleString() ?? <span className="text-sm">{counts[i].isError ? '조회 실패' : '조회 중…'}</span>}
+          </span></Link>)}
       </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <section className="card p-3">
-          <h2 className="text-sm font-semibold mb-2 flex items-center gap-1.5">
-            <ShieldCheck size={14} className="text-brand" /> 시스템 상태
+      {counts.some(q => q.isError) && <p className="mt-2 text-sm">일부 지표를 불러오지 못했습니다. <Retry onRetry={() => counts.filter(q => q.isError).forEach(q => q.refetch())} /></p>}
+    </section>
+    {features?.database_warning && <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-state-check">{features.database} · {features.database_warning}</p>}
+    <details onToggle={e => setExpanded(e.currentTarget.open)}>
+      <summary className="cursor-pointer py-1 font-medium text-ink-muted">시스템 상태 및 구현 현황</summary>
+      {[system, companies, statuses, shifts].some(q => q.isError) && <p className="py-2 text-sm">일부 시스템 정보를 불러오지 못했습니다. <Retry onRetry={() => [system, companies, statuses, shifts].filter(q => q.isError).forEach(q => q.refetch())} /></p>}
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <section className="card p-4">
+          <h2 className="text-md font-semibold mb-3 flex items-center gap-1.5">
+            시스템 상태
           </h2>
           <dl className="text-sm grid grid-cols-[110px_1fr] gap-y-1">
             <dt className="text-ink-muted">데이터베이스</dt>
             <dd className="flex items-center gap-1.5">
-              <Database size={13} className="text-ink-faint" />
               {features?.database ?? '-'}
-              {features?.database_warning && (
-                <span className="text-amber-700 text-xs">({features.database_warning})</span>
-              )}
             </dd>
             <dt className="text-ink-muted">관계사</dt>
-            <dd>{companies.data?.length ?? 0}개</dd>
+            <dd>{companies.data ? `${companies.data.length}개` : '–'}</dd>
             <dt className="text-ink-muted">상태 코드</dt>
-            <dd>{statuses.data?.length ?? 0}개</dd>
+            <dd>{statuses.data ? `${statuses.data.length}개` : '–'}</dd>
             <dt className="text-ink-muted">교대 정의</dt>
             <dd>
               {shifts.data?.map((s) => `${s.name} ${s.start_time.slice(0, 5)}`).join(' · ') || '-'}
             </dd>
             <dt className="text-ink-muted">재확인 필드</dt>
             <dd className="truncate" title={features?.ack.reack_fields.join(', ')}>
-              {features?.ack.reack_fields.length ?? 0}개
+              {features ? `${features.ack.reack_fields.length}개` : '–'}
             </dd>
           </dl>
         </section>
 
-        <section className="card p-3">
-          <h2 className="text-sm font-semibold mb-2">구현 현황</h2>
+        <section className="card p-4">
+          <h2 className="text-md font-semibold mb-3">구현 현황</h2>
           <ul className="text-sm space-y-1">
             <li>✔ Phase 0 — 설계 문서 7종</li>
             <li>✔ Phase 1 — 인증 · RBAC · 감사 기반 · Windows 실행환경</li>
@@ -121,6 +193,6 @@ export default function DashboardPage() {
           </ul>
         </section>
       </div>
-    </div>
-  )
+    </details>
+  </div>
 }

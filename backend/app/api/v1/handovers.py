@@ -221,8 +221,10 @@ def list_acknowledgements(handover_id: int, db: Session = Depends(get_db),
 def acknowledge(handover_id: int, payload: AcknowledgeRequest, db: Session = Depends(get_db),
                 actor: User = Depends(require("ack:write")),
                 ctx: RequestContext = Depends(get_context)):
-    handover = handover_service.get_or_404(db, handover_id, actor)
-    return ack_service.acknowledge(db, handover, actor, note=payload.note, ctx=ctx)
+    # 잠근 채로 읽어 '확인 누르는 사이에 저장'이 끼어들지 못하게 한다(PG).
+    handover = handover_service.get_or_404(db, handover_id, actor, lock=True)
+    return ack_service.acknowledge(db, handover, actor, expected_version=payload.expected_version,
+                                   note=payload.note, ctx=ctx)
 
 
 @router.get("/acknowledgements/pending", response_model=list[AckOut])

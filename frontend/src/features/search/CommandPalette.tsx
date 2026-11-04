@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom'
 import { CalendarDays, ClipboardList, CornerDownLeft, FileText, Search } from 'lucide-react'
 import Highlight from '@/features/search/Highlight'
 import { recentSearches, rememberSearch } from '@/features/search/recent'
+import { useMe } from '@/hooks/useAuth'
 import { HIT_LABEL, hitHref, searchApi, type GlobalHit, type HitType } from '@/services/api/search'
 
 export const HIT_ICON: Record<HitType, typeof FileText> = { handover: FileText, task: ClipboardList, schedule: CalendarDays }
@@ -23,7 +24,8 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
   const [term, setTerm] = useState('')
   const [active, setActive] = useState(0)
   const list = useRef<HTMLUListElement>(null)
-  const recent = useMemo(() => recentSearches(), [])
+  const { data: me } = useMe()
+  const recent = useMemo(() => recentSearches(me?.id), [me?.id])
 
   useEffect(() => {
     const t = window.setTimeout(() => setTerm(q.trim()), 200)

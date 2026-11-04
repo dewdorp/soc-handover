@@ -89,7 +89,9 @@ export default function HandoverListPage() {
     requestAnimationFrame(() => document.querySelector(`[data-row-id="${next.id}"]`)?.scrollIntoView({ block: 'nearest' }))
   }
   const ackRow = useMutation({
-    mutationFn: (id: number) => handoverApi.acknowledge(id),
+    // 그 줄이 화면에 보여 주고 있는 버전으로만 확인한다(목록에서 바로 누르는 경우)
+    mutationFn: (id: number) => handoverApi.acknowledge(
+      id, rows.find((r) => r.id === id)?.current_version_no ?? null),
     onSuccess: (_res, id) => {
       say(`#${id} 확인했습니다.`)
       for (const key of ['handovers', 'handover', 'me', 'inbox', 'my-work', 'timeline', 'kpi']) qc.invalidateQueries({ queryKey: [key] })

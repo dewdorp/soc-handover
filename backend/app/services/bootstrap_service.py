@@ -100,11 +100,28 @@ def create_admin(db: Session, *, username: str, display_name: str, password: str
     return user
 
 
+#: '매칭 실패' 행이 모이는 자리. 코드가 신원이고 이름은 현장에서 바꿔 쓸 수 있다.
+UNSPEC_CODE = "UNSPEC"
+
+
 def ensure_default_company(db: Session, name: str = "미지정") -> Company:
-    from sqlalchemy import select
-    company = db.scalar(select(Company).where(Company.name == name))
-    if company is None:
-        company = Company(name=name, code="UNSPEC", sort_order=999)
-        db.add(company)
-        db.flush()
+    """예약 코드(UNSPEC) 자리를 보장한다 — **코드로 찾는다**.
+
+    현장에서 표시명을 '공통' 등으로 바꿔 쓰는 일이 있다. 이름으로 찾으면 못 찾고 다시 만들다가
+    code 고유키에서 터져 가져오기 전체가 멈춘다(재현 ⑤). 찾으면 이름은 건드리지 않는다.
+    이름만 같고 코드가 다른 회사가 이미 있으면 그 회사를 예약 자리로 삼는다(중복 회사 방지).
+    """
+    from sqlalchemy import or_, select
+    company = db.scalar(select(Company).where(Company.code == UNSPEC_CODE))
+    if company is not None:
+        return company
+    by_name = db.scalar(select(Company).where(Company.name == name))
+    if by_name is not None:
+        if by_name.code is None:
+            by_name.code = UNSPEC_CODE     # 코드 없이 만들어진 과거 데이터를 예약 자리로 승격
+            db.flush()
+        return by_name
+    company = Company(name=name, code=UNSPEC_CODE, sort_order=999)
+    db.add(company)
+    db.flush()
     return company

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { createBrowserRouter, createRoutesFromElements, Navigate, Route, RouterProvider } from 'react-router-dom'
+import { clearRecentSearches } from '@/features/search/recent'
 import { watchSessionChanges } from '@/services/sessionChanges'
 import type { Me } from '@/types/api'
 import AppShell from '@/layouts/AppShell'
@@ -72,6 +73,7 @@ export default function App() {
   const [session, setSession] = useState(0)
   useEffect(() => watchSessionChanges(expectedUserId => {
     if (expectedUserId !== undefined && queryClient.getQueryData<Me | null>(['me'])?.id !== expectedUserId) return
+    clearRecentSearches()
     queryClient.clear()
     setSession(s => s + 1)
   }), [])

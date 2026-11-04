@@ -88,6 +88,9 @@ class RestoreRequest(BaseModel):
 
 
 class AcknowledgeRequest(BaseModel):
+    #: 화면이 보여 준 버전. 그 사이에 내용이 바뀌었으면 확인하지 않고 409(stale_ack)를 돌려준다.
+    #: 생략하면 검사하지 않는다(버전을 모르는 옛 호출 전용 — 화면은 항상 보낸다).
+    expected_version: int | None = Field(default=None, ge=1)
     note: str | None = Field(default=None, max_length=500)
 
 

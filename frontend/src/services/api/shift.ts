@@ -111,6 +111,26 @@ export interface InboxItem {
   carry_depth: number | null
 }
 
+export interface AckItem {
+  handover_id: number
+  expected_version: number | null
+}
+
+/** 그 사이에 내용이 바뀌어 확인을 보류한 건 */
+export interface StaleAck {
+  handover_id: number
+  title: string | null
+  shown_version_no: number | null
+  current_version_no: number
+  changed_fields: string[]
+}
+
+export interface BulkAckResult {
+  acknowledged: number[]
+  stale: StaleAck[]
+  skipped: number[]
+}
+
 export interface AppNotification {
   id: number
   type: string
@@ -142,9 +162,9 @@ export const shiftApi = {
     api.get<ShiftSession[]>(`${P}?direction=${direction}`),
   session: (id: number) => api.get<ShiftSession>(`${P}/${id}`),
   close: (id: number) => api.post<ShiftSession>(`${P}/${id}/close`),
-  bulkAck: (handoverIds: number[]) =>
-    api.post<{ acknowledged: number[]; skipped: number[] }>('/acknowledgements/bulk',
-      { handover_ids: handoverIds }),
+  /** 건별로 '화면이 보여 준 버전'을 함께 보낸다 — 읽지 않은 버전이 확인 처리되지 않게 */
+  bulkAck: (items: AckItem[]) =>
+    api.post<BulkAckResult>('/acknowledgements/bulk', { items }),
 }
 
 export const notificationApi = {

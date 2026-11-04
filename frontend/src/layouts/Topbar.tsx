@@ -78,7 +78,7 @@ export default function Topbar({ onToggleSidebar, onOpenSearch, onOpenHelp }: {
 
       <button
         className="btn btn-sm" aria-label="로그아웃" title={me ? `${me.display_name} 로그아웃` : '로그아웃'}
-        onClick={() => logout.mutate(undefined, { onSettled: () => navigate('/login') })}
+        onClick={() => logout.mutate(undefined, { onSettled: () => navigate('/login', { replace: true }) })}
       >
         <LogOut size={14} />
         <span className="hidden sm:inline">로그아웃</span>

@@ -104,13 +104,23 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
     },
   })
 
+  const [ackHeld, setAckHeld] = useState<{ current: number; fields: string[] } | null>(null)
   const ack = useMutation({
-    mutationFn: () => handoverApi.acknowledge(handoverId),
+    // 지금 화면이 보여 주고 있는 버전으로만 확인한다 — 열어 둔 사이 바뀌었으면 서버가 막는다
+    mutationFn: () => handoverApi.acknowledge(handoverId, row?.current_version_no ?? null),
     onSuccess: () => {
+      setAckHeld(null)
       invalidate()
       for (const key of ['inbox', 'me', 'my-work', 'cockpit', 'shift-history', 'kpi']) {
         qc.invalidateQueries({ queryKey: [key] })
       }
+    },
+    onError: (err) => {
+      const detail = err instanceof ApiRequestError && err.code === 'stale_ack'
+        ? (err.detail as { current_version_no: number; changed_fields: string[] }) : null
+      if (!detail) return
+      setAckHeld({ current: detail.current_version_no, fields: detail.changed_fields })
+      invalidate()   // 바뀐 내용을 바로 보여 준다
     },
   })
 
@@ -374,6 +384,13 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
             </button>
             {myAck?.state === 'REACK_REQUIRED' && (
               <span className="text-state-check">확인 이후 내용이 바뀌었습니다</span>
+            )}
+            {ackHeld && (
+              <span role="alert" className="text-state-check">
+                보는 사이에 v{ackHeld.current} 로 바뀌었습니다
+                {ackHeld.fields.length > 0 && ` (${ackHeld.fields.map(fieldLabel).join(', ')})`}
+                {' '}— 내용을 확인한 뒤 다시 누르십시오
+              </span>
             )}
           </>
         )}

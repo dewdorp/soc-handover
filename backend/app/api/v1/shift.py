@@ -14,9 +14,9 @@ from app.core.context import RequestContext, get_context
 from app.core.db import get_db
 from app.models.shift import ShiftHandover
 from app.models.user import User
-from app.schemas.shift import (AddItemsRequest, BasketOut, BasketUpdate, BulkAckRequest,
-                               CockpitOut, InboxItem, ItemNoteRequest, SendRequest,
-                               SessionItemOut, SessionOut)
+from app.schemas.shift import (AddItemsRequest, BasketOut, BasketUpdate, BulkAckOut,
+                               BulkAckRequest, CockpitOut, InboxItem, ItemNoteRequest,
+                               SendRequest, SessionItemOut, SessionOut)
 from app.services import shift_service as svc
 
 router = APIRouter(tags=["shift-handovers"], dependencies=[Depends(require_password_changed)])
@@ -104,6 +104,16 @@ def update_basket(payload: BasketUpdate, db: Session = Depends(get_db),
     return _session_out(db, basket)
 
 
+@router.get(f"{P}/basket/send-check")
+def send_check(db: Session = Depends(get_db), actor: User = Depends(require("shift:transfer"))):
+    """보내기 직전 확인 — 준비한 근무 · 지금 근무 · 받을 근무와 경계를 넘었는지.
+
+    08:59 에 준비해 09:01 에 보내는 일이 실제로 있다. 화면이 이 값을 보고 '누구에게 가는지'를
+    다시 확인받는다(ASSUMPTIONS B-17).
+    """
+    return svc.send_check(db, actor)
+
+
 @router.post(f"{P}/basket/send", response_model=SessionOut)
 def send(payload: SendRequest, db: Session = Depends(get_db),
          actor: User = Depends(require("shift:transfer")),
@@ -111,7 +121,7 @@ def send(payload: SendRequest, db: Session = Depends(get_db),
     """항목마다 전달 시점 버전을 고정하고, 인수자 **각각에게** 확인(PENDING)을 만든다."""
     session = svc.send(db, actor, to_user_ids=payload.to_user_ids,
                        to_shift_id=payload.to_shift_id, summary_note=payload.summary_note,
-                       ctx=ctx)
+                       confirm_window=payload.confirm_window, ctx=ctx)
     return _session_out(db, session)
 
 
@@ -151,9 +161,13 @@ def close(session_id: int, db: Session = Depends(get_db),
 
 # --------------------------------------------------------------------------- 일괄 확인
 
-@router.post("/acknowledgements/bulk")
+@router.post("/acknowledgements/bulk", response_model=BulkAckOut)
 def bulk_acknowledge(payload: BulkAckRequest, db: Session = Depends(get_db),
                      actor: User = Depends(require("ack:write")),
                      ctx: RequestContext = Depends(get_context)):
-    """선택 항목 일괄 확인(FR-C-09). 각 건은 누르는 순간의 버전으로 기록된다."""
-    return svc.bulk_acknowledge(db, actor, payload.handover_ids, ctx)
+    """선택 항목 일괄 확인(FR-C-09).
+
+    건마다 화면이 보여 준 버전을 함께 받는다. 그 사이에 바뀐 건은 확인하지 않고 stale 로
+    돌려주어 화면이 '무엇이 바뀌었는지 + 재확인'을 보여 준다.
+    """
+    return svc.bulk_acknowledge(db, actor, [i.model_dump() for i in payload.items], ctx)

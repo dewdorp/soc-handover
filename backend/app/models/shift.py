@@ -83,3 +83,21 @@ class ShiftHandoverItem(Base, TimestampMixin):
     display_order: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
     carried_from_item_id: Mapped[int | None] = mapped_column(Integer)
     is_carry_forward: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class ShiftCarrySkip(Base, TimestampMixin):
+    """다음 인계 후보에서 사람이 직접 뺀 건.
+
+    Basket 은 열어 둔 뒤에 받은 인계도 반영해야 하므로(재현 ③) 열 때마다 후보를 다시 채운다.
+    그러면 '일부러 뺀 건'이 되살아나므로, 뺀 사실을 남겨 두고 다음 발송 때 지운다(= 새 주기).
+    """
+
+    __tablename__ = "shift_carry_skips"
+    __table_args__ = (
+        UniqueConstraint("user_id", "handover_id", name="uq_skip_user_handover"),
+        Index("ix_skip_user", "user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    handover_id: Mapped[int] = mapped_column(ForeignKey("handovers.id"), nullable=False)

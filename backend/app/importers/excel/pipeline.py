@@ -22,6 +22,7 @@ from app.models.handover import CHANGE_DELETE, CHANGE_IMPORT, Handover, Handover
 from app.models.importjob import ExcelImportError, ExcelImportJob, ExcelImportRow
 from app.models.reference import Company, HandoverStatus, Priority
 from app.models.user import User
+from app.services import bootstrap_service
 from app.utils.fingerprint import norm
 
 Progress = Callable[[int], None]
@@ -247,11 +248,9 @@ def summarize(db: Session, job: ExcelImportJob) -> dict[str, int]:
 
 def _resolve_companies(db: Session, job: ExcelImportJob) -> tuple[dict[str, int], int]:
     """생성하기로 한 관계사를 만들고, 매칭 실패는 '미지정'으로 보낸다. (이름→id, 미지정 id)"""
-    unspecified = db.scalar(select(Company).where(Company.name == UNSPECIFIED_COMPANY))
-    if unspecified is None:
-        unspecified = Company(name=UNSPECIFIED_COMPANY, code="UNSPEC", sort_order=999)
-        db.add(unspecified)
-        db.flush()
+    # 예약 코드(UNSPEC)로 찾는다 — 현장에서 표시명을 '공통' 등으로 바꿔 쓰면 이름으로는 못 찾고
+    # 다시 만들다가 code 고유키에서 터진다(재현 ⑤). 한 곳(bootstrap_service)에서만 만든다.
+    unspecified = bootstrap_service.ensure_default_company(db, UNSPECIFIED_COMPANY)
 
     # 표기만 다른 이름('A보안'/'a보안 ')이 각각 회사로 생기면 안 된다. 정규화 키로 한 번만 만든다.
     by_norm = {norm(c.name): c.id for c in db.scalars(select(Company))}

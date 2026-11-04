@@ -10,6 +10,7 @@ from datetime import datetime
 import pytest
 from sqlalchemy import select
 
+from app.core.time import KST
 from app.main import app
 from app.models.common import AuditLog, Notification
 from app.models.handover import Handover
@@ -161,8 +162,9 @@ class TestScenarioE:
 
         # 김철수: B 는 하나씩, C 는 일괄 확인
         assert kim.post(f"{H}/{b}/acknowledge", json={}).json()["acked_version_no"] == 1
-        bulk = kim.post("/api/v1/acknowledgements/bulk", json={"handover_ids": [c]}).json()
-        assert bulk["acknowledged"] == [c]
+        bulk = kim.post("/api/v1/acknowledgements/bulk",
+                        json={"items": [{"handover_id": c, "expected_version": 1}]}).json()
+        assert bulk["acknowledged"] == [c] and bulk["stale"] == []
 
         # C 내용이 바뀌면 김철수의 확인은 재확인 필요로 + 알림
         hong.patch(f"{H}/{c}", json={"expected_version": 1, "content": "원인: 수집기 디스크 가득"})
@@ -199,7 +201,11 @@ class TestScenarioE:
         assert {i["carry_depth"] for i in basket3["items"]} == {3}
 
         # 김철수가 A·C 를 확인하면 첫 인계를 닫을 수 있다
-        kim.post("/api/v1/acknowledgements/bulk", json={"handover_ids": [a, c]})
+        shown = {i["handover_id"]: i["current_version_no"]
+                 for i in kim.get(f"{P}/inbox").json()}
+        kim.post("/api/v1/acknowledgements/bulk", json={"items": [
+            {"handover_id": a, "expected_version": shown.get(a)},
+            {"handover_id": c, "expected_version": shown.get(c)}]})
         closed = hong.post(f"{P}/{s1['id']}/close")
         assert closed.status_code == 200
         assert closed.json()["status"] == "CLOSED"
@@ -566,3 +572,210 @@ class TestMultipleRecipients:
         log = db.scalar(select(AuditLog).where(AuditLog.action == "HANDOVER_TRANSFER")
                         .order_by(AuditLog.id.desc()))
         assert log.detail["to_user_ids"] == [kim_id, mgr_id]
+
+
+# --------------------------------------------------------------------------- 읽은 버전으로만 확인
+
+class TestAckUsesTheVersionOnScreen:
+    """수신자가 v2 를 열어 둔 사이 발신자가 v3 를 저장하면, 확인을 눌러도 v3 가 확인되면 안 된다.
+
+    읽지 않은 내용을 '확인함'으로 남기면 인계 증적이 거짓이 된다(재현 ①).
+    """
+
+    def _sent(self, people, cid):
+        """홍길동 → 김철수로 한 건 보낸 상태를 만든다."""
+        hong, kim = people["hong"], people["kim"]
+        h = _mk(hong, cid, "버전 경합 확인용")
+        hong.post(f"{P}/basket/items", json={"handover_ids": [h]})
+        hong.post(f"{P}/basket/send", json={"to_user_ids": [people["ids"]["analyst2"]["id"]]})
+        return h, hong, kim
+
+    def test_single_ack_is_held_when_it_changed_meanwhile(self, people, cid, db):
+        h, hong, kim = self._sent(people, cid)
+        shown = kim.get(f"{P}/inbox").json()[0]["current_version_no"]
+        assert shown == 1
+
+        # 김철수가 화면을 열어 둔 사이 홍길동이 v2 로 고친다
+        hong.patch(f"{H}/{h}", json={"expected_version": 1, "content": "v2 로 바뀐 내용"})
+
+        held = kim.post(f"{H}/{h}/acknowledge", json={"expected_version": shown})
+        assert held.status_code == 409, held.text
+        body = held.json()
+        assert body["error"] == "stale_ack"
+        assert body["detail"]["shown_version_no"] == 1 and body["detail"]["current_version_no"] == 2
+        assert "content" in body["detail"]["changed_fields"], "무엇이 바뀌었는지 알려 준다"
+
+        # 아직 확인되지 않았다
+        assert kim.get(f"{P}/inbox").json()[0]["state"] == "PENDING"
+
+        # 바뀐 내용을 보고 다시 확인하면 그때는 된다
+        again = kim.post(f"{H}/{h}/acknowledge", json={"expected_version": 2})
+        assert again.status_code == 200 and again.json()["acked_version_no"] == 2
+
+    def test_bulk_splits_done_and_held(self, people, cid):
+        hong, kim = people["hong"], people["kim"]
+        kim_id = people["ids"]["analyst2"]["id"]
+        a = _mk(hong, cid, "그대로인 건")
+        b = _mk(hong, cid, "바뀐 건")
+        hong.post(f"{P}/basket/items", json={"handover_ids": [a, b]})
+        hong.post(f"{P}/basket/send", json={"to_user_ids": [kim_id]})
+
+        shown = {i["handover_id"]: i["current_version_no"] for i in kim.get(f"{P}/inbox").json()}
+        hong.patch(f"{H}/{b}", json={"expected_version": 1, "content": "B 만 바뀜"})
+
+        out = kim.post("/api/v1/acknowledgements/bulk", json={"items": [
+            {"handover_id": a, "expected_version": shown[a]},
+            {"handover_id": b, "expected_version": shown[b]}]}).json()
+
+        assert out["acknowledged"] == [a], "바뀌지 않은 건은 그대로 확인된다"
+        assert [s["handover_id"] for s in out["stale"]] == [b]
+        assert out["stale"][0]["title"] == "바뀐 건"
+        assert out["stale"][0]["current_version_no"] == 2
+        assert "content" in out["stale"][0]["changed_fields"]
+        assert {i["handover_id"] for i in kim.get(f"{P}/inbox").json()} == {b}, "보류한 건만 남는다"
+
+    def test_audit_records_the_version_actually_read(self, people, cid, db):
+        h, hong, kim = self._sent(people, cid)
+        hong.patch(f"{H}/{h}", json={"expected_version": 1, "content": "v2"})
+        kim.post(f"{H}/{h}/acknowledge", json={"expected_version": 2})
+
+        row = db.scalar(select(AuditLog).where(AuditLog.action == "HANDOVER_ACKNOWLEDGE")
+                        .order_by(AuditLog.id.desc()))
+        assert row.after_value["acked_version_no"] == 2, "실제로 확인한 버전이 감사에 남는다"
+
+    def test_without_expected_version_nothing_changes_for_internal_calls(self, people, cid):
+        """버전을 보내지 않으면 지금까지처럼 동작한다(화면은 항상 보낸다)."""
+        h, hong, kim = self._sent(people, cid)
+        assert kim.post(f"{H}/{h}/acknowledge", json={}).status_code == 200
+
+
+# --------------------------------------------------------------------------- 교대 경계 · 복수 발신자
+
+class TestShiftBoundary:
+    """08:59 에 준비해 09:01 에 보내도 '전날 야간이 보낸 인계'여야 한다(재현 ②)."""
+
+    def _draft_at(self, client, cid, at: datetime, title: str, monkeypatch) -> dict:
+        """지정한 시각의 근무로 Basket 을 연다."""
+        monkeypatch.setattr("app.services.shift_service.now", lambda: at)
+        h = _mk(client, cid, title)
+        client.post(f"{P}/basket/items", json={"handover_ids": [h]})
+        return _basket(client)
+
+    def test_sending_after_the_boundary_keeps_the_drafting_shift(self, people, cid, monkeypatch):
+        hong = people["hong"]
+        night = datetime(2026, 11, 3, 23, 30, tzinfo=KST)        # 전날 야간 근무 중
+        basket = self._draft_at(hong, cid, night, "야간에 준비한 건", monkeypatch)
+        assert basket["shift_date"] == "2026-11-03"
+
+        # 09:01 — 주간으로 넘어간 뒤에 보낸다
+        monkeypatch.setattr("app.services.shift_service.now",
+                            lambda: datetime(2026, 11, 4, 9, 1, tzinfo=KST))
+        check = hong.get(f"{P}/basket/send-check").json()
+        assert check["crossed"] is True
+        assert check["drafted_window"]["code"] == "NIGHT"
+        assert check["current_window"]["code"] == "DAY"
+
+        # 확인 없이 보내면 막는다
+        blocked = hong.post(f"{P}/basket/send", json={"to_user_ids": [people["ids"]["analyst2"]["id"]]})
+        assert blocked.status_code == 409
+        assert blocked.json()["error"] == "shift_boundary_crossed"
+
+        # 보낸 사람이 확인하면 보내되, 발신 근무는 야간 그대로다
+        sent = hong.post(f"{P}/basket/send", json={
+            "to_user_ids": [people["ids"]["analyst2"]["id"]], "confirm_window": True})
+        assert sent.status_code == 200, sent.text
+        body = sent.json()
+        assert body["shift_date"] == "2026-11-03", "준비한 근무(전날 야간)를 보존한다"
+        assert body["sent_at"].startswith("2026-11-04T09:01"), "실제 보낸 시각은 따로 남는다"
+
+    def test_evening_boundary_is_the_same(self, people, cid, monkeypatch):
+        hong = people["hong"]
+        self._draft_at(hong, cid, datetime(2026, 11, 4, 17, 59, tzinfo=KST), "주간 마감 건", monkeypatch)
+        monkeypatch.setattr("app.services.shift_service.now",
+                            lambda: datetime(2026, 11, 4, 18, 1, tzinfo=KST))
+        check = hong.get(f"{P}/basket/send-check").json()
+        assert (check["drafted_window"]["code"], check["current_window"]["code"]) == ("DAY", "NIGHT")
+        sent = hong.post(f"{P}/basket/send", json={
+            "to_user_ids": [people["ids"]["analyst2"]["id"]], "confirm_window": True}).json()
+        assert sent["shift_date"] == "2026-11-04"
+
+    def test_inside_the_same_shift_no_extra_confirmation(self, people, cid, monkeypatch):
+        hong = people["hong"]
+        self._draft_at(hong, cid, datetime(2026, 11, 4, 10, 0, tzinfo=KST), "같은 근무 안", monkeypatch)
+        monkeypatch.setattr("app.services.shift_service.now",
+                            lambda: datetime(2026, 11, 4, 17, 0, tzinfo=KST))
+        assert hong.get(f"{P}/basket/send-check").json()["crossed"] is False
+        sent = hong.post(f"{P}/basket/send", json={"to_user_ids": [people["ids"]["analyst2"]["id"]]})
+        assert sent.status_code == 200, "경계를 넘지 않았으면 그냥 보낸다"
+
+
+class TestCarryForwardFromManySenders:
+    """A 와 B 가 각각 보낸 미완료는 **둘 다** 다음 인계 후보여야 한다(재현 ③)."""
+
+    def test_items_from_two_senders_both_appear(self, people, cid):
+        hong, kim, mgr = people["hong"], people["kim"], people["mgr"]
+        mgr_id = people["ids"]["manager"]["id"]
+
+        from_hong = _mk(hong, cid, "홍길동이 넘긴 건")
+        hong.post(f"{P}/basket/items", json={"handover_ids": [from_hong]})
+        hong.post(f"{P}/basket/send", json={"to_user_ids": [mgr_id]})
+
+        from_kim = _mk(kim, cid, "김철수가 넘긴 건")
+        kim.post(f"{P}/basket/items", json={"handover_ids": [from_kim]})
+        kim.post(f"{P}/basket/send", json={"to_user_ids": [mgr_id]})
+
+        basket = _basket(mgr)
+        assert {i["handover_id"] for i in basket["items"]} == {from_hong, from_kim}
+
+    def test_items_received_after_opening_the_basket_are_picked_up(self, people, cid):
+        hong, kim, mgr = people["hong"], people["kim"], people["mgr"]
+        mgr_id = people["ids"]["manager"]["id"]
+
+        first = _mk(hong, cid, "먼저 받은 건")
+        hong.post(f"{P}/basket/items", json={"handover_ids": [first]})
+        hong.post(f"{P}/basket/send", json={"to_user_ids": [mgr_id]})
+        assert len(_basket(mgr)["items"]) == 1          # 인계 준비 화면을 열어 둔 상태
+
+        late = _mk(kim, cid, "열어 둔 뒤에 받은 건")
+        kim.post(f"{P}/basket/items", json={"handover_ids": [late]})
+        kim.post(f"{P}/basket/send", json={"to_user_ids": [mgr_id]})
+
+        again = _basket(mgr)
+        assert {i["handover_id"] for i in again["items"]} == {first, late}
+        assert again["auto_added"] == 1, "새로 받은 것만 더 담는다"
+
+    def test_the_same_handover_is_listed_once(self, people, cid):
+        hong, kim, mgr = people["hong"], people["kim"], people["mgr"]
+        mgr_id = people["ids"]["manager"]["id"]
+        shared = _mk(hong, cid, "둘 다 넘긴 같은 건")
+        for client in (hong, kim):
+            client.post(f"{P}/basket/items", json={"handover_ids": [shared]})
+            client.post(f"{P}/basket/send", json={"to_user_ids": [mgr_id]})
+        items = _basket(mgr)["items"]
+        assert [i["handover_id"] for i in items] == [shared], "같은 원문은 한 번만"
+
+    def test_explicitly_removed_items_do_not_come_back(self, people, cid):
+        hong, mgr = people["hong"], people["mgr"]
+        mgr_id = people["ids"]["manager"]["id"]
+        dropped = _mk(hong, cid, "일부러 뺀 건")
+        keep = _mk(hong, cid, "그대로 둘 건")
+        hong.post(f"{P}/basket/items", json={"handover_ids": [dropped, keep]})
+        hong.post(f"{P}/basket/send", json={"to_user_ids": [mgr_id]})
+
+        basket = _basket(mgr)
+        item_id = next(i["item_id"] for i in basket["items"] if i["handover_id"] == dropped)
+        assert mgr.delete(f"{P}/basket/items/{item_id}").status_code == 204
+
+        again = _basket(mgr)
+        assert [i["handover_id"] for i in again["items"]] == [keep], "뺀 건은 되살아나지 않는다"
+
+    def test_already_passed_on_items_are_not_offered_again(self, people, cid):
+        hong, mgr = people["hong"], people["mgr"]
+        mgr_id, kim_id = people["ids"]["manager"]["id"], people["ids"]["analyst2"]["id"]
+        h = _mk(hong, cid, "이어서 넘길 건")
+        hong.post(f"{P}/basket/items", json={"handover_ids": [h]})
+        hong.post(f"{P}/basket/send", json={"to_user_ids": [mgr_id]})
+
+        _basket(mgr)                                  # 자동으로 담기고
+        mgr.post(f"{P}/basket/send", json={"to_user_ids": [kim_id]})   # 다음 사람에게 넘긴다
+        assert _basket(mgr)["items"] == [], "이미 넘긴 건은 다시 올라오지 않는다"

@@ -9,7 +9,8 @@ from app.models.credential import Credential, CredentialVersion
 from app.models.private_note import PrivateNote
 from app.models.reference import Company, HandoverStatus, Priority, Shift, Tag
 from app.models.schedule import Schedule
-from app.models.shift import ShiftHandover, ShiftHandoverItem, ShiftHandoverRecipient
+from app.models.shift import (ShiftCarrySkip, ShiftHandover, ShiftHandoverItem,
+                              ShiftHandoverRecipient)
 from app.models.task import Task, TaskChecklist, TaskComment
 from app.models.user import LoginAttempt, RefreshToken, Role, User
 
@@ -19,7 +20,7 @@ __all__ = [
     "Company", "HandoverStatus", "Priority", "Shift", "Tag",
     "Handover", "HandoverVersion", "HandoverAcknowledgement", "HandoverStar",
     "HandoverTag", "HandoverComment",
-    "ShiftHandover", "ShiftHandoverItem", "ShiftHandoverRecipient",
+    "ShiftHandover", "ShiftHandoverItem", "ShiftHandoverRecipient", "ShiftCarrySkip",
     "Task", "TaskChecklist", "TaskComment",
     "Schedule", "PrivateNote",
     "Credential", "CredentialVersion",

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { authApi, systemApi } from '@/services/api/auth'
 import { ApiRequestError } from '@/services/api/client'
+import { clearRecentSearches } from '@/features/search/recent'
 import { announceSessionChange } from '@/services/sessionChanges'
 import type { Features, Me } from '@/types/api'
 
@@ -37,6 +38,7 @@ export function useLogin() {
     mutationFn: ({ username, password }: { username: string; password: string }) =>
       authApi.login(username, password),
     onSuccess: (me) => {
+      clearRecentSearches()      // 앞사람의 최근 검색어를 이어받지 않는다
       announceSessionChange()
       qc.setQueryData(['me'], me)
       qc.invalidateQueries({ queryKey: ['features'] })
@@ -50,6 +52,7 @@ export function useLogout() {
     mutationFn: authApi.logout,
     onSuccess: announceSessionChange,
     onSettled: () => {
+      clearRecentSearches()      // 교대 PC — 다음 사람에게 내 검색어를 남기지 않는다
       qc.clear()
     },
   })

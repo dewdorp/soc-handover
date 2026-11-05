@@ -93,7 +93,9 @@ function Copy-AppFiles([string]$Dest) {
     }
     Invoke-Robo (Join-Path $FrontendDir 'dist') (Join-Path $Dest 'frontend\dist') @('/E')
     New-Item -ItemType Directory -Path (Join-Path $Dest 'scripts') -Force | Out-Null
-    foreach ($f in @('common.ps1', 'service-run.ps1')) { Copy-Item (Join-Path $Root "scripts\$f") (Join-Path $Dest "scripts\$f") }
+    # verify_install.py 는 설치 PC 에서 돌리는 점검이다(읽기만 한다). demo_seed · screenshots 는
+    # 개발 PC 전용이라 넣지 않는다 — 운영 DB 에 시연 자료를 넣는 사고를 만들지 않는다.
+    foreach ($f in @('common.ps1', 'service-run.ps1', 'verify_install.py')) { Copy-Item (Join-Path $Root "scripts\$f") (Join-Path $Dest "scripts\$f") }
     foreach ($f in @('start.ps1', 'stop.ps1', 'status.ps1', 'backup.ps1', 'restore.ps1')) { Copy-Item (Join-Path $Root $f) $Dest }
     Copy-Item (Join-Path $Root 'deploy\uninstall.ps1') $Dest
     New-Item -ItemType Directory -Path (Join-Path $Dest 'docs') -Force | Out-Null

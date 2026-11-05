@@ -77,6 +77,10 @@ class Settings(BaseSettings):
     #: 할일 마감 알림(임박·지연)을 몇 분마다 돌릴지. 0 이면 끈다(테스트는 0).
     REMINDER_INTERVAL_MIN: int = 30
 
+    #: 로그인 시도 상한(5분 · IP 기준). 무차별 대입을 막는 값이라 운영에서는 낮게 둔다.
+    #: 한 PC 를 여럿이 돌려 쓰는 교대 콘솔에서 교대 시각에 모자라면 올린다(SECURITY §8).
+    RATE_LIMIT_LOGIN_PER_5MIN: int = 20
+
     # --- 개발 편의 ---
     DEV_CORS_ORIGINS: list[str] = Field(default_factory=lambda: ["http://127.0.0.1:5173", "http://localhost:5173"])
 

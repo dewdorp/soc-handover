@@ -92,13 +92,28 @@ class RateLimiter:
     )
 
     def __init__(self) -> None:
-        self.rules = self.DEFAULT_RULES
+        self.rules = self._rules_from_settings()
         self.enabled = True
         self._hits: dict[tuple[str, str], deque[float]] = defaultdict(deque)
 
+    @classmethod
+    def _rules_from_settings(cls) -> tuple[tuple[str, int, int], ...]:
+        """로그인 상한만 설정으로 뺀다 — 교대 콘솔은 한 PC 를 여럿이 돌려 쓴다.
+
+        교대 시각에 네 사람이 들어오고 나가며 오타까지 더하면 5분에 20번을 넘길 수 있다.
+        그때 막히면 근무를 넘기지 못한다. 운영에서는 기본값을 그대로 두되, 현장에서
+        모자라면 .env 의 RATE_LIMIT_LOGIN_PER_5MIN 로 올린다.
+        """
+        from app.core.config import settings
+
+        limit = max(1, int(getattr(settings, "RATE_LIMIT_LOGIN_PER_5MIN", 20)))
+        return tuple(((prefix, limit, window) if prefix.endswith("/auth/login")
+                      else (prefix, cap, window))
+                     for prefix, cap, window in cls.DEFAULT_RULES)
+
     def reset(self) -> None:
         self._hits.clear()
-        self.rules = self.DEFAULT_RULES
+        self.rules = self._rules_from_settings()
 
     def check(self, path: str, client_ip: str) -> int | None:
         """허용이면 None, 차단이면 재시도까지 남은 초를 돌려준다."""

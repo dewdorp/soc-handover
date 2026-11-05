@@ -50,6 +50,9 @@ def server(tmp_path_factory):
         "DATA_DIR": str(data_dir / "data"), "BACKUP_DIR": str(data_dir / "backup"),
         "LOG_DIR": str(data_dir / "logs"), "COOKIE_SECURE": "false",
         "REMINDER_INTERVAL_MIN": "0", "ENABLE_DOCS": "false",
+        # 시나리오 18종이 사람을 바꿔 가며 로그인한다. 운영 기본값(5분 20회)으로는
+        # 뒤쪽 시험이 429 로 막혀, 고친 적 없는 화면이 깨진 것처럼 보인다.
+        "RATE_LIMIT_LOGIN_PER_5MIN": "500",
         "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8",
         "SOC_ADMIN_PASSWORD": ADMIN_PW,
     }

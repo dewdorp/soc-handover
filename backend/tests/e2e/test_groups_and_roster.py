@@ -75,7 +75,8 @@ def test_group_scope_hides_other_groups(login, server, page: Page):
     day = login("e2e_day", USER_PW)
     _menu(day, "인수인계").click()
     _new_handover(day, "E2E 주간조 전용 업무")
-    expect(day.get_by_text("E2E 주간조 전용 업무")).to_be_visible(timeout=15000)
+    # 등록하면 그 건이 선택되어 서랍도 함께 열린다 — 목록과 서랍 둘 다 제목을 담는다
+    expect(day.get_by_text("E2E 주간조 전용 업무").first).to_be_visible(timeout=15000)
 
     # (4) 야간근무자에게는 보이지 않는다
     night = login("e2e_night", USER_PW)

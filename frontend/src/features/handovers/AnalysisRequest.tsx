@@ -45,6 +45,8 @@ export default function AnalysisRequest({ handoverId }: { handoverId: number }) 
     qc.invalidateQueries({ queryKey: ['request', handoverId] })
     qc.invalidateQueries({ queryKey: ['participants', handoverId] })
     qc.invalidateQueries({ queryKey: ['handover', handoverId] })
+    // 목록의 '의뢰' 열이 따라가야 한다
+    qc.invalidateQueries({ queryKey: ['handovers'] })
   }
   const fail = (e: unknown) => setError(e instanceof ApiRequestError ? e.message : '처리하지 못했습니다.')
 

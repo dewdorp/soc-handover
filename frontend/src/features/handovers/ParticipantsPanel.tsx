@@ -43,6 +43,8 @@ export default function ParticipantsPanel({ handoverId, canEdit }: {
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['participants', handoverId] })
     qc.invalidateQueries({ queryKey: ['handover', handoverId] })
+    // 목록의 담당자 칸도 따라가야 한다 — 대표 담당을 바꾸면 그 줄이 달라진다
+    qc.invalidateQueries({ queryKey: ['handovers'] })
   }
   const fail = (e: unknown) => setError(e instanceof ApiRequestError ? e.message : '바꾸지 못했습니다.')
 

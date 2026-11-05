@@ -28,7 +28,7 @@ export default function WorkspaceLayout({ area }: { area: keyof typeof AREAS }) 
       <nav aria-label={isHandover ? '인수인계 메뉴' : '업무 메뉴'}
            className="shrink-0 flex flex-wrap gap-x-1 border-b border-surface-border bg-surface px-2">
         {AREAS[area].map(({ to, label }) => (
-          <NavLink key={to} to={to} end={to === '/shift' || to === '/my-work'}
+          <NavLink key={to} to={to} end={to === '/shift' || to === '/my-work' || to === '/schedules'}
                    className={({ isActive }) => `px-2 sm:px-3 py-2 inline-flex items-center gap-1.5 border-b-2 text-sm whitespace-nowrap ${isActive
                      ? 'border-brand text-brand font-semibold' : 'border-transparent text-ink-muted hover:text-ink'}`}>
             {label}

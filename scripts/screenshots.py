@@ -24,6 +24,8 @@ SHOTS = [
     ("04-inbox", "/shift/inbox", "인수 확인", "인수 확인함 — 보고 있는 버전으로 확인"),
     ("05-roster-week", "/schedules/roster", "근무표", "근무표(주) — 계획 · 실제 · 결원"),
     ("06-admin-groups", "/admin/groups", "열람 그룹", "관리자 → 열람 그룹 — 구성원 · 미분류 이관"),
+    ("06b-handover-detail", "/handovers?id=3", "담당 · 전파 대상",
+     "업무 상세 — 대표/공동 담당 · 필수 인수자 · 참고, 분석 의뢰 흐름"),
     ("07-calendar", "/schedules", "일정", "팀 일정"),
     ("08-my-notes", "/my-work/notes", "메모", "내 메모 — 고른 글로 할 일 · 인계 초안"),
     ("09-stats", "/stats", "통계", "통계 — 내가 볼 수 있는 범위에서만 센다"),

@@ -259,7 +259,8 @@ def test_participants_and_propagation_preview(login, server, page: Page):
     dialog = page.get_by_role("dialog", name="그룹에 전파")
     expect(dialog).to_be_visible()
     dialog.get_by_role("checkbox", name="E2E CERT").check()
-    expect(dialog.get_by_text(re.compile(r"\d+명에게"))).to_be_visible(timeout=15000)
+    # 미리보기 문단과 단추가 둘 다 '…명에게'를 담고 있다 — 문단 쪽만 본다
+    expect(dialog.get_by_text(re.compile(r"명에게 .*갑니다"))).to_be_visible(timeout=15000)
     expect(dialog.get_by_text(re.compile("공개 범위"))).to_be_visible()
     dialog.get_by_role("button", name=re.compile("명에게 전파")).click()
     expect(dialog).not_to_be_visible(timeout=15000)
@@ -294,8 +295,8 @@ def test_analysis_request_flow(login, server, page: Page):
     expect(panel.get_by_text("접수함")).to_be_visible(timeout=15000)
 
     panel.get_by_role("button", name="회신하기").click()
-    panel.get_by_role("button", name=re.compile("^회신$")).click()      # 내용 없이
-    expect(panel.get_by_text("회신함")).to_have_count(0)
+    # 내용이 비어 있으면 회신 단추가 잠겨 있다 — 내용 없는 '회신함'은 증적이 아니다
+    expect(panel.get_by_role("button", name=re.compile("^회신$"))).to_be_disabled()
     panel.get_by_label(re.compile("회신 내용")).fill("오탐으로 확인되었습니다.")
     panel.get_by_role("button", name=re.compile("^회신$")).click()
     expect(panel.get_by_text("회신함")).to_be_visible(timeout=15000)

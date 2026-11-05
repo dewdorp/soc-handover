@@ -120,7 +120,10 @@ def browser_type_launch_args(browser_type_launch_args):
 def login(page, server):
     """화면으로 실제 로그인한다(API 로 쿠키를 심지 않는다 — 로그인 화면도 시나리오의 일부)."""
     def _login(username: str = "admin", password: str = ADMIN_PW):
-        # 앞선 로그인이 남아 있으면 /login 이 대시보드로 되돌려진다 — 쿠키부터 비우고 시작한다
+        # 앞선 로그인이 남아 있으면 /login 이 대시보드로 되돌려진다 — 쿠키부터 비우고 시작한다.
+        # about:blank 를 먼저 거쳐 앞 화면의 주기 조회(확인함 30초 · 마감 점검 60초)를 끊는다.
+        # 끊지 않으면 그 요청들이 로그인 요청과 겹쳐 느린 PC 에서 간헐적으로 시간을 넘긴다.
+        page.goto("about:blank")
         page.context.clear_cookies()
         page.goto(server["base"] + "/login")
         page.get_by_label("계정").fill(username)

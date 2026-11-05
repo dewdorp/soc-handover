@@ -206,8 +206,13 @@ def closing_check(db: Session, actor: User) -> dict[str, Any]:
     })
 
     # 2) 바구니에 담았지만 아직 보내지 않은 것
-    basket, _ = get_basket(db, actor)
-    pending = len(basket.items)
+    #
+    # get_basket() 을 부르지 않는다. 그것은 바구니를 **만들고** 이월 후보를 채워 넣는
+    # 쓰기 작업인데, 이 점검은 대시보드가 1분마다 다시 묻는 읽기다. 읽는 자리에서 쓰면
+    # SQLite 에서 그 사이 다른 요청이 막히고(단일 writer), 화면을 보기만 해도 바구니가
+    # 생긴다. 있는 것만 센다.
+    basket = _draft(db, actor)
+    pending = len(basket.items) if basket is not None else 0
     rows.append({
         "key": "basket", "label": "보내지 않은 인계 바구니", "count": pending,
         "url": "/shift", "tone": "check" if pending else "ok",

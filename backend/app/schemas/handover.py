@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -38,6 +38,9 @@ class HandoverCreate(BaseModel):
     is_important: bool = False
     is_recurring: bool = False
     tags: list[str] | None = Field(default=None, max_length=30)
+    #: 공개 범위. 비워 두면 GROUPS + 내 기본 그룹(전체 공개로 자동 넘어가지 않는다).
+    visibility: Literal["GROUPS", "ALL"] | None = None
+    group_ids: list[int] | None = Field(default=None, max_length=20)
 
 
 class HandoverUpdate(BaseModel):
@@ -64,6 +67,8 @@ class HandoverUpdate(BaseModel):
     is_pinned: bool | None = None
     is_recurring: bool | None = None
     tags: list[str] | None = Field(default=None, max_length=30)
+    visibility: Literal["GROUPS", "ALL"] | None = None
+    group_ids: list[int] | None = Field(default=None, max_length=20)
 
     def changes(self) -> dict[str, Any]:
         data = self.model_dump(exclude_unset=True)
@@ -88,6 +93,9 @@ class RestoreRequest(BaseModel):
 
 
 class AcknowledgeRequest(BaseModel):
+    #: 화면이 보여 준 버전. 그 사이에 내용이 바뀌었으면 확인하지 않고 409(stale_ack)를 돌려준다.
+    #: 생략하면 검사하지 않는다(버전을 모르는 옛 호출 전용 — 화면은 항상 보낸다).
+    expected_version: int | None = Field(default=None, ge=1)
     note: str | None = Field(default=None, max_length=500)
 
 
@@ -135,6 +143,9 @@ class HandoverListItem(BaseModel):
     my_ack_state: str | None = None
     is_starred: bool = False
     tags: list[str] = []
+    #: 공개 범위 — 목록에서도 '전체 공개'인지 한눈에 보이게 한다.
+    visibility: str = "GROUPS"
+    group_names: list[str] = []
     carry_count: int
     updated_at: datetime
     is_deleted: bool
@@ -159,6 +170,7 @@ class HandoverDetail(HandoverListItem):
     schedule_count: int = 0               # 연결된 일정(삭제 제외)
     comment_count: int = 0
     attachment_count: int = 0
+    group_ids: list[int] = []
 
 
 class VersionSummary(BaseModel):

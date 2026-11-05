@@ -37,8 +37,10 @@ export const handoverApi = {
   pin: (id: number, pinned: boolean) =>
     api.post<HandoverDetail>(`/handovers/${id}/pin`, { pinned }),
 
-  acknowledge: (id: number, note?: string) =>
-    api.post<Acknowledgement>(`/handovers/${id}/acknowledge`, { note: note ?? null }),
+  /** expectedVersion: 화면이 보여 준 버전. 그 사이에 바뀌었으면 서버가 409(stale_ack) 로 보류한다 */
+  acknowledge: (id: number, expectedVersion: number | null, note?: string) =>
+    api.post<Acknowledgement>(`/handovers/${id}/acknowledge`,
+      { expected_version: expectedVersion, note: note ?? null }),
 
   versions: (id: number) => api.get<VersionSummary[]>(`/handovers/${id}/versions`),
 

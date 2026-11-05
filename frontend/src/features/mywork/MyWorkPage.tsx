@@ -2,7 +2,7 @@
  * 내 업무 (FR-D-01·02, UI_STRUCTURE §6) — 내 할일 + 내 담당 인수인계 + 내가 확인할 인수인계 + 내 일정.
  *
  * 버킷 규칙은 서버(ASSUMPTIONS B-12)가 정한다. 여기서는 건수 탭과 목록만 그린다.
- * 할일·일정은 이 화면에서 바로 열고, 인수인계는 인수인계 화면, 확인할 건은 인수 확인함으로 보낸다.
+ * 할일·일정은 이 화면에서 바로 열고, 인수인계는 인수인계 화면, 확인할 건도 해당 인수인계 원문으로 연다.
  * 보기: 목록 · 보드(내 할일) · 달력(내 일정·마감·수행일).
  */
 import { useState } from 'react'
@@ -60,7 +60,7 @@ export default function MyWorkPage() {
     setParams(next, { replace: key !== 'task' })
   }
 
-  const { data, isFetching } = useQuery({
+  const { data, isPending, isError, refetch } = useQuery({
     queryKey: ['my-work', bucket, source], queryFn: () => taskApi.myWork(bucket, source),
     refetchInterval: 60_000,
   })
@@ -68,8 +68,7 @@ export default function MyWorkPage() {
   const open = (item: MyWorkItem) => {
     if (item.kind === 'TASK') setParam('task', String(item.id))
     else if (item.kind === 'SCHEDULE') setParam('schedule', String(item.id))
-    else if (item.kind === 'ACK') navigate('/shift/inbox')
-    else navigate(`/handovers?id=${item.id}`)
+    else navigate(`/handovers?id=${item.handover_id ?? item.id}`)
   }
 
   return (
@@ -98,14 +97,14 @@ export default function MyWorkPage() {
           <div className="flex-1 min-h-0 flex flex-col p-3 gap-2">
             <div className="grid grid-cols-4 sm:grid-cols-8 gap-1.5" role="tablist" aria-label="버킷">
               {BUCKETS.map((b) => {
-                const n = data?.counts[b.key] ?? 0
+                const n = data?.counts[b.key]
                 const active = bucket === b.key
                 return (
                   <button key={b.key} role="tab" aria-selected={active}
                           onClick={() => setParam('bucket', b.key === 'all' ? null : b.key)}
                           className={`card px-2 py-1.5 text-left ${active ? 'border-brand ring-1 ring-brand' : 'hover:border-brand/50'}`}>
                     <div className="text-xs text-ink-faint">{b.label}</div>
-                    <div className={`text-lg font-semibold tabular-nums ${n ? (b.tone ?? 'text-ink') : 'text-ink-faint'}`}>{n}</div>
+                    <div className={`text-lg font-semibold tabular-nums ${n ? (b.tone ?? 'text-ink') : 'text-ink-faint'}`}>{n ?? '–'}</div>
                   </button>
                 )
               })}
@@ -120,6 +119,10 @@ export default function MyWorkPage() {
               {data && <span className="text-sm text-ink-faint">오늘 {data.today} · 이번 주는 {data.week_end} 까지</span>}
             </div>
 
+            {isError && <p role="alert" className="text-sm text-state-urgent">
+              업무를 불러오지 못했습니다. {data && '마지막 조회 결과를 표시합니다.'}{' '}
+              <button className="btn btn-sm" onClick={() => refetch()}>다시 시도</button>
+            </p>}
             <div className="flex-1 min-h-0 overflow-auto border border-surface-border rounded bg-surface">
               <table className="w-full text-base whitespace-nowrap">
                 <thead className="sticky top-0 bg-surface-sunken text-ink-muted">
@@ -133,8 +136,8 @@ export default function MyWorkPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {(data?.items ?? []).length === 0 && (
-                    <tr><td colSpan={6} className="py-6 text-center text-ink-faint">{isFetching ? '불러오는 중…' : '해당하는 업무가 없습니다.'}</td></tr>
+                  {!isError && (data?.items ?? []).length === 0 && (
+                    <tr><td colSpan={6} className="py-6 text-center text-ink-faint">{isPending ? '불러오는 중…' : '해당하는 업무가 없습니다.'}</td></tr>
                   )}
                   {(data?.items ?? []).map((item) => {
                     const kind = KIND[item.kind]
@@ -146,7 +149,9 @@ export default function MyWorkPage() {
                         <td className="px-2 py-1 max-w-[420px] truncate">
                           {item.priority_code === 'URGENT' && <span className="text-state-urgent mr-1">⛔</span>}
                           {item.priority_code === 'HIGH' && <span className="text-state-high mr-1">▲</span>}
-                          {item.title}
+                          <button className="max-w-full truncate align-middle text-left hover:underline" onClick={e => { e.stopPropagation(); open(item) }}>
+                            {item.title}
+                          </button>
                           {item.checklist_total ? <span className="ml-1 text-xs text-ink-faint tabular-nums">{item.checklist_done}/{item.checklist_total}</span> : null}
                         </td>
                         <td className="px-2 py-1">{item.company ?? '-'}</td>

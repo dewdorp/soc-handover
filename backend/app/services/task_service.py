@@ -71,7 +71,8 @@ def is_overdue(task: Task, on: date | None = None) -> bool:
 
 
 def _check_refs(db: Session, *, priority_code: str | None = None, assignee_id: int | None = None,
-                company_id: int | None = None, handover_id: int | None = None) -> None:
+                company_id: int | None = None, handover_id: int | None = None,
+                actor: User | None = None) -> None:
     if priority_code is not None and db.get(Priority, priority_code) is None:
         raise ValidationFailed(f"없는 중요도입니다: {priority_code}")
     if assignee_id is not None:
@@ -84,6 +85,11 @@ def _check_refs(db: Session, *, priority_code: str | None = None, assignee_id: i
         handover = db.get(Handover, handover_id)
         if handover is None or handover.is_deleted:
             raise ValidationFailed("연결할 인수인계를 찾을 수 없습니다.")
+        # 볼 수 없는 업무에 할일을 매달아 제목·관계사를 끌어오는 길을 막는다.
+        if actor is not None:
+            from app.services import group_service
+            if not group_service.can_see(db, handover, actor):
+                raise ValidationFailed("연결할 인수인계를 찾을 수 없습니다.")
 
 
 def _jsonable(value: Any) -> Any:
@@ -133,7 +139,8 @@ def create(db: Session, actor: User, data: dict[str, Any],
     checklist = [t.strip() for t in (data.pop("checklist", None) or []) if t and t.strip()]
     data["assignee_id"] = data.get("assignee_id") or actor.id
     _check_refs(db, priority_code=data.get("priority_code"), assignee_id=data["assignee_id"],
-                company_id=data.get("company_id"), handover_id=data.get("handover_id"))
+                company_id=data.get("company_id"), handover_id=data.get("handover_id"),
+                actor=actor)
     if data.get("handover_id") and not data.get("company_id"):
         data["company_id"] = db.get(Handover, data["handover_id"]).company_id
 
@@ -158,9 +165,9 @@ def create(db: Session, actor: User, data: dict[str, Any],
 def quick_add(db: Session, actor: User, handover_id: int, req: dict[str, Any],
               ctx: RequestContext | None = None) -> Task:
     """인수인계에서 바로 만들기(FR-D-06). 비운 칸은 인수인계의 관계사·제목·내용·중요도로."""
-    handover = db.get(Handover, handover_id)
-    if handover is None or handover.is_deleted:
-        raise NotFound("인수인계를 찾을 수 없습니다.")
+    from app.services import handover_service
+
+    handover = handover_service.get_or_404(db, handover_id, actor)
     content = (handover.content or "").strip()
     excerpt = content[:EXCERPT] + ("…" if len(content) > EXCERPT else "")
     return create(db, actor, {

@@ -248,6 +248,102 @@ INDEX `(credential_id, version_no)`
 
 ---
 
+## 4-2. 열람 그룹 (1.3.0)
+
+역할(roles)은 '무엇을 할 수 있는가'이고, 그룹은 '무엇을 **볼** 수 있는가'다. 둘을 한 테이블에
+섞지 않는 이유: 관리자는 그룹을 만들고 사람을 넣을 수 있어야 하지만, 그 권한이 다른 그룹
+업무의 원문을 읽는 근거가 되어서는 안 된다(열람 판정에 role 을 쓰지 않는다).
+
+### groups
+| 컬럼 | 타입 | 비고 |
+|---|---|---|
+| id | BIGSERIAL PK | |
+| code | VARCHAR(30) UNIQUE NULL | 예약 그룹만 값이 있다(`UNCLASSIFIED`). 사람이 만든 그룹은 NULL |
+| name | VARCHAR(60) UNIQUE NOT NULL | 현장 이름 그대로('관제1팀' · 'CERT') |
+| description | TEXT NULL | |
+| is_active | BOOLEAN NOT NULL | false 면 **즉시** 열람 판정에서 빠진다(멤버십을 지우지 않아도) |
+| sort_order | SMALLINT NOT NULL | |
+
+INDEX: `(is_active, sort_order)`
+
+### user_groups
+`id PK`, `user_id FK users CASCADE`, `group_id FK groups CASCADE`, `is_default BOOLEAN`
+UNIQUE `(user_id, group_id)` · INDEX `(user_id)`, `(group_id)`
+
+한 사람이 여러 그룹에 속할 수 있고, 그중 하나가 **기본 그룹**이다(새 글의 공개 범위 기본값).
+
+### handover_groups
+`id PK`, `handover_id FK handovers CASCADE`, `group_id FK groups CASCADE`
+UNIQUE `(handover_id, group_id)` · INDEX `(group_id)`
+
+### handovers.visibility
+`VARCHAR(20) NOT NULL DEFAULT 'GROUPS'` — `GROUPS`(handover_groups 에 적힌 그룹만) ·
+`ALL`(로그인한 모든 사람). 전체 공개는 **쓴 사람이 손으로 고를 때만** 된다.
+
+열람 판정은 `group_service.visible_clause()` 한 곳에서 만든다(OR 네 가지):
+전체 공개 · 내 활성 그룹 · 내가 당사자(작성·전달·담당·확인) · 교대 인계 수신자.
+마지막 두 개가 없으면 그룹이 바뀌는 순간 내 담당 업무가 내 화면에서 사라진다.
+
+**이관(마이그레이션 c8a2f4e7b015)**: 기존 자료를 전체 공개로 바꾸지 않는다. '미분류'
+그룹 하나를 만들어 기존 업무 전부와 기존 사용자 전부를 넣는다 — 보이는 것은 그대로지만,
+자료는 '모두에게 열린 것'이 아니라 '한 그룹에 속한 것'이 된다.
+
+---
+
+## 4-3. 근무표 (1.3.0)
+
+4조 2교대는 **16일 주기로 완전히 되풀이**된다('주주주주' + '야비비'×4). 그래서 날짜마다
+행을 깔지 않고 조마다 주기 위치만 적어 계산한다. 1년치를 행으로 만들면 365×4행이 되고,
+기준일 하나를 고치는 순간 전부 다시 만들어야 한다.
+
+### roster_teams
+| 컬럼 | 타입 | 비고 |
+|---|---|---|
+| id | BIGSERIAL PK | |
+| code | VARCHAR(10) UNIQUE NOT NULL | A · B · C · D |
+| name | VARCHAR(40) NOT NULL | 1조 · 2조 … |
+| phase_days | SMALLINT NOT NULL | 기준일에서 이 조가 주기의 몇 번째 날인가(4조면 0 · 4 · 8 · 12) |
+| is_active | BOOLEAN NOT NULL | |
+| sort_order | SMALLINT NOT NULL | |
+
+### roster_members
+`id PK`, `team_id FK roster_teams CASCADE`, `user_id FK users CASCADE`, `is_leader BOOLEAN`,
+`sort_order SMALLINT` · UNIQUE `(team_id, user_id)` · INDEX `(user_id)`
+
+한 사람이 두 조에 들어가는 것은 서버가 409 로 막는다.
+
+### roster_overrides — 달라지는 것만 예외로
+| 컬럼 | 타입 | 비고 |
+|---|---|---|
+| id | BIGSERIAL PK | |
+| work_date | DATE NOT NULL | 야간은 **시작 날짜**(11/05 야간 = 11/05 18:00 ~ 11/06 09:00) |
+| shift_code | VARCHAR(10) NOT NULL | DAY · NIGHT |
+| kind | VARCHAR(10) NOT NULL | SUB(대근) · SWAP(맞교환) · OFF(결원) |
+| off_user_id | BIGINT FK users NOT NULL | 빠지는 사람 |
+| on_user_id | BIGINT FK users NULL | 들어오는 사람. 결원이면 NULL |
+| pair_id | BIGINT FK roster_overrides NULL | 맞교환의 반대쪽 — 한쪽을 취소하면 함께 취소된다 |
+| reason / cancel_reason | TEXT NULL | |
+| canceled_at / canceled_by | TIMESTAMPTZ / BIGINT FK users | **지우지 않고 취소로 적는다**(이력) |
+
+INDEX: `(work_date, shift_code)`, `(off_user_id, work_date)`, `(on_user_id, work_date)`
+
+설정 `roster.epoch_date`(기준일) · `roster.team_size`(정원). 기준일을 바꿀 때는 32일치
+'매일 주간 1조 · 야간 1조'를 확인하고, 맞물리지 않으면 **저장하지 않는다**.
+
+---
+
+## 4-4. 일정 알림 (1.3.0)
+
+### schedule_reminders
+`id PK`, `schedule_id FK schedules CASCADE`, `user_id FK users CASCADE`,
+`minutes_before INT NULL` · UNIQUE `(schedule_id, user_id)` · INDEX `(user_id)`
+
+`NULL`=끄기 · `0`=시작할 때 · `10`/`30`=N분 전 · 그 밖=직접 넣은 분.
+일정 테이블에 컬럼으로 넣지 않은 이유: 일정은 여러 사람이 보지만 알림은 개인 설정이다 —
+한 사람이 끈 것이 모두에게 적용되면 안 된다.
+
+---
+
 ## 5. 교대 인수인계
 
 ### shift_handovers (세션)

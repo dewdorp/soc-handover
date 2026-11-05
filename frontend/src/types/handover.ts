@@ -27,6 +27,9 @@ export interface HandoverListItem {
   my_ack_state: AckState | null
   is_starred: boolean
   tags: string[]
+  /** 공개 범위 — GROUPS(공개 그룹만) · ALL(로그인한 모든 사람) */
+  visibility: 'GROUPS' | 'ALL'
+  group_names: string[]
   carry_count: number
   updated_at: string
   is_deleted: boolean
@@ -44,6 +47,7 @@ export interface Acknowledgement {
 }
 
 export interface HandoverDetail extends HandoverListItem {
+  group_ids: number[]
   task_count: number
   schedule_count: number
   comment_count: number

@@ -120,6 +120,8 @@ class BasketUpdate(BaseModel):
 class SendRequest(BaseModel):
     #: 생략하면 Basket 에 골라 둔 인수자로 보낸다.
     to_user_ids: list[int] | None = Field(default=None, max_length=20)
+    #: 준비한 뒤 교대가 바뀐 것을 보낸 사람이 확인했는가(409 shift_boundary_crossed 뒤 재시도)
+    confirm_window: bool = False
     to_shift_id: int | None = None
     summary_note: str | None = Field(default=None, max_length=5000)
 
@@ -146,8 +148,33 @@ class InboxItem(BaseModel):
     carry_depth: int | None
 
 
+class AckItem(BaseModel):
+    handover_id: int
+    #: 화면이 그 줄에 보여 준 버전
+    expected_version: int | None = Field(default=None, ge=1)
+
+
 class BulkAckRequest(BaseModel):
-    handover_ids: list[int] = Field(min_length=1, max_length=500)
+    """건별로 '화면이 보여 준 버전'을 함께 보낸다 — 읽지 않은 버전을 확인 처리하지 않으려고."""
+
+    items: list[AckItem] = Field(min_length=1, max_length=500)
+
+
+class BulkAckStale(BaseModel):
+    handover_id: int
+    title: str | None
+    shown_version_no: int | None
+    current_version_no: int
+    changed_fields: list[str]
+
+
+class BulkAckOut(BaseModel):
+    #: 실제로 확인된 건
+    acknowledged: list[int]
+    #: 그 사이에 바뀌어 **보류한** 건 — 화면이 변경 내용과 재확인 단추를 보여 준다
+    stale: list[BulkAckStale]
+    #: 삭제되었거나 볼 수 없는 건
+    skipped: list[int]
 
 
 class NotificationOut(BaseModel):

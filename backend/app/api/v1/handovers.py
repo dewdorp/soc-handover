@@ -221,8 +221,10 @@ def list_acknowledgements(handover_id: int, db: Session = Depends(get_db),
 def acknowledge(handover_id: int, payload: AcknowledgeRequest, db: Session = Depends(get_db),
                 actor: User = Depends(require("ack:write")),
                 ctx: RequestContext = Depends(get_context)):
-    handover = handover_service.get_or_404(db, handover_id, actor)
-    return ack_service.acknowledge(db, handover, actor, note=payload.note, ctx=ctx)
+    # 잠근 채로 읽어 '확인 누르는 사이에 저장'이 끼어들지 못하게 한다(PG).
+    handover = handover_service.get_or_404(db, handover_id, actor, lock=True)
+    return ack_service.acknowledge(db, handover, actor, expected_version=payload.expected_version,
+                                   note=payload.note, ctx=ctx)
 
 
 @router.get("/acknowledgements/pending", response_model=list[AckOut])
@@ -230,13 +232,15 @@ def pending_acknowledgements(db: Session = Depends(get_db),
                              actor: User = Depends(get_current_user)):
     """내가 확인/재확인해야 할 목록(FR-C-04 미확인 배너)."""
     from app.models.handover import ACK_PENDING, ACK_REACK
+    from app.services import group_service
 
     rows = db.scalars(
         select(HandoverAcknowledgement)
         .join(Handover, Handover.id == HandoverAcknowledgement.handover_id)
         .where(HandoverAcknowledgement.user_id == actor.id,
                HandoverAcknowledgement.state.in_((ACK_PENDING, ACK_REACK)),
-               Handover.is_deleted == false())
+               Handover.is_deleted == false(),
+               group_service.visible_clause(db, actor.id))
         .order_by(HandoverAcknowledgement.id)
     ).all()
     return list(rows)

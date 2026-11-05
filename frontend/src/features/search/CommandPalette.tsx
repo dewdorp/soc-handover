@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom'
 import { CalendarDays, ClipboardList, CornerDownLeft, FileText, Search } from 'lucide-react'
 import Highlight from '@/features/search/Highlight'
 import { recentSearches, rememberSearch } from '@/features/search/recent'
+import { useMe } from '@/hooks/useAuth'
 import { HIT_LABEL, hitHref, searchApi, type GlobalHit, type HitType } from '@/services/api/search'
 
 export const HIT_ICON: Record<HitType, typeof FileText> = { handover: FileText, task: ClipboardList, schedule: CalendarDays }
@@ -23,7 +24,8 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
   const [term, setTerm] = useState('')
   const [active, setActive] = useState(0)
   const list = useRef<HTMLUListElement>(null)
-  const recent = useMemo(() => recentSearches(), [])
+  const { data: me } = useMe()
+  const recent = useMemo(() => recentSearches(me?.id), [me?.id])
 
   useEffect(() => {
     const t = window.setTimeout(() => setTerm(q.trim()), 200)
@@ -44,7 +46,7 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
   const hits = term ? data?.hits ?? [] : []          // 새 결과가 올 때까지 앞 결과를 둔다(깜빡임 없이)
   const rows: Row[] = term
     ? [...ORDER.flatMap((t) => hits.filter((h) => h.type === t).map((hit) => ({ kind: 'hit' as const, hit }))), { kind: 'all' }]
-    : recent.map((r) => ({ kind: 'recent', term: r }))
+    : [...recent.map((r) => ({ kind: 'recent' as const, term: r })), { kind: 'all' }]
 
   useEffect(() => {
     list.current?.querySelector<HTMLElement>(`[data-row="${active}"]`)?.scrollIntoView({ block: 'nearest' })
@@ -54,7 +56,8 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
     if (!row) return
     if (row.kind === 'recent') { setQ(row.term); return }
     rememberSearch(term || q)
-    navigate(row.kind === 'hit' ? hitHref(row.hit) : `/search?q=${encodeURIComponent(term || q.trim())}`)
+    const query = q.trim()
+    navigate(row.kind === 'hit' ? hitHref(row.hit) : query ? `/search?q=${encodeURIComponent(query)}` : '/search')
     onClose()
   }
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -147,14 +150,14 @@ export default function CommandPalette({ onClose }: { onClose: () => void }) {
             )
           })}
 
-          {term && (() => {
+          {(() => {
             const i = rows.length - 1
             return (
               <li id={`palette-row-${i}`} data-row={i} role="option" aria-selected={active === i}
                   onMouseEnter={() => setActive(i)} onClick={() => go({ kind: 'all' })}
                   className={`mt-1 mx-1 px-2 py-1.5 rounded cursor-pointer flex items-center gap-2 border-t border-surface-border ${active === i ? 'bg-brand-soft' : ''}`}>
                 <Search size={12} className="text-brand" />
-                <span>'{term}' 전체 결과 보기{data ? ` · ${total}건` : ''}</span>
+                <span>{term ? `'${term}' 전체 결과 보기` : '통합검색 화면 열기'}{term && data ? ` · ${total}건` : ''}</span>
                 <CornerDownLeft size={12} className="ml-auto text-ink-faint" />
               </li>
             )

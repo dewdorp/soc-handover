@@ -8,15 +8,19 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.models.group import Group, HandoverGroup
 from app.models.handover import Handover, HandoverAcknowledgement, HandoverStar
 from app.models.user import User
 from app.schemas.handover import AckOut, HandoverDetail, HandoverListItem
-from app.services import (ack_service, attachment_service, comment_service, handover_service,
-                          schedule_service, task_service)
+from app.services import (ack_service, attachment_service, comment_service, group_service,
+                          handover_service, schedule_service, task_service)
 
 
-def base_fields(h: Handover) -> dict:
+def base_fields(h: Handover, group_names: list[str] | None = None) -> dict:
     return {
+        "visibility": h.visibility,
+        # 이름을 모아 주지 않은 호출(단건)에서는 여기서 바로 읽는다.
+        "group_names": group_names if group_names is not None else [],
         "id": h.id,
         "company": h.company,
         "title": h.title,
@@ -43,9 +47,10 @@ def base_fields(h: Handover) -> dict:
     }
 
 
-def list_item(h: Handover, *, my_ack: str | None, starred: bool) -> HandoverListItem:
+def list_item(h: Handover, *, my_ack: str | None, starred: bool,
+              group_names: list[str] | None = None) -> HandoverListItem:
     return HandoverListItem.model_validate(
-        {**base_fields(h), "my_ack_state": my_ack, "is_starred": starred})
+        {**base_fields(h, group_names), "my_ack_state": my_ack, "is_starred": starred})
 
 
 def list_items(db: Session, rows: list[Handover], user_id: int) -> list[HandoverListItem]:
@@ -62,14 +67,24 @@ def list_items(db: Session, rows: list[Handover], user_id: int) -> list[Handover
     starred = set(db.scalars(
         select(HandoverStar.handover_id)
         .where(HandoverStar.handover_id.in_(ids), HandoverStar.user_id == user_id)))
-    return [list_item(r, my_ack=my_acks.get(r.id), starred=r.id in starred) for r in rows]
+    # 공개 그룹 이름도 페이지 단위로 한 번에 — 행마다 읽으면 50행에 50번 질의가 된다.
+    names: dict[int, list[str]] = {}
+    for hid, gname in db.execute(
+            select(HandoverGroup.handover_id, Group.name)
+            .join(Group, Group.id == HandoverGroup.group_id)
+            .where(HandoverGroup.handover_id.in_(ids))
+            .order_by(Group.name)):
+        names.setdefault(hid, []).append(gname)
+    return [list_item(r, my_ack=my_acks.get(r.id), starred=r.id in starred,
+                      group_names=names.get(r.id, [])) for r in rows]
 
 
 def detail(db: Session, h: Handover, actor: User) -> HandoverDetail:
     acks = ack_service.list_for_handover(db, h.id)
     mine = next((a for a in acks if a.user_id == actor.id), None)
     return HandoverDetail.model_validate({
-        **base_fields(h),
+        **base_fields(h, group_service.group_names_of(db, h)),
+        "group_ids": group_service.group_ids_of(h),
         "my_ack_state": mine.state if mine else None,
         "is_starred": handover_service.is_starred(db, h.id, actor.id),
         "content": h.content,

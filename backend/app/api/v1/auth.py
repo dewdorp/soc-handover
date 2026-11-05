@@ -11,7 +11,7 @@ from app.core.context import RequestContext, get_context
 from app.core.db import get_db
 from app.core.security import REFRESH_COOKIE, hash_token
 from app.models.common import Notification
-from app.services import ack_service
+from app.services import ack_service, group_service
 from app.models.user import RefreshToken, User
 from app.schemas.auth import (ChangePasswordRequest, LoginRequest, MeResponse,
                               SessionInfo)
@@ -35,6 +35,7 @@ def _me_payload(db: Session, user: User) -> MeResponse:
         must_change_password=user.must_change_password, last_login_at=user.last_login_at,
         permissions=sorted(permissions_for(user.role_code)),
         pending_ack_count=pending, unread_notification_count=unread,
+        groups=group_service.my_groups(db, user.id),
     )
 
 

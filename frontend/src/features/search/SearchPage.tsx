@@ -11,6 +11,7 @@ import { ArrowRight, Search } from 'lucide-react'
 import { HIT_ICON } from '@/features/search/CommandPalette'
 import Highlight from '@/features/search/Highlight'
 import { recentSearches, rememberSearch } from '@/features/search/recent'
+import { useMe } from '@/hooks/useAuth'
 import { HIT_LABEL, hitHref, listHref, searchApi, type HitType } from '@/services/api/search'
 
 const ORDER: HitType[] = ['handover', 'task', 'schedule']
@@ -33,12 +34,16 @@ export default function SearchPage() {
   const { data, isFetching, isError } = useQuery({
     queryKey: ['global-search', q, LIMIT], queryFn: () => searchApi.global(q, LIMIT), enabled: q.length > 0,
   })
-  useEffect(() => { if (q) rememberSearch(q) }, [q])
+  // 최근 검색어는 '지금 로그인한 사람'의 것으로만 기억한다(교대 PC 공용 노출 방지)
+  const { data: me } = useMe()
+  useEffect(() => { if (q) rememberSearch(q, me?.id) }, [q, me?.id])
+  const recent = recentSearches(me?.id)
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
     const term = draft.trim()
-    setParams(term ? { q: term } : {})
+    // replace: 검색어가 방문기록에 쌓이지 않게 한다 — 교대 PC 에서 뒤로 가기로 앞사람 검색어가 보이면 안 된다
+    setParams(term ? { q: term } : {}, { replace: true })
   }
   const total = Object.values(data?.totals ?? {}).reduce((a, b) => a + (b ?? 0), 0)
 
@@ -60,11 +65,11 @@ export default function SearchPage() {
             <ul className="text-sm space-y-0.5">
               {ORDER.map((t) => <li key={t}><b className="text-ink">{HIT_LABEL[t]}</b> — {SCOPE_NOTE[t]}</li>)}
             </ul>
-            {recentSearches().length > 0 && (
+            {recent.length > 0 && (
               <div className="flex flex-wrap items-center gap-1 pt-1">
                 <span className="text-sm">최근 검색</span>
-                {recentSearches().map((r) => (
-                  <button key={r} className="chip hover:border-brand" onClick={() => setParams({ q: r })}>{r}</button>
+                {recent.map((r) => (
+                  <button key={r} className="chip hover:border-brand" onClick={() => setParams({ q: r }, { replace: true })}>{r}</button>
                 ))}
               </div>
             )}

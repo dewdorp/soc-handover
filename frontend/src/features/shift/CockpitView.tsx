@@ -35,7 +35,7 @@ export default function CockpitView() {
   const [picked, setPicked] = useState<Set<number>>(new Set())
 
   // 목록은 지금 보고 있는 영역만 받아 온다 — 타일을 바꾸면 그 영역만 다시 불러온다
-  const { data } = useQuery({ queryKey: ['cockpit', area], queryFn: () => shiftApi.cockpit(area), refetchInterval: 60_000 })
+  const { data, isPending, isError, refetch } = useQuery({ queryKey: ['cockpit', area], queryFn: () => shiftApi.cockpit(area), refetchInterval: 60_000 })
   const add = useMutation({
     mutationFn: () => shiftApi.addItems([...picked]),
     onSuccess: () => {
@@ -61,6 +61,10 @@ export default function CockpitView() {
   return (
     <div className="flex-1 flex flex-col lg:flex-row min-h-0 max-lg:overflow-y-auto">
       <div className="lg:flex-1 min-w-0 flex flex-col min-h-[460px] lg:min-h-0 p-3 gap-2">
+        {isError && <p role="alert" className="text-sm text-state-urgent">
+          인계 대상을 불러오지 못했습니다. {data && '마지막 조회 결과를 표시합니다.'}{' '}
+          <button className="btn btn-sm" onClick={() => refetch()}>다시 시도</button>
+        </p>}
         {data && (
           <p className="text-ink-muted">
             <b className="text-ink">{data.window.shift_date} {data.window.name}</b>
@@ -119,8 +123,8 @@ export default function CockpitView() {
               </tr>
             </thead>
             <tbody>
-              {rows.length === 0 && (
-                <tr><td colSpan={7} className="py-6 text-center text-ink-faint">해당하는 인수인계가 없습니다.</td></tr>
+              {!isError && rows.length === 0 && (
+                <tr><td colSpan={7} className="py-6 text-center text-ink-faint">{isPending ? '인계 대상을 불러오는 중…' : '해당하는 인수인계가 없습니다.'}</td></tr>
               )}
               {rows.map((r) => {
                 const already = inBasket.has(r.id)

@@ -45,12 +45,23 @@ ACTION_LABELS: dict[str, str] = {
     actions.CREDENTIAL_CREATE: "비밀번호 등록", actions.CREDENTIAL_UPDATE: "비밀번호 수정",
     actions.CREDENTIAL_DELETE: "비밀번호 삭제", actions.CREDENTIAL_REVEAL: "비밀번호 열람",
     actions.CREDENTIAL_REVEAL_DENIED: "비밀번호 열람 거부",
+    actions.ROSTER_TEAM_CHANGE: "근무조 편성 변경", actions.ROSTER_OVERRIDE: "근무 변경(대근 · 맞교환)",
+    actions.ROSTER_OVERRIDE_CANCEL: "근무 변경 취소",
+    actions.GROUP_CREATE: "그룹 만듬", actions.GROUP_UPDATE: "그룹 변경",
+    actions.GROUP_MEMBER_CHANGE: "그룹 구성원 변경",
+    actions.GROUP_DATA_MOVE: "분류 없는 자료 이관",
+    actions.HANDOVER_SCOPE_CHANGE: "공개 범위 변경",
     actions.USER_CREATE: "사용자 등록", actions.USER_UPDATE: "사용자 수정", actions.ROLE_CHANGE: "권한 변경",
     actions.SETTING_CHANGE: "설정 변경",
     actions.BACKUP: "백업", actions.RESTORE: "복구", actions.AUDIT_ARCHIVE: "감사로그 보관 정리",
 }
 
 ACTION_GROUPS: dict[str, list[str]] = {
+    "근무표": [actions.ROSTER_TEAM_CHANGE, actions.ROSTER_OVERRIDE,
+            actions.ROSTER_OVERRIDE_CANCEL],
+    "열람 그룹": [actions.GROUP_CREATE, actions.GROUP_UPDATE,
+              actions.GROUP_MEMBER_CHANGE, actions.GROUP_DATA_MOVE,
+              actions.HANDOVER_SCOPE_CHANGE],
     "인증": [actions.LOGIN_SUCCESS, actions.LOGIN_FAILURE, actions.LOGOUT, actions.PASSWORD_CHANGE,
            actions.PASSWORD_RESET],
     "인수인계": [actions.HANDOVER_VIEW, actions.HANDOVER_CREATE, actions.HANDOVER_UPDATE,
@@ -182,7 +193,7 @@ def export(db: Session, actor: User, req, ctx: RequestContext | None) -> dict[st
 
     stamp = datetime.now(KST).strftime("%Y%m%d_%H%M")
     file_name = f"감사로그_{stamp}.xlsx"
-    expires = export_service.register_download(token, path, file_name, actor, written)
+    expires = export_service.register_download(token, path, file_name, actor, written, db=db)
     record(db, action=actions.EXCEL_EXPORT, ctx=ctx, user=actor, resource_type="AUDIT",
            resource_id=f"{written}건",
            detail={"rows": written, "conditions": req.model_dump(mode="json", exclude={"page", "size"})})

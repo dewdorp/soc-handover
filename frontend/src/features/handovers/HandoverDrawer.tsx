@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Check, Pin, Plus, Star, Trash2, X } from 'lucide-react'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import ScopePicker, { ScopeBadge, type Visibility } from '@/features/handovers/ScopePicker'
 import ConflictDialog from '@/features/handovers/ConflictDialog'
 import TaskCreateDialog from '@/features/tasks/TaskCreateDialog'
 import LinkedSchedules from '@/features/calendar/LinkedSchedules'
@@ -104,9 +105,24 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
     },
   })
 
+  const [ackHeld, setAckHeld] = useState<{ current: number; fields: string[] } | null>(null)
   const ack = useMutation({
-    mutationFn: () => handoverApi.acknowledge(handoverId),
-    onSuccess: invalidate,
+    // 지금 화면이 보여 주고 있는 버전으로만 확인한다 — 열어 둔 사이 바뀌었으면 서버가 막는다
+    mutationFn: () => handoverApi.acknowledge(handoverId, row?.current_version_no ?? null),
+    onSuccess: () => {
+      setAckHeld(null)
+      invalidate()
+      for (const key of ['inbox', 'me', 'my-work', 'cockpit', 'shift-history', 'kpi']) {
+        qc.invalidateQueries({ queryKey: [key] })
+      }
+    },
+    onError: (err) => {
+      const detail = err instanceof ApiRequestError && err.code === 'stale_ack'
+        ? (err.detail as { current_version_no: number; changed_fields: string[] }) : null
+      if (!detail) return
+      setAckHeld({ current: detail.current_version_no, fields: detail.changed_fields })
+      invalidate()   // 바뀐 내용을 바로 보여 준다
+    },
   })
 
   const star = useMutation({
@@ -262,7 +278,22 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
                   <span key={t} className="chip mr-1">#{t}</span>
                 )) : '-'}
               </Field>
+              <Field label="공개">
+                <ScopeBadge visibility={row.visibility} groupNames={row.group_names} />
+              </Field>
             </dl>
+
+            {editing && (
+              <ScopePicker
+                visibility={(field('visibility', row.visibility) as Visibility)}
+                groupIds={(field('group_ids', row.group_ids) as number[]) ?? []}
+                currentNames={row.group_names}
+                onChange={(next) => {
+                  set('visibility', next.visibility)
+                  set('group_ids', next.group_ids)
+                }}
+              />
+            )}
 
             <section>
               <h3 className="text-ink-muted mb-1">내용</h3>
@@ -369,6 +400,13 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
             </button>
             {myAck?.state === 'REACK_REQUIRED' && (
               <span className="text-state-check">확인 이후 내용이 바뀌었습니다</span>
+            )}
+            {ackHeld && (
+              <span role="alert" className="text-state-check">
+                보는 사이에 v{ackHeld.current} 로 바뀌었습니다
+                {ackHeld.fields.length > 0 && ` (${ackHeld.fields.map(fieldLabel).join(', ')})`}
+                {' '}— 내용을 확인한 뒤 다시 누르십시오
+              </span>
             )}
           </>
         )}

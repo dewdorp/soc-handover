@@ -52,7 +52,8 @@ async function tryRefresh(): Promise<boolean> {
   return refreshing
 }
 
-interface RequestOptions {
+export interface RequestOptions {
+  headers?: Record<string, string>
   method?: string
   body?: unknown
   signal?: AbortSignal
@@ -74,7 +75,7 @@ function csrfHeader(headers: Record<string, string>): Record<string, string> {
 
 export async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const method = options.method ?? 'GET'
-  const base: Record<string, string> = { Accept: 'application/json' }
+  const base: Record<string, string> = { Accept: 'application/json', ...options.headers }
   if (options.body !== undefined) base['Content-Type'] = 'application/json'
 
   const send = () =>

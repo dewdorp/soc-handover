@@ -18,10 +18,12 @@ from app.core.time import now
 from app.importers.excel import aliases as al
 from app.importers.excel.normalize import CREATE_COMPANY, Lookups, normalize_row
 from app.importers.excel.reader import iter_rows
+from app.models.group import HandoverGroup
 from app.models.handover import CHANGE_DELETE, CHANGE_IMPORT, Handover, HandoverVersion
 from app.models.importjob import ExcelImportError, ExcelImportJob, ExcelImportRow
 from app.models.reference import Company, HandoverStatus, Priority
 from app.models.user import User
+from app.services import bootstrap_service, group_service
 from app.utils.fingerprint import norm
 
 Progress = Callable[[int], None]
@@ -157,7 +159,14 @@ def prepare(db: Session, job: ExcelImportJob, progress: Progress) -> dict[str, i
     total = job.total_rows or 1
     done = 0
     last_id = 0
+    canceled = False
     while True:
+        # 배치 경계에서만 멈춘다 — 이미 넣은 행은 ROW_IMPORTED 로 확정되어 다시 넣지 않는다.
+        # 별도 세션이 바꾼 값이므로 매번 다시 읽는다.
+        if db.scalar(select(ExcelImportJob.cancel_requested)
+                     .where(ExcelImportJob.id == job.id)):
+            canceled = True
+            break
         rows = db.scalars(
             select(ExcelImportRow)
             .where(ExcelImportRow.job_id == job.id, ExcelImportRow.id > last_id,
@@ -184,6 +193,9 @@ def prepare(db: Session, job: ExcelImportJob, progress: Progress) -> dict[str, i
         db.commit()
         progress(min(90, int(done * 90 / total)))
 
+    if canceled:
+        db.commit()
+        return {**summarize(db, job), "canceled": True}
     _mark_duplicates(db, job)
     db.commit()
     return summarize(db, job)
@@ -238,6 +250,12 @@ def summarize(db: Session, job: ExcelImportJob) -> dict[str, int]:
         "will_import": count(will_import_condition()),
         "blank": job.skipped_rows or 0,
     }
+    # 반영된 것 중 사람이 그 뒤에 고친 건 — 되돌리기에서 남겨 두는 수(화면·보고서가 같은 수를 본다)
+    stats["modified_after_import"] = db.scalar(
+        select(func.count()).select_from(Handover)
+        .where(Handover.import_job_id == job.id, Handover.is_deleted == false(),
+               Handover.current_version_no > 1)) or 0
+    stats["not_imported"] = max(stats["total"] - stats["imported"] - stats["blank"], 0)
     job.error_rows = stats["error"]
     job.duplicate_rows = stats["duplicate"]
     return stats
@@ -247,11 +265,9 @@ def summarize(db: Session, job: ExcelImportJob) -> dict[str, int]:
 
 def _resolve_companies(db: Session, job: ExcelImportJob) -> tuple[dict[str, int], int]:
     """생성하기로 한 관계사를 만들고, 매칭 실패는 '미지정'으로 보낸다. (이름→id, 미지정 id)"""
-    unspecified = db.scalar(select(Company).where(Company.name == UNSPECIFIED_COMPANY))
-    if unspecified is None:
-        unspecified = Company(name=UNSPECIFIED_COMPANY, code="UNSPEC", sort_order=999)
-        db.add(unspecified)
-        db.flush()
+    # 예약 코드(UNSPEC)로 찾는다 — 현장에서 표시명을 '공통' 등으로 바꿔 쓰면 이름으로는 못 찾고
+    # 다시 만들다가 code 고유키에서 터진다(재현 ⑤). 한 곳(bootstrap_service)에서만 만든다.
+    unspecified = bootstrap_service.ensure_default_company(db, UNSPECIFIED_COMPANY)
 
     # 표기만 다른 이름('A보안'/'a보안 ')이 각각 회사로 생기면 안 된다. 정규화 키로 한 번만 만든다.
     by_norm = {norm(c.name): c.id for c in db.scalars(select(Company))}
@@ -299,7 +315,14 @@ def commit_rows(db: Session, job: ExcelImportJob, actor: User,
                                     will_import_condition())) or 0
     done = 0
     last_id = 0
+    canceled = False
     while True:
+        # 배치 경계에서만 멈춘다 — 이미 넣은 행은 ROW_IMPORTED 로 확정되어 다시 넣지 않는다.
+        # 중단 요청은 다른 세션이 쓰므로 매번 다시 읽는다.
+        if db.scalar(select(ExcelImportJob.cancel_requested)
+                     .where(ExcelImportJob.id == job.id)):
+            canceled = True
+            break
         rows = db.scalars(
             select(ExcelImportRow)
             .where(ExcelImportRow.job_id == job.id, ExcelImportRow.id > last_id,
@@ -310,6 +333,8 @@ def commit_rows(db: Session, job: ExcelImportJob, actor: User,
             break
 
         stamp = now()
+        import_group_id = (group_service.default_group_id(db, actor.id)
+                           or group_service.ensure_unclassified(db).id)
         pairs: list[tuple[ExcelImportRow, Handover]] = []
         for row in rows:
             n = row.normalized or {}
@@ -344,6 +369,12 @@ def commit_rows(db: Session, job: ExcelImportJob, actor: User,
             pairs.append((row, handover))
         db.flush()  # id 확보
 
+        # 가져온 자료도 공개 그룹을 가져야 한다. 올린 사람의 기본 그룹, 없으면 '미분류'.
+        # 전체 공개로 올리지 않는다 — 과거 자료를 모두에게 여는 결정은 관리자가 따로 한다.
+        for _row, handover in pairs:
+            db.add(HandoverGroup(handover_id=handover.id, group_id=import_group_id))
+        db.flush()
+
         from app.services.handover_service import snapshot
         for row, handover in pairs:
             db.add(HandoverVersion(
@@ -363,6 +394,10 @@ def commit_rows(db: Session, job: ExcelImportJob, actor: User,
     job.success_rows = stats["imported"]
     stats["committed_now"] = done
     stats["companies_created"] = len(created_companies)
+    stats["canceled"] = canceled
+    if canceled:
+        # 남은 행은 그대로 둔다 — 다시 '반영'을 누르면 멈춘 자리에서 이어서 넣는다.
+        stats["remaining"] = max(target_total - done, 0)
     return stats
 
 

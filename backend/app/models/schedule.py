@@ -3,7 +3,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import (Boolean, ForeignKey, Index, Integer, String, Text,
+                        UniqueConstraint)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, TZDateTime
@@ -45,3 +46,30 @@ class Schedule(Base, TimestampMixin):
     creator = relationship("User", foreign_keys=[created_by], lazy="joined")
     handover = relationship("Handover", lazy="joined")
     task = relationship("Task", lazy="joined")
+
+
+class ScheduleReminder(Base, TimestampMixin):
+    """'이 일정을 나에게 언제 알려 줄까' — **사람마다 따로**.
+
+    일정은 여러 사람이 보는 것이지만 알림은 개인 설정이다. 일정에 컬럼으로 넣으면
+    한 사람이 끈 것이 모두에게 적용된다.
+
+    minutes_before 의 뜻
+      None  알리지 않는다(끄기)
+      0     시작할 때
+      10/30 10분 전 · 30분 전
+      그 밖 직접 넣은 분
+    """
+
+    __tablename__ = "schedule_reminders"
+    __table_args__ = (
+        UniqueConstraint("schedule_id", "user_id", name="uq_sched_reminder"),
+        Index("ix_sched_reminder_user", "user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    schedule_id: Mapped[int] = mapped_column(ForeignKey("schedules.id", ondelete="CASCADE"),
+                                             nullable=False)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"),
+                                         nullable=False)
+    minutes_before: Mapped[int | None] = mapped_column(Integer)

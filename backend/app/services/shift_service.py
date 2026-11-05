@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import false, select, true
+from sqlalchemy import false, func, select, true
 from sqlalchemy.orm import Session
 
 from app.audit import actions
@@ -26,11 +26,12 @@ from app.core.time import KST, ShiftWindow, now, resolve_shift
 from app.models.handover import (ACK_ACKED, ACK_PENDING, ACK_REACK, Handover,
                                  HandoverAcknowledgement)
 from app.models.reference import HandoverStatus, Shift
-from app.models.shift import (SESSION_CLOSED, SESSION_DRAFT, SESSION_SENT, ShiftHandover,
-                              ShiftHandoverItem, ShiftHandoverRecipient)
+from app.models.shift import (SESSION_CLOSED, SESSION_DRAFT, SESSION_SENT, ShiftCarrySkip,
+                              ShiftHandover, ShiftHandoverItem, ShiftHandoverRecipient)
 from app.models.user import User
 from app.search.dsl import Filter, SearchRequest, Sort
-from app.services import ack_service, notification_service, search_service, settings_service
+from app.services import (ack_service, group_service, handover_service,
+                          notification_service, search_service, settings_service)
 
 MAX_CHAIN = 100
 #: 한 번에 고를 수 있는 인수자 수. 교대 인원을 넉넉히 넘는 값 — 실수로 전원을 고르는 것을 막는다.
@@ -183,6 +184,83 @@ def cockpit(db: Session, actor: User, *, shift_date: date | None = None,
             "area": selected, "areas": areas, "basket_handover_ids": in_basket}
 
 
+# --------------------------------------------------------------------------- 교대 마감 점검
+
+def closing_check(db: Session, actor: User) -> dict[str, Any]:
+    """근무를 넘기기 전에 확인할 것들. **숫자를 누르면 그 목록이 열린다**.
+
+    숫자를 여기서 따로 세지 않는다 — 전부 목록과 같은 검색 조건(search_service)이나
+    같은 함수를 쓴다. 그래야 '점검은 3건인데 목록은 2건'이 생기지 않는다.
+    """
+    from app.services import roster_service
+
+    window = current_window(db)
+    rows: list[dict[str, Any]] = []
+
+    # 1) 내가 아직 확인하지 않은 인계
+    unacked = inbox(db, actor)   # 이미 '확인하지 않은 것'만 담겨 있다
+    rows.append({
+        "key": "unacked", "label": "확인하지 않은 인계", "count": len(unacked),
+        "url": "/shift/inbox", "tone": "check" if unacked else "ok",
+        "hint": "받은 인계 중 아직 확인(또는 재확인)하지 않은 건",
+    })
+
+    # 2) 바구니에 담았지만 아직 보내지 않은 것
+    basket, _ = get_basket(db, actor)
+    pending = len(basket.items)
+    rows.append({
+        "key": "basket", "label": "보내지 않은 인계 바구니", "count": pending,
+        "url": "/shift", "tone": "check" if pending else "ok",
+        "hint": "담아 둔 채 아직 넘기지 않은 건 — 근무를 마치기 전에 보내야 한다",
+    })
+
+    # 3) 내 담당인데 아직 끝나지 않은 것(수행일이 오늘까지)
+    due = search_service.count_only(db, area_request_due_today(window), actor, cap=COUNT_CAP)
+    rows.append({
+        "key": "my_open", "label": "내 담당 미완료", "count": due,
+        "url": "/my-work", "tone": "check" if due else "ok",
+        "hint": "수행일이 오늘까지인데 끝나지 않은 내 담당 건",
+    })
+
+    # 4) 지연
+    overdue = search_service.count_only(db, _quick_request("OVERDUE"), actor, cap=COUNT_CAP)
+    rows.append({
+        "key": "overdue", "label": "지연", "count": overdue,
+        "url": "/handovers?quick=OVERDUE", "tone": "urgent" if overdue else "ok",
+        "hint": "수행일이 지났는데 끝나지 않은 건",
+    })
+
+    # 5) 다음 근무 결원 — 받을 사람이 없으면 인계가 비게 된다
+    nxt = roster_service.suggested_recipients(db)
+    rows.append({
+        "key": "next_shift", "label": "다음 근무 결원", "count": nxt["short_by"],
+        "url": "/schedules/roster", "tone": "urgent" if nxt["is_short"] else "ok",
+        "hint": (f"{nxt['work_date']:%m/%d} {nxt['shift_label']} · "
+                 + (", ".join(nxt["names"]) if nxt["names"] else "배정된 사람이 없습니다")),
+    })
+
+    return {
+        "window": describe(db, window),
+        "next_shift": {"work_date": nxt["work_date"], "shift_label": nxt["shift_label"],
+                       "names": nxt["names"], "user_ids": nxt["user_ids"],
+                       "is_short": nxt["is_short"]},
+        "rows": rows,
+        "all_clear": all(r["count"] == 0 for r in rows),
+    }
+
+
+def _quick_request(quick: str) -> SearchRequest:
+    return SearchRequest(quick=[quick], page=1, size=1)
+
+
+def area_request_due_today(window) -> SearchRequest:
+    """내 담당 · 미완료 · 수행일 오늘까지. 목록(내 업무)과 같은 조건을 쓴다."""
+    return SearchRequest(quick=["MINE", "OPEN"],
+                         filters=[Filter(field="work_date", op="lte",
+                                         value=window.shift_date.isoformat())],
+                         page=1, size=1)
+
+
 # --------------------------------------------------------------------------- Carry chain
 
 def chain_depth(db: Session, item: ShiftHandoverItem) -> int:
@@ -226,25 +304,58 @@ def _passed_on_since(db: Session, actor: User, received: ShiftHandover) -> bool:
         ShiftHandover.sent_at > received.sent_at).limit(1)) is not None
 
 
-def carry_candidates(db: Session, actor: User) -> list[tuple[ShiftHandoverItem, Handover]]:
-    """직전 교대에서 나에게 넘어온 것 중 아직 끝나지 않은 것(B-06).
+def _last_sent_at(db: Session, actor: User) -> datetime | None:
+    """내가 마지막으로 인계를 보낸 시각 — 그 뒤로 받은 것이 '아직 넘기지 않은 것'이다."""
+    return db.scalar(select(func.max(ShiftHandover.sent_at)).where(
+        ShiftHandover.from_user_id == actor.id,
+        ShiftHandover.status.in_((SESSION_SENT, SESSION_CLOSED))))
 
-    받은 인계는 **한 번만** 이어 넘긴다. 이미 인계를 보냈다면 그때 넘긴 것은 넘어갔고
-    뺀 것은 사람이 뺀 것이다 — 다음 Basket 에 다시 담으면 같은 건이 두 번 넘어가거나
-    일부러 뺀 건이 되살아난다.
+
+def received_since_last_send(db: Session, actor: User) -> list[ShiftHandover]:
+    """내가 마지막으로 넘긴 뒤에 **여러 사람에게서** 받은 인계 전부(재현 ③).
+
+    가장 최근 한 건만 보면 A 와 B 가 각각 보낸 미완료 중 한쪽이 통째로 사라진다.
     """
-    previous = last_received(db, actor.id)
-    if previous is None or _passed_on_since(db, actor, previous):
+    stmt = select(ShiftHandover).where(
+        _received_by(actor.id), ShiftHandover.status.in_((SESSION_SENT, SESSION_CLOSED)))
+    since = _last_sent_at(db, actor)
+    if since is not None:
+        stmt = stmt.where(ShiftHandover.sent_at > since)
+    return list(db.scalars(stmt.order_by(ShiftHandover.sent_at, ShiftHandover.id)))
+
+
+def _skipped_handover_ids(db: Session, actor: User) -> set[int]:
+    """사람이 Basket 에서 직접 뺀 건 — 다시 자동으로 담지 않는다."""
+    return set(db.scalars(select(ShiftCarrySkip.handover_id).where(
+        ShiftCarrySkip.user_id == actor.id)))
+
+
+def carry_candidates(db: Session, actor: User) -> list[tuple[ShiftHandoverItem, Handover]]:
+    """마지막으로 넘긴 뒤 나에게 넘어온 것 중 아직 끝나지 않은 것(B-06, 재현 ③).
+
+    · 받은 **모든** 인계를 본다(보낸 사람이 여럿이어도 전부).
+    · 같은 원문은 한 번만 — 여러 사람이 같은 건을 넘겼으면 가장 마지막 것으로 합친다.
+    · 이미 넘긴 건(= 내가 보낸 뒤의 것만 본다) · 종결된 건 · 사람이 직접 뺀 건은 올리지 않는다.
+    """
+    sessions = received_since_last_send(db, actor)
+    if not sessions:
         return []
+    skipped = _skipped_handover_ids(db, actor)
     rows = db.execute(
         select(ShiftHandoverItem, Handover)
         .join(Handover, Handover.id == ShiftHandoverItem.handover_id)
-        .where(ShiftHandoverItem.session_id == previous.id,
+        .where(ShiftHandoverItem.session_id.in_([s.id for s in sessions]),
                Handover.is_deleted == false(),
                Handover.status_code.in_(_open_codes(db)))
-        .order_by(ShiftHandoverItem.display_order, ShiftHandoverItem.id)
+        .order_by(ShiftHandoverItem.session_id, ShiftHandoverItem.display_order,
+                  ShiftHandoverItem.id)
     ).all()
-    return [(item, handover) for item, handover in rows]
+    merged: dict[int, tuple[ShiftHandoverItem, Handover]] = {}
+    for item, handover in rows:
+        if handover.id in skipped:
+            continue
+        merged[handover.id] = (item, handover)   # 같은 원문은 마지막 것으로
+    return list(merged.values())
 
 
 def _draft(db: Session, actor: User) -> ShiftHandover | None:
@@ -253,30 +364,37 @@ def _draft(db: Session, actor: User) -> ShiftHandover | None:
 
 
 def get_basket(db: Session, actor: User) -> tuple[ShiftHandover, int]:
-    """내 Basket(DRAFT 세션). 없으면 만들고, 직전 교대 미완료를 자동으로 담는다.
+    """내 Basket(DRAFT 세션). 없으면 만들고, 아직 넘기지 않은 미완료를 자동으로 담는다.
+
+    **열어 둔 뒤에 받은 인계도 담는다**(재현 ③) — 열 때마다 후보를 다시 보고 빠진 것만 채운다.
+    사람이 직접 뺀 건은 ShiftCarrySkip 으로 남아 있어 되살아나지 않는다.
 
     Returns: (세션, 이번에 자동으로 담은 건수)
     """
     basket = _draft(db, actor)
-    if basket is not None:
-        return basket, 0
-
-    window = current_window(db)
-    shift = _shift_by_code(db, window.code)
-    basket = ShiftHandover(shift_date=window.shift_date, shift_id=shift.id if shift else None,
-                           from_user_id=actor.id, status=SESSION_DRAFT)
-    db.add(basket)
-    db.flush()
+    if basket is None:
+        window = current_window(db)
+        shift = _shift_by_code(db, window.code)
+        basket = ShiftHandover(shift_date=window.shift_date, shift_id=shift.id if shift else None,
+                               from_user_id=actor.id, status=SESSION_DRAFT)
+        db.add(basket)
+        db.flush()
 
     added = 0
     if settings_service.get_value(db, "shift.carry_forward_auto"):
-        for order, (prev_item, handover) in enumerate(carry_candidates(db, actor)):
+        present = {i.handover_id for i in basket.items}
+        order = max((i.display_order for i in basket.items), default=-1) + 1
+        for prev_item, handover in carry_candidates(db, actor):
+            if handover.id in present:
+                continue
             db.add(ShiftHandoverItem(session_id=basket.id, handover_id=handover.id,
                                      display_order=order, carried_from_item_id=prev_item.id,
                                      is_carry_forward=True, item_note=prev_item.item_note))
+            order += 1
             added += 1
-        db.flush()
-        db.refresh(basket)
+        if added:
+            db.flush()
+            db.refresh(basket)
     return basket, added
 
 
@@ -292,6 +410,10 @@ def add_items(db: Session, actor: User, handover_ids: list[int],
     for hid in dict.fromkeys(handover_ids):
         handover = db.get(Handover, hid)
         if handover is None or handover.is_deleted or hid in existing:
+            skipped.append(hid)
+            continue
+        # 내가 못 보는 건은 바구니에도 담기지 않는다(담으면 받는 사람 화면에 제목이 뜬다).
+        if not group_service.can_see(db, handover, actor):
             skipped.append(hid)
             continue
         prev = carried.get(hid)
@@ -315,7 +437,13 @@ def _own_item(db: Session, actor: User, item_id: int) -> tuple[ShiftHandover, Sh
 
 def remove_item(db: Session, actor: User, item_id: int) -> None:
     basket, item = _own_item(db, actor, item_id)
+    handover_id = item.handover_id
     basket.items.remove(item)
+    # 사람이 뺀 것은 사람의 뜻이다 — 다음에 Basket 을 열 때 자동으로 되살리지 않는다.
+    # 다음 발송(= 새 주기)에서 지운다.
+    if not db.scalar(select(ShiftCarrySkip.id).where(ShiftCarrySkip.user_id == actor.id,
+                                                     ShiftCarrySkip.handover_id == handover_id)):
+        db.add(ShiftCarrySkip(user_id=actor.id, handover_id=handover_id))
     db.flush()
 
 
@@ -391,13 +519,52 @@ def _set_recipients(db: Session, session: ShiftHandover, users: list[User]) -> N
 
 # --------------------------------------------------------------------------- 전달
 
+class ShiftBoundaryCrossed(Conflict):
+    """준비할 때와 보낼 때의 근무가 다르다 — 받을 근무와 받는 사람을 다시 확인받는다."""
+
+    code = "shift_boundary_crossed"
+    message = ("인계를 준비한 뒤 교대가 바뀌었습니다. 받을 근무와 받는 사람을 다시 확인하십시오.")
+
+
+def send_check(db: Session, actor: User, at: datetime | None = None) -> dict[str, Any]:
+    """보내기 직전 확인용 — 준비한 근무 · 지금 근무 · 받을 근무와 경계를 넘었는지.
+
+    08:59 에 준비해 09:01 에 보내는 일이 실제로 있다. 그때 보낸 사람이 '누구에게 가는지'를
+    다시 보고 확정하게 한다(재현 ②).
+    """
+    basket = _draft(db, actor)
+    if basket is None:
+        raise NotFound("준비 중인 인계가 없습니다.")
+    stamp = at or now()
+    drafted = window_for(db, basket.shift_date, basket.shift_id) if basket.shift_id \
+        else current_window(db, stamp)
+    live = current_window(db, stamp)
+    following = next_window(db, drafted)
+    crossed = (live.code, live.shift_date) != (drafted.code, drafted.shift_date)
+    return {
+        "drafted_window": describe(db, drafted),
+        "current_window": describe(db, live),
+        "to_window": describe(db, following),
+        "crossed": crossed,
+        "at": stamp,
+        "recipient_ids": basket.recipient_ids,
+    }
+
+
 def send(db: Session, actor: User, *, to_user_ids: list[int] | None, to_shift_id: int | None,
-         summary_note: str | None, ctx: RequestContext | None = None) -> ShiftHandover:
+         summary_note: str | None, confirm_window: bool = False,
+         ctx: RequestContext | None = None) -> ShiftHandover:
     basket = _draft(db, actor)
     if basket is None or not basket.items:
         raise ValidationFailed("Basket 이 비어 있습니다. 인계할 항목을 먼저 담으십시오.")
     recipients = _check_recipients(db, actor, to_user_ids if to_user_ids
                                    else basket.recipient_ids, required=True)
+
+    # 준비한 뒤 교대가 바뀌었으면 그대로 보내지 않는다 — 보낸 사람이 한 번 더 확인한다.
+    check = send_check(db, actor)
+    if check["crossed"] and not confirm_window:
+        raise ShiftBoundaryCrossed(detail={k: check[k] for k in
+                                           ("drafted_window", "current_window", "to_window")})
 
     stamp = now()
     items_detail = []
@@ -417,17 +584,22 @@ def send(db: Session, actor: User, *, to_user_ids: list[int] | None, to_shift_id
         items_detail.append({"handover_id": handover.id, "version": handover.current_version_no,
                              "carry_depth": depth})
 
-    window = current_window(db)
-    shift = _shift_by_code(db, window.code)
-    basket.shift_date = window.shift_date
-    basket.shift_id = shift.id if shift else basket.shift_id
+    # 발신 근무(basket 을 연 근무)는 **그대로 둔다**. 08:59 에 전날 야간으로 준비한 인계를
+    # 09:01 에 보냈다고 당일 주간이 보낸 것으로 바뀌면 증적이 어긋난다(재현 ②).
+    # 실제로 보낸 시각은 sent_at 에 따로 남는다.
     _set_recipients(db, basket, recipients)
     if to_shift_id is not None:
         basket.to_shift_id = to_shift_id
+    elif basket.to_shift_id is None:
+        # 받을 근무는 '준비한 근무의 다음 근무' — 보낸 시각이 아니라 발신 근무를 기준으로 잡는다
+        following = _shift_by_code(db, check["to_window"]["code"])
+        basket.to_shift_id = following.id if following else None
     if summary_note is not None:
         basket.summary_note = summary_note
     basket.status = SESSION_SENT
     basket.sent_at = stamp
+    # 새 주기 시작 — 지난 주기에 '뺀 건' 기록은 더 이상 쓰지 않는다
+    db.query(ShiftCarrySkip).filter(ShiftCarrySkip.user_id == actor.id).delete()
     basket.item_count = len(basket.items)
     db.flush()
 
@@ -613,15 +785,42 @@ def inbox(db: Session, actor: User) -> list[dict[str, Any]]:
     return out
 
 
-def bulk_acknowledge(db: Session, actor: User, handover_ids: list[int],
-                     ctx: RequestContext | None = None) -> dict[str, list[int]]:
-    """선택 항목 일괄 확인(FR-C-09). 각 건은 그 순간의 버전으로 기록된다."""
-    done, skipped = [], []
-    for hid in dict.fromkeys(handover_ids):
-        handover = db.get(Handover, hid)
+def bulk_acknowledge(db: Session, actor: User, items: list[dict[str, Any]],
+                     ctx: RequestContext | None = None) -> dict[str, Any]:
+    """선택 항목 일괄 확인(FR-C-09).
+
+    건마다 **화면이 보여 준 버전**을 받아 지금 버전과 맞는 것만 확인한다. 그 사이에 바뀐 건은
+    확인하지 않고 stale 로 돌려준다(무엇이 바뀌었는지 함께) — 한 건이 바뀌었다고 나머지까지
+    막으면 교대 시간에 쓸 수 없고, 그냥 확인해 버리면 읽지 않은 내용을 확인한 것이 된다.
+    """
+    done: list[int] = []
+    stale: list[dict[str, Any]] = []
+    skipped: list[int] = []
+    seen: set[int] = set()
+    for item in items:
+        hid = item["handover_id"]
+        if hid in seen:
+            continue
+        seen.add(hid)
+        # 잠근 채로 읽어야 '읽는 사이에 저장'이 끼어들지 못한다(PG). SQLite 는 단일 writer.
+        handover = handover_service.get_or_404(db, hid, actor, lock=True) \
+            if _readable(db, actor, hid) else None
         if handover is None or handover.is_deleted:
             skipped.append(hid)
             continue
-        ack_service.acknowledge(db, handover, actor, ctx=ctx)
+        try:
+            ack_service.acknowledge(db, handover, actor,
+                                    expected_version=item.get("expected_version"), ctx=ctx)
+        except ack_service.StaleAck as exc:
+            stale.append({**exc.detail, "title": handover.title})
+            continue
         done.append(hid)
-    return {"acknowledged": done, "skipped": skipped}
+    return {"acknowledged": done, "stale": stale, "skipped": skipped}
+
+
+def _readable(db: Session, actor: User, handover_id: int) -> bool:
+    try:
+        handover_service.get_or_404(db, handover_id, actor)
+    except NotFound:
+        return False
+    return True

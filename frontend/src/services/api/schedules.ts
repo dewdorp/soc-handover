@@ -73,7 +73,28 @@ export interface CalendarData {
   truncated: boolean
 }
 
+export interface MySchedule {
+  id: number
+  title: string
+  event_type: EventType
+  start_at: string
+  end_at: string
+  is_all_day: boolean
+  company: string | null
+  handover_id: number | null
+  task_id: number | null
+  recurrence_rule: string | null
+  reminder_minutes: number | null
+  occurrence_no: number
+  more_occurrences: number
+}
+
 export const scheduleApi = {
+  mine: (days = 7, perSeries = 3) =>
+    api.get<MySchedule[]>(`/schedules/mine?days=${days}&per_series=${perSeries}`),
+  setReminder: (id: number, minutes: number | null) =>
+    api.put<{ schedule_id: number; minutes_before: number | null }>(
+      `/schedules/${id}/reminder`, { minutes_before: minutes }),
   calendar: (start: string, end: string, layers: CalendarLayer[], mine: boolean) =>
     api.get<CalendarData>(`/calendar?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}`
       + `&layers=${layers.join(',')}&mine=${mine}`),

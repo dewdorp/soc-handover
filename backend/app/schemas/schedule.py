@@ -132,3 +132,31 @@ class CalendarOut(BaseModel):
     end: datetime
     events: list[CalendarEvent]
     truncated: bool
+
+
+class ReminderUpdate(BaseModel):
+    """null = 끄기 · 0 = 시작할 때 · 10/30 = N분 전 · 그 밖 = 직접 넣은 분."""
+    minutes_before: int | None = Field(default=None, ge=0, le=7 * 24 * 60)
+
+
+class ReminderOut(BaseModel):
+    schedule_id: int
+    minutes_before: int | None = None
+
+
+class MyScheduleOut(BaseModel):
+    id: int
+    title: str
+    event_type: str
+    start_at: datetime
+    end_at: datetime
+    is_all_day: bool = False
+    company: str | None = None
+    handover_id: int | None = None
+    task_id: int | None = None
+    recurrence_rule: str | None = None
+    reminder_minutes: int | None = None
+    #: 이 일정의 몇 번째 회차인가(1부터)
+    occurrence_no: int = 1
+    #: 첫 줄에만 — 보여 주지 않은 회차가 몇 번 더 있는가
+    more_occurrences: int = 0

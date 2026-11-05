@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import SessionLocal
 from app.core.time import now
-from app.models.importjob import JOB_FAILED, JOB_RUNNING, ExcelImportJob
+from app.models.importjob import JOB_CANCELED, JOB_FAILED, JOB_RUNNING, ExcelImportJob
 
 log = logging.getLogger("app.jobs")
 
@@ -50,6 +50,9 @@ def run(job_id: int, work: Work, *, success_status: str) -> None:
 
         try:
             result = work(db, job, progress)
+            # 사람이 배치 경계에서 멈춘 경우 — 성공으로 적지 않는다(멈춘 자리에서 이어서 반영한다)
+            if isinstance(result, dict) and result.get("canceled"):
+                success_status = JOB_CANCELED
             job.status = success_status
             job.phase = None
             job.progress = 100

@@ -18,9 +18,10 @@ from sqlalchemy.orm import Session
 from app.audit import actions
 from app.audit.recorder import record
 from app.core.context import RequestContext
+from app.core.errors import Conflict
 from app.core.time import now
 from app.models.handover import (ACK_ACKED, ACK_NONE, ACK_PENDING, ACK_REACK,
-                                 Handover, HandoverAcknowledgement)
+                                 Handover, HandoverAcknowledgement, HandoverVersion)
 from app.services import settings_service
 
 #: 집계 우선순위 — 위험한 상태가 이긴다.
@@ -95,9 +96,52 @@ def invalidate_on_change(db: Session, handover: Handover, changed_fields: list[s
     return triggers
 
 
-def acknowledge(db: Session, handover: Handover, user, *, note: str | None = None,
+class StaleAck(Conflict):
+    """화면에 띄워 둔 버전과 지금 버전이 다르다 — 읽지 않은 내용을 확인 처리하지 않는다."""
+
+    code = "stale_ack"
+    message = "확인하려는 사이에 내용이 바뀌었습니다. 바뀐 내용을 보고 다시 확인하십시오."
+
+
+def changed_since(db: Session, handover: Handover, version_no: int) -> list[str]:
+    """version_no 다음으로 실제로 바뀐 필드 이름들(화면에 '무엇이 바뀌었는지' 보여 주려고)."""
+    rows = db.scalars(select(HandoverVersion.changed_fields).where(
+        HandoverVersion.handover_id == handover.id,
+        HandoverVersion.version_no > version_no)).all()
+    seen: list[str] = []
+    for fields in rows:
+        for field in fields or []:
+            if field not in seen:
+                seen.append(field)
+    return seen
+
+
+def check_version(db: Session, handover: Handover, expected_version: int | None) -> None:
+    """화면이 보여 준 버전과 지금 버전이 같은지 본다.
+
+    expected_version 이 None 이면 검사하지 않는다(버전 개념이 없는 내부 호출 전용).
+    경합은 호출하는 쪽이 handover 를 **잠근 채로**(get_or_404(..., lock=True)) 넘겨 막는다 —
+    그래야 '읽는 사이에 저장'이 끼어들지 못한다.
+    """
+    if expected_version is None or expected_version == handover.current_version_no:
+        return
+    raise StaleAck(detail={
+        "handover_id": handover.id,
+        "shown_version_no": expected_version,
+        "current_version_no": handover.current_version_no,
+        "changed_fields": changed_since(db, handover, expected_version),
+    })
+
+
+def acknowledge(db: Session, handover: Handover, user, *, expected_version: int | None = None,
+                note: str | None = None,
                 ctx: RequestContext | None = None) -> HandoverAcknowledgement:
-    """현재 버전을 확인 처리한다. 같은 사용자가 여러 번 눌러도 행은 하나다."""
+    """현재 버전을 확인 처리한다. 같은 사용자가 여러 번 눌러도 행은 하나다.
+
+    expected_version 은 **화면이 보여 준 버전**이다. 그 사이에 내용이 바뀌었으면 확인하지 않고
+    StaleAck 을 던진다 — 읽지 않은 버전을 '확인함'으로 남기면 인계 증적이 거짓이 된다.
+    """
+    check_version(db, handover, expected_version)
     ack = db.scalar(
         select(HandoverAcknowledgement).where(
             HandoverAcknowledgement.handover_id == handover.id,

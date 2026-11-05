@@ -31,8 +31,9 @@ from app.importers.excel import pipeline as pl
 from app.importers.excel.normalize import CREATE_COMPANY
 from app.importers.excel.reader import analyze, suggest_mapping
 from app.jobs import runner
-from app.models.importjob import (JOB_ANALYZED, JOB_COMPLETED, JOB_DEDUPED, JOB_FAILED,
-                                  JOB_MAPPED, JOB_ROLLED_BACK, JOB_STAGED, ExcelImportError,
+from app.models.importjob import (JOB_ANALYZED, JOB_CANCELED, JOB_COMPLETED, JOB_DEDUPED,
+                                  JOB_FAILED, JOB_MAPPED, JOB_ROLLED_BACK, JOB_RUNNING,
+                                  JOB_STAGED, ExcelImportError,
                                   ExcelImportJob, ExcelImportRow)
 from app.models.reference import Company, HandoverStatus
 from app.models.user import User
@@ -334,8 +335,10 @@ def set_decisions(db: Session, job: ExcelImportJob, row_ids: list[int], decision
 
 def start_commit(db: Session, job: ExcelImportJob, actor: User, ctx: RequestContext,
                  bg: BackgroundTasks) -> None:
-    _require_retryable(job, {JOB_DEDUPED}, {PHASE_COMMIT})
-    _claim(db, job, {JOB_DEDUPED, JOB_FAILED}, PHASE_COMMIT)
+    _require_retryable(job, {JOB_DEDUPED, JOB_CANCELED}, {PHASE_COMMIT})
+    _claim(db, job, {JOB_DEDUPED, JOB_FAILED, JOB_CANCELED}, PHASE_COMMIT)
+    job.cancel_requested = False      # 다시 시작하면 멈춘 자리에서 이어서 넣는다
+    db.commit()
     actor_id = actor.id
 
     def work(s: Session, j: ExcelImportJob, progress) -> dict[str, Any]:
@@ -347,6 +350,55 @@ def start_commit(db: Session, job: ExcelImportJob, actor: User, ctx: RequestCont
         return stats
 
     bg.add_task(runner.run, job.id, work, success_status=JOB_COMPLETED)
+
+
+# --------------------------------------------------------------------------- 중단 · 폐기
+
+#: 아직 반영하지 않은 단계 — 여기서는 통째로 폐기한다(올린 파일도 지운다)
+BEFORE_COMMIT = {JOB_ANALYZED, JOB_MAPPED, JOB_STAGED, JOB_DEDUPED}
+
+
+def cancel(db: Session, job: ExcelImportJob, actor: User,
+           ctx: RequestContext | None = None) -> dict[str, Any]:
+    """잘못 올린 작업을 멈춘다.
+
+    · 반영 전: 통째로 **폐기**한다 — staging 행 · 오류 목록 · 올린 파일까지 지운다.
+      인수인계는 아직 한 건도 만들지 않았으므로 되돌릴 것이 없다.
+    · 반영 중: **배치 경계에서** 멈추라고 표시만 한다. 이미 들어간 행은 그대로 두고
+      (ROW_IMPORTED 로 확정되어 다시 넣지 않는다) 남은 행은 '반영'을 다시 누르면 이어서 넣는다.
+    · 반영이 끝난 뒤에는 중단이 아니라 되돌리기(rollback)를 쓴다.
+    """
+    if job.status == JOB_RUNNING and job.phase == PHASE_COMMIT:
+        job.cancel_requested = True
+        db.flush()
+        record(db, action=actions.EXCEL_IMPORT, ctx=ctx, user=actor,
+               resource_type="IMPORT_JOB", resource_id=job.job_code,
+               detail={"op": "cancel_requested", "file": job.file_name})
+        return {"mode": "stopping", "status": job.status,
+                "message": "진행 중인 배치를 끝내고 멈춥니다. 이미 반영된 건은 그대로 둡니다."}
+
+    if job.status == JOB_RUNNING:
+        # STAGE · PREPARE 는 인수인계를 만들지 않는다 — 표시해 두면 다음 경계에서 멈춘다
+        job.cancel_requested = True
+        db.flush()
+        return {"mode": "stopping", "status": job.status,
+                "message": "진행 중인 단계를 끝내고 멈춥니다."}
+
+    _require_status(job, BEFORE_COMMIT | {JOB_FAILED, JOB_CANCELED}, action="중단")
+    removed_rows = db.query(ExcelImportRow).filter(ExcelImportRow.job_id == job.id).delete()
+    db.query(ExcelImportError).filter(ExcelImportError.job_id == job.id).delete()
+    Path(job.stored_path).unlink(missing_ok=True)
+    job.status = JOB_CANCELED
+    job.phase = None
+    job.cancel_requested = False
+    job.finished_at = now()
+    job.report = {**(job.report or {}), "discarded_rows": removed_rows}
+    db.flush()
+    record(db, action=actions.EXCEL_IMPORT, ctx=ctx, user=actor,
+           resource_type="IMPORT_JOB", resource_id=job.job_code,
+           detail={"op": "discarded", "file": job.file_name, "rows": removed_rows})
+    return {"mode": "discarded", "status": JOB_CANCELED, "discarded_rows": removed_rows,
+            "message": "올린 파일과 임시 자료를 지웠습니다. 인수인계에는 아무것도 반영되지 않았습니다."}
 
 
 # --------------------------------------------------------------------------- ROLLBACK

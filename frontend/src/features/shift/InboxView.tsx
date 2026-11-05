@@ -9,7 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
 import { Check, CheckCheck } from 'lucide-react'
 import { fieldLabel } from '@/features/handovers/VersionHistory'
-import { shiftApi, type InboxItem } from '@/services/api/shift'
+import { shiftApi, type InboxItem, type StaleAck } from '@/services/api/shift'
 
 function when(iso: string | null): string {
   if (!iso) return '-'
@@ -22,17 +22,23 @@ export default function InboxView() {
   const qc = useQueryClient()
   const navigate = useNavigate()
   const [picked, setPicked] = useState<Set<number>>(new Set())
-  const { data } = useQuery({ queryKey: ['inbox'], queryFn: shiftApi.inbox, refetchInterval: 30_000 })
+  const { data, isPending, isError, refetch } = useQuery({ queryKey: ['inbox'], queryFn: shiftApi.inbox, refetchInterval: 30_000 })
   const rows = data ?? []
   // 보낸 사람의 교대 총평 — 항목만 보고 확인하면 교대 전체 상황을 놓친다
   const summaries = [...new Map(rows.filter((r) => r.session_id && r.summary_note)
     .map((r) => [r.session_id, r])).values()]
 
+  const [held, setHeld] = useState<StaleAck[]>([])
   const ack = useMutation({
-    mutationFn: (ids: number[]) => shiftApi.bulkAck(ids),
-    onSuccess: () => {
-      setPicked(new Set())
-      for (const key of ['inbox', 'me', 'cockpit', 'handovers', 'shift-history']) {
+    // 화면이 그 줄에 보여 준 버전을 함께 보낸다 — 열어 둔 사이 바뀐 건은 서버가 보류한다
+    mutationFn: (ids: number[]) => shiftApi.bulkAck(ids.map((id) => ({
+      handover_id: id,
+      expected_version: rows.find((r) => r.handover_id === id)?.current_version_no ?? null,
+    }))),
+    onSuccess: (result) => {
+      setHeld(result.stale)
+      setPicked(new Set(result.stale.map((s) => s.handover_id)))
+      for (const key of ['inbox', 'me', 'cockpit', 'handover', 'handovers', 'shift-history', 'my-work', 'kpi']) {
         qc.invalidateQueries({ queryKey: [key] })
       }
     },
@@ -46,9 +52,31 @@ export default function InboxView() {
 
   return (
     <div className="p-3 space-y-2 overflow-auto">
+      {held.length > 0 && (
+        <div role="alert" className="text-sm bg-amber-50 border border-amber-200 text-amber-900 rounded px-2 py-1.5 space-y-1">
+          <p className="font-medium">
+            {held.length}건은 확인하지 않았습니다 — 보는 사이에 내용이 바뀌었습니다.
+          </p>
+          <ul className="space-y-0.5">
+            {held.map((h) => (
+              <li key={h.handover_id}>
+                <span className="tabular-nums">#{h.handover_id}</span> {h.title}
+                <span className="text-ink-muted">
+                  {' '}· v{h.shown_version_no} → v{h.current_version_no}
+                  {h.changed_fields.length > 0 && ` · 바뀐 것: ${h.changed_fields.map(fieldLabel).join(', ')}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p>바뀐 내용을 열어 본 뒤 다시 확인하십시오(아래에서 그대로 선택되어 있습니다).</p>
+        </div>
+      )}
+
       <div className="flex items-center gap-2">
         <p className={rows.length ? 'text-state-check font-medium' : 'text-ink-muted'}>
-          {rows.length ? `⚠ 확인하지 않은 인수인계 ${rows.length}건이 있습니다.` : '확인할 인수인계가 없습니다.'}
+          {isError ? <>확인함을 불러오지 못했습니다. {data && '마지막 조회 결과를 표시합니다.'}{' '}
+            <button className="btn btn-sm" onClick={() => refetch()}>다시 시도</button></>
+            : isPending ? '확인함을 불러오는 중…' : rows.length ? `⚠ 확인하지 않은 인수인계 ${rows.length}건이 있습니다.` : '확인할 인수인계가 없습니다.'}
         </p>
         <span className="flex-1" />
         <button className="btn btn-primary btn-sm" disabled={!picked.size || ack.isPending}

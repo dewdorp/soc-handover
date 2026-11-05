@@ -44,7 +44,7 @@ def run(db: Session, request: SearchRequest, actor: User):
     params = PageParams(page=request.page, size=request.size)
     # 조건이 없으면 '검색결과 수'가 곧 '전체 수'다 — 50만 건에서 같은 집계를 두 번 하면 1초가 든다.
     narrowed = bool(request.q or request.filters or request.quick or extra or request.include_deleted)
-    total_all = handover_repo.count_all(db) if narrowed else total
+    total_all = handover_repo.count_all(db, ctx) if narrowed else total
     return Page.of(items, params, total, total_all=total_all)
 
 

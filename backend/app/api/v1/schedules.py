@@ -11,7 +11,8 @@ from app.core.context import RequestContext, get_context
 from app.core.db import get_db
 from app.core.errors import ValidationFailed
 from app.models.user import User
-from app.schemas.schedule import (CalendarOut, DeleteScheduleRequest, ScheduleCreate, ScheduleMove,
+from app.schemas.schedule import (CalendarOut, DeleteScheduleRequest, MyScheduleOut,
+                                  ReminderOut, ReminderUpdate, ScheduleCreate, ScheduleMove,
                                   ScheduleOut, ScheduleUpdate)
 from app.services import schedule_service as svc
 
@@ -29,6 +30,24 @@ def calendar(start: datetime, end: datetime,
     if not picked or picked - LAYERS:
         raise ValidationFailed("layers 는 schedule · task · handover 중에서 고릅니다.")
     return svc.calendar(db, actor, start, end, picked, mine)
+
+
+@router.get("/schedules/mine", response_model=list[MyScheduleOut])
+def my_schedules(days: int = Query(default=7, ge=1, le=92),
+                 per_series: int = Query(default=3, ge=1, le=20),
+                 db: Session = Depends(get_db),
+                 actor: User = Depends(require("schedule:read"))):
+    """'내 일정' — 오늘부터 N일. 반복 일정은 앞의 몇 회차만 보여 주고 나머지는 숫자로 센다."""
+    return svc.mine_upcoming(db, actor, days=days, per_series=per_series)
+
+
+@router.put("/schedules/{schedule_id}/reminder", response_model=ReminderOut)
+def set_reminder(schedule_id: int, payload: ReminderUpdate, db: Session = Depends(get_db),
+                 actor: User = Depends(require("schedule:read")),
+                 ctx: RequestContext = Depends(get_context)):
+    """'내 알림' — 사람마다 따로. null 이면 끄기, 0 이면 시작할 때, 그 밖은 N분 전."""
+    value = svc.set_reminder(db, actor, schedule_id, payload.minutes_before)
+    return {"schedule_id": schedule_id, "minutes_before": value}
 
 
 @router.post("/schedules", response_model=ScheduleOut, status_code=status.HTTP_201_CREATED)

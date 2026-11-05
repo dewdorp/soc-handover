@@ -234,6 +234,76 @@ GET    /settings           [ADMIN]             PATCH /settings/{key} [ADMIN]
 GET    /admin/integrity-check [ADMIN]          버전 정합성/고아 레코드 점검
 ```
 
+## 8-1. 열람 그룹 (1.3.0)
+
+| 메서드 | 경로 | 권한 | 설명 |
+|---|---|---|---|
+| GET | `/groups/mine` | `handover:read` | **내가 속한 그룹** — 글 쓸 때 공개 범위 선택지 |
+| GET | `/groups` | `group:manage` | 그룹 목록 + 구성원 수 · 업무 수(**이름과 숫자만**, 제목은 주지 않는다) |
+| POST | `/groups` | `group:manage` | 만들기. 이름 중복은 409 |
+| PATCH | `/groups/{id}` | `group:manage` | 이름 · 설명 · 순서 · 사용여부. '미분류'는 중지할 수 없다(422) |
+| GET | `/groups/{id}/members` | `group:manage` | 구성원 |
+| GET/PUT | `/users/{id}/groups` | `group:manage` | 한 사람의 소속을 통째로 바꾼다 — **다음 요청부터** 적용(캐시 없음) |
+| GET | `/groups/unclassified/summary` | `group:manage` | 미분류로 남은 자료(관계사별 건수) |
+| POST | `/groups/unclassified/move` | `group:manage` | 지정 그룹으로 이관. **전체 공개로 바꾸지 않는다** |
+
+업무 등록 · 수정에 `visibility`(`GROUPS`\|`ALL`)와 `group_ids` 가 더해졌다. 비우면
+`GROUPS` + **쓴 사람의 기본 그룹**이 들어간다(전체 공개로 자동 넘어가지 않는다).
+내가 속하지 않은 그룹에 공개하려 하면 422.
+
+못 보는 업무는 **404** 로 답한다(403 이면 그 번호의 업무가 있다는 사실이 새어 나간다).
+이미 발급된 Export 내려받기 토큰도, 발급 당시보다 소속이 좁아지면 404 로 거절한다.
+
+---
+
+## 8-2. 근무표 (1.3.0)
+
+| 메서드 | 경로 | 권한 | 설명 |
+|---|---|---|---|
+| GET | `/roster/teams` | `schedule:read` | 조 편성(구성원 포함) |
+| PATCH | `/roster/teams/{id}` | `shift:manage` | 이름 · 주기 위치 · 사용여부 |
+| PUT | `/roster/teams/{id}/members` | `shift:manage` | 편성 교체. 두 조 중복은 409 |
+| GET | `/roster/calendar?view=week\|month&mine=` | `schedule:read` | 하루에 주간 · 야간 두 줄(계획 · 실제 · 결원) |
+| GET | `/roster/day?work_date=` | `schedule:read` | 그 날 두 교대 |
+| GET | `/roster/mine?days=` | `schedule:read` | 내 근무(대근으로 들어온 것 포함) |
+| GET | `/roster/next-shift` | `schedule:read` | **다음 근무의 실제 근무자** — 인계 상대 추천 |
+| GET | `/roster/coverage?start=&days=` | `schedule:read` | 매일 주간 1조 · 야간 1조인지 확인 |
+| GET | `/roster/overrides` | `schedule:read` | 변경 이력(취소된 것도 보여 준다) |
+| POST | `/roster/overrides` | `shift:manage` | 대근(`on_user_id` 있음) · 결원(없음) |
+| POST | `/roster/swaps` | `shift:manage` | 맞교환 — 두 줄로 적고 서로를 가리킨다 |
+| POST | `/roster/overrides/{id}/cancel` | `shift:manage` | 되돌리기(맞교환은 양쪽 함께) |
+| POST | `/roster/epoch?value=YYYY-MM-DD` | `shift:manage` | 기준일. 주기가 안 맞물리면 **저장하지 않고** 422 |
+
+같은 날(또는 바로 앞 야간) 근무에 이미 들어 있는 사람을 대근으로 넣으면 409.
+
+---
+
+## 8-3. 교대 마감 점검 · 내 일정 · 일정 알림 (1.3.0)
+
+| 메서드 | 경로 | 권한 | 설명 |
+|---|---|---|---|
+| GET | `/shift-handovers/closing-check` | `shift:transfer` | 다섯 줄 — 확인하지 않은 인계 · 보내지 않은 바구니 · 내 담당 미완료 · 지연 · 다음 근무 결원. 각 줄에 `url` 이 붙어 **누르면 그 목록**이 열린다 |
+| GET | `/schedules/mine?days=&per_series=` | `schedule:read` | 내 일정. 반복은 앞 N회차까지 + 가려진 회차 수 |
+| PUT | `/schedules/{id}/reminder` | `schedule:read` | 내 알림. `null`=끄기 · `0`=시작 · `10`/`30`=N분 전 · 그 밖=직접 |
+
+점검의 숫자는 목록과 **같은 검색 조건**(search_service)으로 센다 — '점검은 3건인데
+목록은 2건'이 생기지 않는다. 알림은 기존 알림함으로 간다(새 통로를 만들지 않는다).
+
+---
+
+## 8-4. RAG 바닥 공사 (1.3.0 — 모델 없음)
+
+| 메서드 | 경로 | 권한 | 설명 |
+|---|---|---|---|
+| GET | `/rag/contract` | `handover:read` | 접근 계약 · 사례 문서의 칸 · 색인에 넣지 않는 자료 |
+| GET | `/rag/verification-examples` | `handover:read` | 붙인 뒤 가장 먼저 확인할 질문과 지켜져야 할 것 |
+| GET | `/rag/cases?limit=` | `export:run` | 사례 묶음(내가 볼 수 있는 범위) |
+| POST | `/rag/cases` | `export:run` | 목록과 같은 검색 조건으로 사례를 뽑는다 |
+
+자세한 내용은 [RAG.md](RAG.md). 모델 · 벡터 DB 는 없다.
+
+---
+
 ## 9. AI — 범위에서 제외
 
 `/ai/*` 경로는 없다. AI 는 만들지 않기로 했다(ASSUMPTIONS E-01).
@@ -258,5 +328,10 @@ GET    /admin/integrity-check [ADMIN]          버전 정합성/고아 레코드
 | Audit 조회 | 본인 이력만 | 전체 | 전체 |
 | 사용자/역할 관리 | ❌ | ❌ | ✅ |
 | 시스템 설정 | ❌ | ❌ | ✅ |
+| 열람 그룹 관리(`group:manage`) | ❌ | ❌ | ✅ |
+| **다른 그룹 업무 원문 열람** | ❌ | ❌ | ❌ — 역할로는 열리지 않는다 |
+| 근무표 보기 | ✅ | ✅ | ✅ |
+| 조 편성 · 대근 · 맞교환(`shift:manage`) | ❌ | ❌ | ✅ |
+| RAG 사례 묶음(`export:run`) | ✅ | ✅ | ✅ — 내가 볼 수 있는 범위만 |
 
 권한 체크는 라우터 데코레이터(`Depends(require("handover:update"))`) + 서비스 레이어의 소유권 검사 2단으로 수행한다.

@@ -120,7 +120,7 @@ def export(db: Session, request, actor: User, ctx: RequestContext) -> dict[str, 
         written = _write_xlsx(path, columns, rows_iter, request)
         file_name = f"{base}.xlsx"
 
-    expires = register_download(token, path, file_name, actor, written)
+    expires = register_download(token, path, file_name, actor, written, db=db)
 
     # 어떤 조건으로 몇 건을 가져갔는지가 감사의 핵심이다(UI_STRUCTURE §8 예시).
     record(db, action=actions.EXCEL_EXPORT, ctx=ctx, user=actor,
@@ -190,12 +190,22 @@ def new_token() -> str:
     return secrets.token_urlsafe(24)
 
 
-def register_download(token: str, path: Path, file_name: str, actor: User, rows: int):
-    """만든 파일을 요청자 본인만 · 유효시간 안에서만 받을 수 있게 등록한다. 만료 시각을 돌려준다."""
+def register_download(token: str, path: Path, file_name: str, actor: User, rows: int,
+                      *, db=None):
+    """만든 파일을 요청자 본인만 · 유효시간 안에서만 받을 수 있게 등록한다. 만료 시각을 돌려준다.
+
+    만들 때의 **소속 그룹**도 함께 적는다. 파일은 그 순간 볼 수 있던 행들의 사본이므로,
+    그 뒤에 그룹에서 빠진 사람이 링크만 눌러 내용을 꺼내 가면 권한 회수가 무의미해진다.
+    받을 때 지금 소속과 비교해 좁아졌으면 거절한다(§3 '이미 발급된 토큰도 다음 요청부터 막는다').
+    """
     expires = now() + timedelta(minutes=settings.EXPORT_TTL_MINUTES)
+    groups: list[int] | None = None
+    if db is not None:
+        from app.services import group_service
+        groups = list(group_service.my_group_ids(db, actor.id))
     _meta_path(token).write_text(json.dumps({
         "owner": actor.id, "file": path.name, "name": file_name,
-        "expires": expires.isoformat(), "rows": rows,
+        "expires": expires.isoformat(), "rows": rows, "groups": groups,
     }, ensure_ascii=False), encoding="utf-8")
     return expires
 
@@ -204,7 +214,7 @@ def _meta_path(token: str) -> Path:
     return settings.exports_dir / f"{token}.json"
 
 
-def resolve_download(token: str, actor: User) -> tuple[Path, str]:
+def resolve_download(token: str, actor: User, db=None) -> tuple[Path, str]:
     """요청자 본인 · 유효시간 안에서만. 그 밖은 존재 자체를 드러내지 않는다(404)."""
     if not _TOKEN.match(token):
         raise NotFound("내려받을 파일을 찾을 수 없습니다.")
@@ -215,6 +225,13 @@ def resolve_download(token: str, actor: User) -> tuple[Path, str]:
     from datetime import datetime
     if meta.get("owner") != actor.id or datetime.fromisoformat(meta["expires"]) < now():
         raise NotFound("내려받을 파일을 찾을 수 없거나 유효시간이 지났습니다.")
+    issued = meta.get("groups")
+    if db is not None and issued is not None:
+        from app.services import group_service
+        if set(issued) - set(group_service.my_group_ids(db, actor.id)):
+            # 만들 때보다 소속이 좁아졌다 — 파일 안에 지금은 못 보는 행이 있을 수 있다.
+            raise NotFound("내려받을 파일을 찾을 수 없습니다. "
+                           "열람 그룹이 바뀌었으므로 다시 내보내십시오.")
     path = settings.exports_dir / meta["file"]
     if not path.exists():
         raise NotFound("내려받을 파일을 찾을 수 없습니다.")

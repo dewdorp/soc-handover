@@ -39,6 +39,7 @@ FIELD_NAMES: dict[str, str] = {
     "work_date": "수행일", "completed_at": "완료시각", "sender_id": "전달자",
     "assignee_id": "담당자", "checker_id": "확인자", "is_important": "중요",
     "is_pinned": "상단고정", "is_recurring": "반복", "tags": "태그",
+    "visibility": "공개 범위", "group_ids": "공개 그룹",
 }
 
 _DATE_FIELDS = frozenset({"registered_date", "work_date"})
@@ -66,6 +67,9 @@ def snapshot(handover: Handover) -> dict[str, Any]:
     for field in VERSIONED_FIELDS:
         if field == "tags":
             data[field] = tag_names(handover)
+        elif field == "group_ids":
+            # 공개 범위도 이력이다 — 어느 그룹에 열렸던 글인지 나중에 되짚을 수 있어야 한다.
+            data[field] = sorted(link.group_id for link in handover.group_links)
         else:
             data[field] = _jsonable(getattr(handover, field))
     return data
@@ -145,12 +149,17 @@ def _select_one(db: Session, handover_id: int, *, lock: bool = False) -> Handove
 
 
 def get_or_404(db: Session, handover_id: int, actor: User, *, lock: bool = False) -> Handover:
+    """상세와 그 하위 자원(이력·첨부·댓글·확인)이 모두 지나는 문. 열람 그룹 통제도 여기서 한다."""
+    from app.services import group_service
+
     row = _select_one(db, handover_id, lock=lock)
     if row is None:
         raise NotFound("인수인계를 찾을 수 없습니다.")
     if row.is_deleted and not has_permission(actor.role_code, "handover:read_deleted"):
         # 삭제된 건의 존재 자체를 드러내지 않는다.
         raise NotFound("인수인계를 찾을 수 없습니다.")
+    # 관리자라고 뒤로 다니는 길은 없다. 못 보는 그룹의 건은 '없는 건'이다(404).
+    group_service.assert_visible(db, row, actor)
     return row
 
 
@@ -230,7 +239,11 @@ def _add_version(db: Session, handover: Handover, *, change_type: str,
 
 def create_handover(db: Session, payload: dict[str, Any], actor: User,
                     ctx: RequestContext | None = None) -> Handover:
+    from app.services import group_service
+
     tags = payload.pop("tags", None)
+    visibility = payload.pop("visibility", None)
+    group_ids = payload.pop("group_ids", None)
     _validate_refs(db, company_id=payload.get("company_id"),
                    status_code=payload.get("status_code"),
                    priority_code=payload.get("priority_code"),
@@ -244,6 +257,9 @@ def create_handover(db: Session, payload: dict[str, Any], actor: User,
     db.flush()
 
     _apply_tags(db, handover, tags)
+    # 범위를 비우고 올리면 내 기본 그룹이 들어간다 — 전체 공개로 자동 넘어가지 않는다(§3).
+    group_service.apply_scope(db, handover, visibility=visibility, group_ids=group_ids,
+                              actor=actor)
     handover.search_text = build_search_text(db, handover)
     handover.fingerprint = compute_fingerprint(db, handover)
     db.flush()
@@ -315,7 +331,13 @@ def update_handover(db: Session, handover_id: int, changes: dict[str, Any],
     _ensure_editable(handover, actor)
 
     tags = changes.pop("tags", None)
+    visibility = changes.pop("visibility", None)
+    group_ids = changes.pop("group_ids", None)
     attempted = list(changes) + (["tags"] if tags is not None else [])
+    if visibility is not None:
+        attempted.append("visibility")
+    if group_ids is not None:
+        attempted.append("group_ids")
 
     if expected_version != handover.current_version_no:
         raise VersionConflict(detail=_conflict_detail(
@@ -330,6 +352,10 @@ def update_handover(db: Session, handover_id: int, changes: dict[str, Any],
     for field, value in changes.items():
         setattr(handover, field, value)
     _apply_tags(db, handover, tags)
+    if visibility is not None or group_ids is not None:
+        from app.services import group_service
+        group_service.apply_scope(db, handover, visibility=visibility, group_ids=group_ids,
+                                  actor=actor)
     db.flush()
 
     after = snapshot(handover)
@@ -351,6 +377,12 @@ def update_handover(db: Session, handover_id: int, changes: dict[str, Any],
            resource_type="HANDOVER", resource_id=handover.id,
            before={f: before[f] for f in changed}, after={f: after[f] for f in changed},
            detail={"version_no": handover.current_version_no, "reack_triggered_by": reack})
+    if "visibility" in changed or "group_ids" in changed:
+        # 공개 범위는 내용과 달리 '누가 볼 수 있는가'를 바꾼다. 닫아낸 것도 따로 남긴다.
+        record(db, action=actions.HANDOVER_SCOPE_CHANGE, ctx=ctx, user=actor,
+               resource_type="HANDOVER", resource_id=handover.id,
+               before={f: before[f] for f in ("visibility", "group_ids")},
+               after={f: after[f] for f in ("visibility", "group_ids")})
     _notify_people(db, handover, actor, before=before)
     return handover, True
 
@@ -457,10 +489,11 @@ def restore_version(db: Session, handover_id: int, version_no: int, *,
 
     before = snapshot(handover)
     for field in VERSIONED_FIELDS:
-        if field == "tags":
+        if field in ("tags", "group_ids"):
             continue
         setattr(handover, field, _coerce(field, target.after_data.get(field)))
     _apply_tags(db, handover, list(target.after_data.get("tags") or []))
+    _restore_groups(db, handover, target.after_data, actor)
     db.flush()
 
     after = snapshot(handover)
@@ -486,6 +519,25 @@ def restore_version(db: Session, handover_id: int, version_no: int, *,
                    "version_no": handover.current_version_no,
                    "reason": change_reason.strip(), "reack_triggered_by": reack})
     return handover
+
+
+def _restore_groups(db: Session, handover: Handover, after_data: dict[str, Any],
+                    actor: User) -> None:
+    """이전 버전의 공개 그룹을 되돌린다.
+
+    그 사이 그룹이 사용 중지되었을 수 있고, 복원하는 사람이 그 그룹에 속하지 않을 수도 있다.
+    그럴 땐 **넓혀지는 쪽으로 가지 않고** 지금 가능한 범위만 되돌린다.
+    """
+    from app.services import group_service
+
+    recorded = after_data.get("group_ids")
+    if recorded is None:
+        return
+    mine = set(group_service.my_group_ids(db, actor.id))
+    keep = [gid for gid in recorded if gid in mine]
+    if not keep:
+        return  # 되돌릴 수 있는 범위가 없으면 현재 범위를 그대로 둔다
+    group_service.apply_scope(db, handover, visibility=None, group_ids=keep, actor=actor)
 
 
 def as_of(db: Session, handover_id: int, at: datetime) -> HandoverVersion | None:

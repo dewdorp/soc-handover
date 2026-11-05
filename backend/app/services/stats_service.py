@@ -20,6 +20,7 @@ from app.models.handover import Handover, HandoverAcknowledgement
 from app.models.reference import Company, HandoverStatus
 from app.models.shift import ShiftHandover, ShiftHandoverItem, ShiftHandoverRecipient
 from app.models.task import TASK_CLOSED_STATES, TASK_DONE, Task
+from app.models.user import User
 
 MAX_DAYS = 366
 
@@ -33,11 +34,19 @@ def _range(start: date, end: date) -> tuple[datetime, datetime]:
             datetime.combine(end + timedelta(days=1), time.min, tzinfo=KST))
 
 
-def summary(db: Session, start: date, end: date) -> dict[str, Any]:
+def summary(db: Session, start: date, end: date, actor: User) -> dict[str, Any]:
+    """집계도 **내가 볼 수 있는 범위**에서만 센다.
+
+    숫자만 주면 괜찮다고 보기 쉽지만, '관계사별 건수'는 그 자체로 다른 그룹이 어느 고객을
+    상대하는지 알려 준다. 그래서 통계도 목록과 같은 범위를 쓴다(§3).
+    """
+    from app.services import group_service
+
+    visible = group_service.visible_clause(db, actor.id)
     t_from, t_to = _range(start, end)
     t0 = today()
     in_range = (Handover.is_deleted == false(), Handover.registered_date >= start,
-                Handover.registered_date <= end)
+                Handover.registered_date <= end, visible)
 
     # 관계사 · 상태
     by_company = [
@@ -77,7 +86,7 @@ def summary(db: Session, start: date, end: date) -> dict[str, Any]:
         .join(ShiftHandoverRecipient, ShiftHandoverRecipient.session_id == ShiftHandover.id)
         .join(Handover, Handover.id == ShiftHandoverItem.handover_id)
         .where(ShiftHandover.sent_at >= t_from, ShiftHandover.sent_at < t_to,
-               Handover.is_deleted == false())).all()
+               Handover.is_deleted == false(), visible)).all()
     acks = {(a.handover_id, a.user_id): a for a in db.scalars(
         select(HandoverAcknowledgement).where(
             HandoverAcknowledgement.handover_id.in_({i.handover_id for i in items} or {0})))}
@@ -96,7 +105,7 @@ def summary(db: Session, start: date, end: date) -> dict[str, Any]:
         "pending_now": db.scalar(select(func.count()).select_from(HandoverAcknowledgement)
                                  .join(Handover, Handover.id == HandoverAcknowledgement.handover_id)
                                  .where(HandoverAcknowledgement.state != "ACKED",
-                                        Handover.is_deleted == false())) or 0,
+                                        Handover.is_deleted == false(), visible)) or 0,
     }
 
     # 지금 지연 중
@@ -104,7 +113,7 @@ def summary(db: Session, start: date, end: date) -> dict[str, Any]:
         "handovers": db.scalar(select(func.count()).select_from(Handover)
                                .join(HandoverStatus, HandoverStatus.code == Handover.status_code)
                                .where(Handover.is_deleted == false(), HandoverStatus.category != "CLOSED",
-                                      Handover.work_date < t0)) or 0,
+                                      Handover.work_date < t0, visible)) or 0,
         "tasks": db.scalar(select(func.count()).select_from(Task)
                            .where(Task.is_deleted == false(), Task.status.notin_(TASK_CLOSED_STATES),
                                   Task.due_date < t0)) or 0,

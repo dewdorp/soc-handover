@@ -14,6 +14,7 @@ const AREAS = {
     { to: '/my-work/notes', label: '내 메모' },
     { to: '/tasks', label: '팀 할일' },
     { to: '/schedules', label: '팀 일정' },
+    { to: '/schedules/roster', label: '근무표' },
   ],
 }
 

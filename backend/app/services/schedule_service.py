@@ -23,7 +23,7 @@ from app.core.errors import Forbidden, NotFound, ValidationFailed, VersionConfli
 from app.core.time import KST, now, today
 from app.models.handover import Handover
 from app.models.reference import Company, HandoverStatus
-from app.models.schedule import Schedule
+from app.models.schedule import Schedule, ScheduleReminder
 from app.models.task import TASK_CANCELED, TASK_CLOSED_STATES, TASK_DONE, Task
 from app.models.user import User
 from app.services import notification_service, recurrence
@@ -128,6 +128,9 @@ def create(db: Session, actor: User, data: dict[str, Any], ctx: RequestContext |
     if data.get("handover_id") is not None:
         handover = db.get(Handover, data["handover_id"])
         if handover is None or handover.is_deleted:
+            raise ValidationFailed("연결할 인수인계를 찾을 수 없습니다.")
+        from app.services import group_service
+        if not group_service.can_see(db, handover, actor):
             raise ValidationFailed("연결할 인수인계를 찾을 수 없습니다.")
     if data.get("task_id") is not None:
         task = db.get(Task, data["task_id"])
@@ -256,7 +259,8 @@ def check_range(start: datetime, end: datetime) -> tuple[datetime, datetime]:
 
 
 def occurrences_in(db: Session, start: datetime, end: datetime, *, owner_id: int | None = None,
-                   company_id: int | None = None) -> list[tuple[Schedule, datetime, datetime]]:
+                   company_id: int | None = None,
+                   schedule_id: int | None = None) -> list[tuple[Schedule, datetime, datetime]]:
     """기간과 겹치는 회차. 반복 일정은 시작이 기간 끝보다 앞이면 후보로 두고 펼쳐서 거른다."""
     stmt = select(Schedule).where(
         Schedule.is_deleted == false(), Schedule.start_at < end,
@@ -265,6 +269,8 @@ def occurrences_in(db: Session, start: datetime, end: datetime, *, owner_id: int
         stmt = stmt.where(Schedule.owner_id == owner_id)
     if company_id is not None:
         stmt = stmt.where(Schedule.company_id == company_id)
+    if schedule_id is not None:
+        stmt = stmt.where(Schedule.id == schedule_id)
     found = []
     for s in db.scalars(stmt):
         for a, b in recurrence.occurrences(s.recurrence_rule, _aware(s.start_at), _aware(s.end_at), start, end):
@@ -309,10 +315,12 @@ def calendar(db: Session, actor: User, start: datetime, end: datetime, layers: s
             })
 
     if "handover" in layers:
+        from app.services import group_service
         stmt = (select(Handover, HandoverStatus.category)
                 .join(HandoverStatus, HandoverStatus.code == Handover.status_code)
                 .where(Handover.is_deleted == false(), Handover.work_date >= first_day,
-                       Handover.work_date <= last_day))
+                       Handover.work_date <= last_day,
+                       group_service.visible_clause(db, actor.id)))
         if mine:
             stmt = stmt.where(Handover.assignee_id == actor.id)
         for h, category in db.execute(stmt.order_by(Handover.work_date, Handover.id)):
@@ -355,6 +363,73 @@ def next_occurrences(db: Session, owner_id: int, start: datetime, end: datetime)
             seen.add(s.id)
             picked.append((s, a, b))
     return picked
+
+
+# --------------------------------------------------------------------------- 내 알림
+
+#: 화면이 내놓는 선택지. '직접'은 1~10080분(7일) 사이의 아무 값.
+REMINDER_CHOICES = (None, 0, 10, 30)
+MAX_REMINDER_MIN = 7 * 24 * 60
+
+
+def my_reminder(db: Session, schedule_id: int, user_id: int) -> int | None:
+    row = db.scalar(select(ScheduleReminder).where(
+        ScheduleReminder.schedule_id == schedule_id, ScheduleReminder.user_id == user_id))
+    return row.minutes_before if row else None
+
+
+def set_reminder(db: Session, actor: User, schedule_id: int,
+                 minutes_before: int | None) -> int | None:
+    """내 알림을 정한다. None 이면 끄기(행을 지운다 — 끈 것과 설정이 없는 것은 같다)."""
+    get_or_404(db, schedule_id)
+    if minutes_before is not None:
+        if minutes_before < 0 or minutes_before > MAX_REMINDER_MIN:
+            raise ValidationFailed(f"알림은 0분(시작) ~ {MAX_REMINDER_MIN}분 전 사이로 넣으십시오.",
+                                   detail={"field": "minutes_before"})
+    row = db.scalar(select(ScheduleReminder).where(
+        ScheduleReminder.schedule_id == schedule_id, ScheduleReminder.user_id == actor.id))
+    if minutes_before is None:
+        if row is not None:
+            db.delete(row)
+            db.flush()
+        return None
+    if row is None:
+        row = ScheduleReminder(schedule_id=schedule_id, user_id=actor.id)
+        db.add(row)
+    row.minutes_before = int(minutes_before)
+    db.flush()
+    return row.minutes_before
+
+
+def mine_upcoming(db: Session, actor: User, *, days: int = 7,
+                  per_series: int = 3) -> list[dict[str, Any]]:
+    """'내 일정' — 오늘부터 N일, 반복 일정은 **앞의 몇 회차만**.
+
+    매일 반복하는 점검이 하나 있으면 7일치가 7줄이 되어 다른 일정을 밀어낸다.
+    그래서 한 일정(series)당 per_series 회차까지만 보여 주고, 더 있으면 몇 번 더 있는지 센다.
+    """
+    start = now()
+    end = start + timedelta(days=days)
+    counts: dict[int, int] = {}
+    rows: list[dict[str, Any]] = []
+    for s, a, b in occurrences_in(db, start, end, owner_id=actor.id):
+        counts[s.id] = counts.get(s.id, 0) + 1
+        if counts[s.id] > per_series:
+            continue
+        rows.append({
+            "id": s.id, "title": s.title, "event_type": s.event_type,
+            "start_at": a, "end_at": b, "is_all_day": s.is_all_day,
+            "company": s.company.name if s.company else None,
+            "handover_id": s.handover_id, "task_id": s.task_id,
+            "recurrence_rule": s.recurrence_rule,
+            "reminder_minutes": my_reminder(db, s.id, actor.id),
+            "occurrence_no": counts[s.id],
+        })
+    rows.sort(key=lambda r: r["start_at"])
+    for row in rows:
+        total = counts[row["id"]]
+        row["more_occurrences"] = max(0, total - per_series) if row["occurrence_no"] == 1 else 0
+    return rows
 
 
 def to_out(actor: User, s: Schedule) -> dict[str, Any]:

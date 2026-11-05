@@ -18,11 +18,12 @@ from app.core.time import now
 from app.importers.excel import aliases as al
 from app.importers.excel.normalize import CREATE_COMPANY, Lookups, normalize_row
 from app.importers.excel.reader import iter_rows
+from app.models.group import HandoverGroup
 from app.models.handover import CHANGE_DELETE, CHANGE_IMPORT, Handover, HandoverVersion
 from app.models.importjob import ExcelImportError, ExcelImportJob, ExcelImportRow
 from app.models.reference import Company, HandoverStatus, Priority
 from app.models.user import User
-from app.services import bootstrap_service
+from app.services import bootstrap_service, group_service
 from app.utils.fingerprint import norm
 
 Progress = Callable[[int], None]
@@ -332,6 +333,8 @@ def commit_rows(db: Session, job: ExcelImportJob, actor: User,
             break
 
         stamp = now()
+        import_group_id = (group_service.default_group_id(db, actor.id)
+                           or group_service.ensure_unclassified(db).id)
         pairs: list[tuple[ExcelImportRow, Handover]] = []
         for row in rows:
             n = row.normalized or {}
@@ -365,6 +368,12 @@ def commit_rows(db: Session, job: ExcelImportJob, actor: User,
             db.add(handover)
             pairs.append((row, handover))
         db.flush()  # id 확보
+
+        # 가져온 자료도 공개 그룹을 가져야 한다. 올린 사람의 기본 그룹, 없으면 '미분류'.
+        # 전체 공개로 올리지 않는다 — 과거 자료를 모두에게 여는 결정은 관리자가 따로 한다.
+        for _row, handover in pairs:
+            db.add(HandoverGroup(handover_id=handover.id, group_id=import_group_id))
+        db.flush()
 
         from app.services.handover_service import snapshot
         for row, handover in pairs:

@@ -143,6 +143,27 @@ class TestAuditCoverage:
                   json={"password": "틀린비밀번호"})
         hong.delete(f"/api/v1/credentials/{cred['id']}")                                  # CREDENTIAL_DELETE
 
+        # 열람 그룹 — 만들기 · 고치기 · 구성원 · 미분류 이관 · 공개 범위 변경
+        g = admin.post("/api/v1/groups", json={"name": "감사확인조"}).json()                  # GROUP_CREATE
+        admin.patch(f"/api/v1/groups/{g['id']}", json={"description": "감사용"})              # GROUP_UPDATE
+        admin.put(f"/api/v1/users/{ids['analyst']['id']}/groups",                            # GROUP_MEMBER_CHANGE
+                  json={"group_ids": [g["id"]], "default_group_id": g["id"]})
+        admin.post("/api/v1/groups/unclassified/move", json={"to_group_id": g["id"]})         # GROUP_DATA_MOVE
+        pub = _handover(admin, cid, "공개 범위 변경용")
+        admin.patch(f"{H}/{pub['id']}", json={"expected_version": 1, "visibility": "ALL"})    # HANDOVER_SCOPE_CHANGE
+
+        # 근무표 — 조 편성 · 대근 · 취소
+        rteams = admin.get("/api/v1/roster/teams").json()
+        admin.put(f"/api/v1/roster/teams/{rteams[0]['id']}/members",                          # ROSTER_TEAM_CHANGE
+                  json={"user_ids": [ids["analyst"]["id"]], "leader_id": ids["analyst"]["id"]})
+        duty = admin.get("/api/v1/roster/next-shift").json()
+        if duty["user_ids"]:
+            sub = admin.post("/api/v1/roster/overrides", json={                               # ROSTER_OVERRIDE
+                "work_date": duty["work_date"], "shift_code": duty["shift_code"],
+                "off_user_id": duty["user_ids"][0], "reason": "감사 확인"}).json()
+            admin.post(f"/api/v1/roster/overrides/{sub['id']}/cancel",                        # ..._CANCEL
+                       json={"reason": "되돌림"})
+
         # 관리
         u = admin.post("/api/v1/users", json={"username": "newbie", "display_name": "신입",   # USER_CREATE
                                               "password": "Night#Shift2026!zq", "role_code": "ANALYST"}).json()

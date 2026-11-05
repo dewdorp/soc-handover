@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Check, Pin, Plus, Star, Trash2, X } from 'lucide-react'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import ScopePicker, { ScopeBadge, type Visibility } from '@/features/handovers/ScopePicker'
 import ConflictDialog from '@/features/handovers/ConflictDialog'
 import TaskCreateDialog from '@/features/tasks/TaskCreateDialog'
 import LinkedSchedules from '@/features/calendar/LinkedSchedules'
@@ -277,7 +278,22 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
                   <span key={t} className="chip mr-1">#{t}</span>
                 )) : '-'}
               </Field>
+              <Field label="공개">
+                <ScopeBadge visibility={row.visibility} groupNames={row.group_names} />
+              </Field>
             </dl>
+
+            {editing && (
+              <ScopePicker
+                visibility={(field('visibility', row.visibility) as Visibility)}
+                groupIds={(field('group_ids', row.group_ids) as number[]) ?? []}
+                currentNames={row.group_names}
+                onChange={(next) => {
+                  set('visibility', next.visibility)
+                  set('group_ids', next.group_ids)
+                }}
+              />
+            )}
 
             <section>
               <h3 className="text-ink-muted mb-1">내용</h3>

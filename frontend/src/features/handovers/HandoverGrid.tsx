@@ -8,6 +8,7 @@
  */
 import { useState } from 'react'
 import { ArrowDown, ArrowUp, Filter as FilterIcon, Pin, Star } from 'lucide-react'
+import { ScopeBadge } from '@/features/handovers/ScopePicker'
 import ColumnFilter from '@/features/handovers/ColumnFilter'
 import type { Density } from '@/hooks/useGridState'
 import type {
@@ -36,6 +37,8 @@ export const COLUMNS: ColumnDef[] = [
   { key: 'assignee', label: '담당자', field: 'assignee_id', width: '90px' },
   { key: 'ack', label: '확인', field: 'my_ack_state', width: '92px' },
   { key: 'tags', label: '태그', field: 'tags', width: '130px' },
+  // 누가 볼 수 있는 글인지 — 목록에서도 한눈에 보이게 한다(§3)
+  { key: 'scope', label: '공개', width: '120px' },
   { key: 'updated_at', label: '최근수정', field: 'updated_at', width: '96px' },
 ]
 
@@ -237,6 +240,8 @@ function Cell({ col, row, onToggleStar }: {
       return <>{row.assignee?.display_name ?? row.assignee_name_raw ?? '-'}</>
     case 'ack':
       return <AckCell row={row} />
+    case 'scope':
+      return <ScopeBadge visibility={row.visibility} groupNames={row.group_names} />
     case 'tags':
       return (
         <span className="flex gap-0.5 overflow-hidden">

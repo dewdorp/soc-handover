@@ -57,14 +57,33 @@ IMAGE_MAGIC: tuple[tuple[bytes, str], ...] = (
 SNIFF_BYTES = 16
 
 
-def _entity(db: Session, entity_type: str, entity_id: int):
+def _entity(db: Session, entity_type: str, entity_id: int, actor: User | None = None):
+    """첨부의 주인 되는 대상. actor 를 주면 **열람 그룹까지** 확인한다.
+
+    첨부는 원문의 일부다. 원문을 못 보는 사람이 파일 번호만 알아내 받아 가는 길을 막는다.
+    """
     model = {"HANDOVER": Handover, "TASK": Task}.get(entity_type)
     if model is None:
         raise ValidationFailed("첨부는 인수인계(HANDOVER) · 할일(TASK)에만 붙일 수 있습니다.")
     obj = db.get(model, entity_id)
     if obj is None or obj.is_deleted:
         raise NotFound("첨부할 대상을 찾을 수 없습니다.")
+    if actor is not None:
+        _guard_read(db, entity_type, obj, actor)
     return obj
+
+
+def _guard_read(db: Session, entity_type: str, obj, actor: User) -> None:
+    from app.services import group_service
+
+    if entity_type == "HANDOVER":
+        group_service.assert_visible(db, obj, actor)
+        return
+    # 할일에 붙은 첨부: 인수인계에서 만들어진 할일이면 그 원문 범위를 따른다.
+    if getattr(obj, "handover_id", None):
+        handover = db.get(Handover, obj.handover_id)
+        if handover is not None:
+            group_service.assert_visible(db, handover, actor)
 
 
 def _can_modify(actor: User, entity_type: str, obj) -> bool:
@@ -108,7 +127,7 @@ def scan(path: Path) -> str:
 def upload(db: Session, actor: User, entity_type: str, entity_id: int, file_name: str, stream: BinaryIO,
            ctx: RequestContext | None = None) -> Attachment:
     entity_type = entity_type.upper()
-    obj = _entity(db, entity_type, entity_id)
+    obj = _entity(db, entity_type, entity_id, actor)
     if not _can_modify(actor, entity_type, obj):
         raise Forbidden("이 대상을 고칠 수 있는 사람만 첨부할 수 있습니다.")
 
@@ -192,7 +211,7 @@ def is_image(att: Attachment) -> bool:
         return False
 
 
-def preview(db: Session, attachment_id: int) -> tuple[Path, Attachment, str]:
+def preview(db: Session, attachment_id: int, actor: User) -> tuple[Path, Attachment, str]:
     """그림을 화면에 그대로 보여 주기 위한 경로 · 타입.
 
     내려받기와 달리 감사에 남기지 않는다 — 인수인계 화면을 여는 것과 같은 행위이고,
@@ -200,6 +219,7 @@ def preview(db: Session, attachment_id: int) -> tuple[Path, Attachment, str]:
     파일을 손에 넣는 '받기'는 그대로 감사에 남는다(ASSUMPTIONS I-02).
     """
     att = get_or_404(db, attachment_id)
+    _entity(db, att.entity_type, att.entity_id, actor)
     path = file_path(att)
     mime = image_type(path)
     if mime is None:
@@ -209,6 +229,7 @@ def preview(db: Session, attachment_id: int) -> tuple[Path, Attachment, str]:
 
 def download(db: Session, actor: User, attachment_id: int, ctx: RequestContext | None = None) -> tuple[Path, Attachment]:
     att = get_or_404(db, attachment_id)
+    _entity(db, att.entity_type, att.entity_id, actor)
     path = file_path(att)
     record(db, action=actions.ATTACHMENT_DOWNLOAD, ctx=ctx, user=actor, resource_type=att.entity_type,
            resource_id=att.entity_id, detail={"attachment_id": att.id, "name": att.original_name})
@@ -227,6 +248,7 @@ def can_delete(db: Session, actor: User, att: Attachment) -> bool:
 
 def delete(db: Session, actor: User, attachment_id: int, ctx: RequestContext | None = None) -> None:
     att = get_or_404(db, attachment_id)
+    _entity(db, att.entity_type, att.entity_id, actor)
     if not can_delete(db, actor, att):
         raise Forbidden("올린 사람이나 대상을 고칠 수 있는 사람만 지울 수 있습니다.")
     att.is_deleted = True
@@ -236,8 +258,9 @@ def delete(db: Session, actor: User, attachment_id: int, ctx: RequestContext | N
                                               "sha256": att.sha256})
 
 
-def list_for(db: Session, entity_type: str, entity_id: int) -> list[Attachment]:
-    _entity(db, entity_type.upper(), entity_id)
+def list_for(db: Session, entity_type: str, entity_id: int,
+             actor: User | None = None) -> list[Attachment]:
+    _entity(db, entity_type.upper(), entity_id, actor)
     return list(db.scalars(select(Attachment).where(
         Attachment.entity_type == entity_type.upper(), Attachment.entity_id == entity_id,
         Attachment.is_deleted == false()).order_by(Attachment.created_at, Attachment.id)))

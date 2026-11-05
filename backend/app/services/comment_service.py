@@ -24,17 +24,22 @@ from app.models.user import User
 AUDIT_BODY = 500          # 감사에 남기는 본문 길이
 
 
-def _handover(db: Session, handover_id: int) -> Handover:
+def _handover(db: Session, handover_id: int, actor: User) -> Handover:
+    """원문을 볼 수 없는 사람에게는 댓글도 보이지 않는다 — 댓글은 그 업무의 내용이다."""
+    from app.services import group_service
+
     h = db.get(Handover, handover_id)
     if h is None or h.is_deleted:
         raise NotFound("인수인계를 찾을 수 없습니다.")
+    group_service.assert_visible(db, h, actor)
     return h
 
 
-def _comment(db: Session, comment_id: int) -> HandoverComment:
+def _comment(db: Session, comment_id: int, actor: User) -> HandoverComment:
     c = db.get(HandoverComment, comment_id)
     if c is None or c.is_deleted:
         raise NotFound("댓글을 찾을 수 없습니다.")
+    _handover(db, c.handover_id, actor)     # 원문 열람 범위를 먼저 확인한다
     return c
 
 
@@ -46,8 +51,8 @@ def can_delete(actor: User, c: HandoverComment) -> bool:
     return c.author_id == actor.id or has_permission(actor.role_code, "handover:update_any")
 
 
-def list_for(db: Session, handover_id: int) -> list[HandoverComment]:
-    _handover(db, handover_id)
+def list_for(db: Session, handover_id: int, actor: User) -> list[HandoverComment]:
+    _handover(db, handover_id, actor)
     return list(db.scalars(select(HandoverComment)
                            .where(HandoverComment.handover_id == handover_id,
                                   HandoverComment.is_deleted == false())
@@ -62,7 +67,7 @@ def count_for(db: Session, handover_id: int) -> int:
 
 def create(db: Session, actor: User, handover_id: int, body: str,
            ctx: RequestContext | None = None) -> HandoverComment:
-    h = _handover(db, handover_id)
+    h = _handover(db, handover_id, actor)
     c = HandoverComment(handover_id=h.id, author_id=actor.id, body=body.strip())
     db.add(c)
     db.flush()
@@ -74,7 +79,7 @@ def create(db: Session, actor: User, handover_id: int, body: str,
 
 def update(db: Session, actor: User, comment_id: int, body: str,
            ctx: RequestContext | None = None) -> HandoverComment:
-    c = _comment(db, comment_id)
+    c = _comment(db, comment_id, actor)
     if not can_edit(actor, c):
         raise Forbidden("본인이 쓴 댓글만 고칠 수 있습니다.")
     new = body.strip()
@@ -90,7 +95,7 @@ def update(db: Session, actor: User, comment_id: int, body: str,
 
 
 def delete(db: Session, actor: User, comment_id: int, ctx: RequestContext | None = None) -> None:
-    c = _comment(db, comment_id)
+    c = _comment(db, comment_id, actor)
     if not can_delete(actor, c):
         raise Forbidden("본인이 쓴 댓글만 지울 수 있습니다(관리자 제외).")
     c.is_deleted, c.deleted_at, c.deleted_by = True, now(), actor.id

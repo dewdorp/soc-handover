@@ -56,6 +56,8 @@ _ADMIN_EXTRA: Final[frozenset[str]] = frozenset({
     "user:manage",
     "role:change",
     "settings:manage",
+    # 그룹을 만들고 사람을 넣는 권한. 다른 그룹 업무의 **원문을 읽는 권한은 아니다**.
+    "group:manage",
     "status:manage",
     "shift:manage",
     "system:maintain",

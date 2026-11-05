@@ -56,6 +56,13 @@ def cockpit(shift_date: date | None = None, shift_id: int | None = None,
 
 # --------------------------------------------------------------------------- Basket
 
+@router.get(f"{P}/closing-check")
+def closing_check(db: Session = Depends(get_db),
+                  actor: User = Depends(require("shift:transfer"))):
+    """근무를 넘기기 전 점검 — 숫자를 누르면 그 목록이 열린다(§6)."""
+    return svc.closing_check(db, actor)
+
+
 @router.get(f"{P}/basket", response_model=BasketOut)
 def get_basket(db: Session = Depends(get_db), actor: User = Depends(require("shift:transfer"))):
     basket, added = svc.get_basket(db, actor)

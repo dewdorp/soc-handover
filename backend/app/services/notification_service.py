@@ -21,6 +21,8 @@ T_SCHEDULE_ASSIGNED = "SCHEDULE_ASSIGNED" # 일정 담당자로 지정됨
 T_IMPORTANT = "IMPORTANT_HANDOVER"        # 중요 · 긴급 인수인계(관리자에게)
 T_TASK_DUE_SOON = "TASK_DUE_SOON"         # 내 할일 마감이 오늘·내일
 T_TASK_OVERDUE = "TASK_OVERDUE"           # 내 할일 마감이 지남
+T_SHIFT_CHANGE = "SHIFT_CHANGE"           # 내 근무가 바뀜(대근 · 맞교환 · 취소)
+T_SCHEDULE_REMINDER = "SCHEDULE_REMINDER"  # 내가 설정한 일정 알림
 
 
 def notify(db: Session, *, user_id: int, type_: str, title: str, body: str | None = None,
@@ -54,14 +56,34 @@ def notify_once(db: Session, *, user_id: int, dedup_key: str, **kwargs) -> Notif
     return notify(db, user_id=user_id, dedup_key=dedup_key, **kwargs)
 
 
+def _readable(db: Session, user_id: int):
+    """업무를 가리키는 알림 중 **지금 볼 수 없는 것**을 걸러 내는 조건.
+
+    만들 때 걸러도 소용없다 — 그룹에서 빠지는 일은 알림이 만들어진 뒤에 일어난다.
+    그래서 읽을 때마다 판정한다. 그룹이 바뀌면 다음 요청부터 제목이 사라진다.
+    """
+    from sqlalchemy import and_, exists, or_
+
+    from app.models.handover import Handover
+    from app.services import group_service
+
+    visible = exists(select(Handover.id).where(
+        Handover.id == Notification.link_id,
+        group_service.visible_clause(db, user_id)).correlate(Notification))
+    return or_(Notification.link_type != "HANDOVER", Notification.link_type.is_(None),
+               and_(Notification.link_type == "HANDOVER", visible))
+
+
 def unread_count(db: Session, user_id: int) -> int:
     return db.scalar(select(func.count()).select_from(Notification).where(
-        Notification.user_id == user_id, Notification.is_read == false())) or 0
+        Notification.user_id == user_id, Notification.is_read == false(),
+        _readable(db, user_id))) or 0
 
 
 def list_for(db: Session, user_id: int, *, unread_only: bool = False,
              limit: int = 50) -> list[Notification]:
-    stmt = select(Notification).where(Notification.user_id == user_id)
+    stmt = select(Notification).where(Notification.user_id == user_id,
+                                      _readable(db, user_id))
     if unread_only:
         stmt = stmt.where(Notification.is_read == false())
     return list(db.scalars(stmt.order_by(Notification.created_at.desc(),

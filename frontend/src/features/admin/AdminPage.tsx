@@ -2,12 +2,14 @@
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom'
 import BackupTab from '@/features/admin/BackupTab'
 import CodesTab from '@/features/admin/CodesTab'
+import GroupsTab from '@/features/admin/GroupsTab'
 import ShiftsTab from '@/features/admin/ShiftsTab'
 import UsersTab from '@/features/admin/UsersTab'
 import { useCan } from '@/hooks/useAuth'
 
 const TABS = [
-  { to: 'users', label: '사용자' }, { to: 'codes', label: '상태 · 관계사' },
+  { to: 'users', label: '사용자' }, { to: 'groups', label: '열람 그룹' },
+  { to: 'codes', label: '상태 · 관계사' },
   { to: 'shifts', label: '교대 시간' }, { to: 'backup', label: '백업' },
 ]
 
@@ -25,6 +27,7 @@ export default function AdminPage() {
       <div className="flex-1 min-h-0 overflow-auto p-3">
         <Routes>
           <Route path="users" element={<UsersTab />} />
+          <Route path="groups" element={<GroupsTab />} />
           <Route path="codes" element={<CodesTab />} />
           <Route path="shifts" element={<ShiftsTab />} />
           <Route path="backup" element={<BackupTab />} />

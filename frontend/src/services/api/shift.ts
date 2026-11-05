@@ -144,7 +144,24 @@ export interface AppNotification {
 
 const P = '/shift-handovers'
 
+export interface ClosingRow {
+  key: string
+  label: string
+  count: number
+  url: string
+  tone: 'ok' | 'check' | 'urgent'
+  hint: string
+}
+
+export interface ClosingCheck {
+  window: { label?: string; shift_date?: string } & Record<string, unknown>
+  next_shift: { work_date: string; shift_label: string; names: string[]; user_ids: number[]; is_short: boolean }
+  rows: ClosingRow[]
+  all_clear: boolean
+}
+
 export const shiftApi = {
+  closingCheck: () => api.get<ClosingCheck>(`${P}/closing-check`),
   cockpit: (area?: string) => api.get<Cockpit>(`${P}/cockpit${area ? `?area=${encodeURIComponent(area)}` : ''}`),
   basket: () => api.get<Basket>(`${P}/basket`),
   addItems: (handoverIds: number[], note?: string) =>

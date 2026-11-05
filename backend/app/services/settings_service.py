@@ -13,6 +13,14 @@ from app.models.common import SystemSetting
 
 #: (기본값, 카테고리, 설명, 비밀여부)
 DEFAULTS: dict[str, tuple[Any, str, str, bool]] = {
+    "roster.epoch_date": (
+        "2026-01-05", "roster",
+        "근무표 16일 주기의 기준일. 이 날 주기 위치 0 인 조가 '주간 1일째'다.",
+        False,
+    ),
+    "roster.team_size": (
+        4, "roster", "한 조의 정원. 이보다 적게 서면 '결원'으로 표시한다.", False,
+    ),
     "ack.reack_fields": (
         ["title", "content", "work_date", "status_code", "priority_code", "assignee_id"],
         "handover",
@@ -88,6 +96,8 @@ SPEC: dict[str, dict[str, Any]] = {
     "retention.audit_days": {"kind": "int", "min": 365, "max": 3650, "unit": "일", "label": "감사로그 보존"},
     "export.max_rows": {"kind": "int", "min": 1_000, "max": 1_000_000, "unit": "행", "label": "Export 최대 행수"},
     "shift.carry_forward_auto": {"kind": "bool", "label": "미완료 자동 이어 넘기기"},
+    "roster.epoch_date": {"kind": "date", "label": "근무표 기준일"},
+    "roster.team_size": {"kind": "int", "min": 1, "max": 20, "unit": "명", "label": "조 정원"},
     "import.header_aliases": {"kind": "aliases", "label": "Import 컬럼 별칭"},
     "import.status_aliases": {"kind": "aliases", "label": "Import 상태 별칭"},
 }
@@ -121,6 +131,13 @@ def validate(key: str, value: Any) -> Any:
         if not spec["min"] <= value <= spec["max"]:
             raise fail(f"{spec['min']:,} ~ {spec['max']:,}{spec.get('unit', '')} 사이여야 합니다.")
         return value
+    if kind == "date":
+        from datetime import date as _date
+        try:
+            _date.fromisoformat(str(value))
+        except ValueError:
+            raise fail("YYYY-MM-DD 형식의 날짜여야 합니다.") from None
+        return str(value)
     if kind == "fields":
         allowed = {c["value"] for c in spec["choices"]}
         if not isinstance(value, list) or not value or any(v not in allowed for v in value):

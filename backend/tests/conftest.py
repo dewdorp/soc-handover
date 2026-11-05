@@ -117,14 +117,27 @@ def client() -> ApiClient:
         yield c
 
 
-def _make_user(db: Session, username: str, display: str, role: str, password: str):
+def _make_user(db: Session, username: str, display: str, role: str, password: str,
+               *, groups: bool = True):
+    """시험용 계정.
+
+    groups=True 면 기본 열람 그룹('미분류')에 넣는다. 실제 설치에서도 이관 직후의 모든
+    계정이 그 그룹에 있으므로(마이그레이션 c8a2f4e7b015), 이것이 '평소' 상태다.
+    그룹 통제 자체를 시험할 때는 groups=False 로 만들어 격리한다.
+    """
     from app.core.security import hash_password
+    from app.models.group import UserGroup
     from app.models.user import User
+    from app.services import group_service
     user = User(username=username, display_name=display, role_code=role,
                 password_hash=hash_password(password), is_active=True,
                 must_change_password=False)
     db.add(user)
     db.flush()
+    if groups:
+        group = group_service.ensure_unclassified(db)
+        db.add(UserGroup(user_id=user.id, group_id=group.id, is_default=True))
+        db.flush()
     return user
 
 

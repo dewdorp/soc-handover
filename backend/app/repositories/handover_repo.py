@@ -27,8 +27,22 @@ _LABEL_SOURCES = {
 }
 
 
-def _deleted_scope(stmt: Select, *, include_deleted: bool) -> Select:
-    return stmt if include_deleted else stmt.where(Handover.is_deleted == false())
+def _scope(db: Session, stmt: Select, ctx: CompileContext, *,
+           include_deleted: bool) -> Select:
+    """목록·건수·패싯·Export 가 **빠짐없이** 지나는 범위 제한.
+
+    여기에 두 가지를 겹친다.
+      · 삭제 범위 — include_deleted 가 아니면 지운 건은 안 보인다.
+      · 열람 그룹 — 내가 속한 그룹 · 전체 공개 · 내가 당사자인 건만(group_service 가 판정).
+
+    왜 compile 단계가 아니라 여기인가: DSL 컴파일러는 세션을 모른다. 반대로 여기는
+    모든 질의가 지나는 마지막 지점이라, 새 화면을 붙이면서 조건을 빼먹을 수가 없다.
+    """
+    from app.services import group_service
+
+    if not include_deleted:
+        stmt = stmt.where(Handover.is_deleted == false())
+    return stmt.where(group_service.visible_clause(db, ctx.user_id))
 
 
 def count(db: Session, request: SearchRequest, ctx: CompileContext, *,
@@ -39,22 +53,31 @@ def count(db: Session, request: SearchRequest, ctx: CompileContext, *,
     50만 건에서 '지연 17만 건'을 정확히 세는 데 0.6초가 든다. Cockpit 타일처럼 '많다'만 알면 되는
     자리에서는 상한을 두고 센다 — 실측: 620ms → 20ms.
     """
-    stmt = _deleted_scope(build_statement(request, ctx, extra), include_deleted=include_deleted)
+    stmt = _scope(db, build_statement(request, ctx, extra), ctx,
+                  include_deleted=include_deleted)
     if cap is not None:
         stmt = stmt.limit(cap + 1)
     return db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
 
 
-def count_all(db: Session) -> int:
-    """필터를 걸지 않았을 때의 전체 건수. '전체 N건 / 검색결과 M건' 표시용(FR-A-09)."""
+def count_all(db: Session, ctx: CompileContext) -> int:
+    """필터를 걸지 않았을 때 **내가 볼 수 있는** 전체 건수('전체 N건 / 검색결과 M건', FR-A-09).
+
+    여기서 그룹 조건을 빼면 '전체 1,200건 · 검색결과 80건'처럼 보이면서, 볼 수 없는 건의
+    개수가 숫자로 새어 나간다.
+    """
+    from app.services import group_service
+
     return db.scalar(
-        select(func.count()).select_from(Handover).where(Handover.is_deleted == false())
+        select(func.count()).select_from(Handover)
+        .where(Handover.is_deleted == false(), group_service.visible_clause(db, ctx.user_id))
     ) or 0
 
 
 def search(db: Session, request: SearchRequest, ctx: CompileContext, *,
            include_deleted: bool, extra: list[Filter] | None = None) -> list[Handover]:
-    stmt = _deleted_scope(build_statement(request, ctx, extra), include_deleted=include_deleted)
+    stmt = _scope(db, build_statement(request, ctx, extra), ctx,
+                  include_deleted=include_deleted)
     offset = (request.page - 1) * request.size
     stmt = stmt.order_by(*compile_order(request)).offset(offset).limit(request.size)
     return list(db.scalars(stmt))
@@ -62,21 +85,22 @@ def search(db: Session, request: SearchRequest, ctx: CompileContext, *,
 
 # --------------------------------------------------------------------------- Facet
 
-def _facet_base(request: SearchRequest, ctx: CompileContext, target_field: str,
+def _facet_base(db: Session, request: SearchRequest, ctx: CompileContext, target_field: str,
                 *, include_deleted: bool, extra: list[Filter] | None):
     """Excel 자동필터와 같은 체감을 위해 **그 필드 자신의 필터는 빼고** 건수를 센다."""
     trimmed = request.model_copy(update={
         "filters": [f for f in request.filters if f.field != target_field],
         "sort": [],
     })
-    return _deleted_scope(build_statement(trimmed, ctx, extra), include_deleted=include_deleted)
+    return _scope(db, build_statement(trimmed, ctx, extra), ctx,
+                  include_deleted=include_deleted)
 
 
 def facet(db: Session, request: SearchRequest, ctx: CompileContext, *, field: str,
           q: str = "", limit: int = 50, include_deleted: bool = False,
           extra: list[Filter] | None = None) -> list[dict[str, Any]]:
     definition = reg.HANDOVER_FIELDS[field]
-    base = _facet_base(request, ctx, field, include_deleted=include_deleted, extra=extra)
+    base = _facet_base(db, request, ctx, field, include_deleted=include_deleted, extra=extra)
     ids = base.with_only_columns(Handover.id).subquery()
 
     if field == "tags":
@@ -145,6 +169,7 @@ def iterate(db: Session, request: SearchRequest, ctx: CompileContext, *,
 
     yield_per 로 chunk 단위로 가져오므로 10만 행이어도 메모리가 일정하다.
     """
-    stmt = _deleted_scope(build_statement(request, ctx, extra), include_deleted=include_deleted)
+    stmt = _scope(db, build_statement(request, ctx, extra), ctx,
+                  include_deleted=include_deleted)
     stmt = stmt.order_by(*compile_order(request)).execution_options(yield_per=chunk)
     yield from db.scalars(stmt)

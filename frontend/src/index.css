@@ -44,6 +44,11 @@
            placeholder:text-ink-faint focus:border-brand;
   }
 
+  /* 목록 줄 안에 들어가는 작은 입력칸 — 줄 높이를 늘리지 않는다 */
+  .input-sm {
+    @apply h-6 px-1 text-sm;
+  }
+
   .chip {
     @apply inline-flex items-center gap-1 h-6 px-2 rounded-full border border-surface-border
            bg-surface-sunken text-sm;

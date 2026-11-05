@@ -6,9 +6,10 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Bookmark, ChevronLeft, ChevronRight, Download, Plus, RotateCcw, Search, X } from 'lucide-react'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
-import CreateHandoverDialog from '@/features/handovers/CreateHandoverDialog'
+import CreateHandoverDialog, { type HandoverDraft } from '@/features/handovers/CreateHandoverDialog'
 import ExportDialog from '@/features/handovers/ExportDialog'
 import HandoverDrawer from '@/features/handovers/HandoverDrawer'
 import HandoverGrid from '@/features/handovers/HandoverGrid'
@@ -39,6 +40,18 @@ export default function HandoverListPage() {
   // 팔레트·통합검색에서 검색어를 넘겨받으면 입력칸도 따라간다
   useEffect(() => setDraftQ(grid.state.q), [grid.state.q])
   const [creating, setCreating] = useState(false)
+  // 개인 메모에서 '인계 초안 만들기'로 넘어오면 그 글을 담은 등록창을 바로 연다.
+  // 라우터 state 로만 받는다 — 디스크에 남기지 않는다(공용 PC).
+  const location = useLocation()
+  const navigate = useNavigate()
+  const incoming = (location.state as { draft?: HandoverDraft } | null)?.draft
+  const [draft, setDraft] = useState<HandoverDraft | undefined>(undefined)
+  useEffect(() => {
+    if (!incoming) return
+    setDraft(incoming)
+    setCreating(true)
+    navigate(location.pathname + location.search, { replace: true, state: null })
+  }, [incoming, location.pathname, location.search, navigate])
   const [exporting, setExporting] = useState(false)
   // 이름 입력은 앱 안에서 받는다(window.prompt 는 앱을 품은 창에서 그냥 취소되는 경우가 있다)
   const [savingView, setSavingView] = useState(false)
@@ -314,11 +327,12 @@ export default function HandoverListPage() {
       )}
 
       {creating && (
-        <CreateHandoverDialog companies={companies ?? []} statuses={statuses ?? []}
+        <CreateHandoverDialog draft={draft} companies={companies ?? []} statuses={statuses ?? []}
                               priorities={priorities ?? []}
-                              onClose={() => setCreating(false)}
+                              onClose={() => { setCreating(false); setDraft(undefined) }}
                               onCreated={(id) => {
                                 setCreating(false)
+                                setDraft(undefined)
                                 qc.invalidateQueries({ queryKey: ['handovers'] })
                                 grid.patch({ selectedId: id }, { keepPage: true })
                               }} />

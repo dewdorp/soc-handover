@@ -11,6 +11,7 @@ import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import { useMe } from '@/hooks/useAuth'
 import { ApiRequestError } from '@/services/api/client'
 import { referenceApi } from '@/services/api/reference'
+import { rosterApi } from '@/services/api/roster'
 import { shiftApi, type SessionItem } from '@/services/api/shift'
 
 interface Props {
@@ -63,6 +64,11 @@ export default function BasketPanel({ nextShiftLabel }: Props) {
     qc.invalidateQueries({ queryKey: ['basket'] })
     qc.invalidateQueries({ queryKey: ['cockpit'] })
   }
+
+  // 인수자를 손으로 고르게 두면 근무표가 바뀐 날(대근·맞교환) 엉뚱한 사람에게 넘어간다.
+  // 그래서 다음 근무의 **실제** 근무자를 서버에 물어 한 번에 채울 수 있게 한다.
+  const nextShift = useQuery({ queryKey: ['next-shift'], queryFn: rosterApi.nextShift,
+                               staleTime: 60_000 })
 
   const patch = useMutation({ mutationFn: shiftApi.updateBasket, onSuccess: refresh })
   const remove = useMutation({ mutationFn: shiftApi.removeItem, onSuccess: refresh })
@@ -143,6 +149,34 @@ export default function BasketPanel({ nextShiftLabel }: Props) {
                 </li>
               ))}
             </ul>
+          )}
+          {nextShift.data && nextShift.data.user_ids.length > 0 && (
+            <div className="rounded border border-surface-border bg-surface-sunken px-2 py-1 space-y-0.5">
+              <p className="text-sm">
+                <span className="text-ink-muted">다음 근무 실근무자</span>{' '}
+                <span className="font-medium">{nextShift.data.names.join(' · ')}</span>
+                {nextShift.data.team_code && (
+                  <span className="text-ink-faint"> ({nextShift.data.team_code}조)</span>)}
+              </p>
+              {nextShift.data.replaced.length > 0 && (
+                <p className="text-xs text-state-check">
+                  {nextShift.data.replaced.map((c) => (
+                    `${c.off_user_name} → ${c.on_user_name}`)).join(', ')} (대근 · 맞교환 반영)
+                </p>
+              )}
+              {nextShift.data.is_short && (
+                <p className="text-xs text-state-urgent">결원 {nextShift.data.short_by}명 — 받을 사람이 부족합니다.</p>
+              )}
+              <button className="btn btn-sm"
+                      disabled={nextShift.data.user_ids.filter((id) => id !== me?.id)
+                        .every((id) => chosenIds.includes(id))}
+                      onClick={() => setRecipients([...new Set([
+                        ...chosenIds,
+                        ...nextShift.data!.user_ids.filter((id) => id !== me?.id),
+                      ])])}>
+                실근무자로 채우기
+              </button>
+            </div>
           )}
           <select className="input w-full" value="" aria-label="받는 사람 추가"
                   onChange={(e) => {

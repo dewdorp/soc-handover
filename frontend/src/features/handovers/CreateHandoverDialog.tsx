@@ -5,10 +5,18 @@ import { X } from 'lucide-react'
 import { useEscape } from '@/hooks/useHotkeys'
 import { ApiRequestError } from '@/services/api/client'
 import { handoverApi } from '@/services/api/handovers'
+import ScopePicker, { useMyGroups, type Visibility } from '@/features/handovers/ScopePicker'
 import { referenceApi } from '@/services/api/reference'
 import type { Company, HandoverStatus, Priority } from '@/types/api'
 
+export interface HandoverDraft {
+  title?: string
+  content?: string
+}
+
 interface Props {
+  /** 다른 화면(개인 메모 등)에서 넘겨 준 초안. 고른 글만 들어온다. */
+  draft?: HandoverDraft
   companies: Company[]
   statuses: HandoverStatus[]
   priorities: Priority[]
@@ -17,16 +25,23 @@ interface Props {
 }
 
 export default function CreateHandoverDialog(
-  { companies, statuses, priorities, onClose, onCreated }: Props,
+  { draft, companies, statuses, priorities, onClose, onCreated }: Props,
 ) {
   useEscape(onClose)
   const [form, setForm] = useState({
     company_id: null as number | null,
-    title: '', content: '', remark: '',
+    title: draft?.title ?? '', content: draft?.content ?? '', remark: '',
     status_code: 'NEW', priority_code: 'NORMAL',
     work_date: '', assignee_id: '', tags: '',
     is_important: false,
   })
+  const [scope, setScope] = useState<{ visibility: Visibility; group_ids: number[] }>(
+    { visibility: 'GROUPS', group_ids: [] })
+  const { data: myGroups } = useMyGroups()
+  // 기본 그룹을 한 번만 채운다. 손대지 않고 올려도 서버가 같은 값을 쓰므로 결과는 같다.
+  const picked = scope.group_ids.length
+    ? scope.group_ids
+    : (myGroups?.filter((g) => g.is_default).map((g) => g.id) ?? [])
   const companyId = form.company_id ?? companies[0]?.id
   const [error, setError] = useState<string | null>(null)
 
@@ -46,6 +61,8 @@ export default function CreateHandoverDialog(
       assignee_id: form.assignee_id ? Number(form.assignee_id) : null,
       is_important: form.is_important,
       tags: form.tags.split(',').map((t) => t.trim()).filter(Boolean),
+      visibility: scope.visibility,
+      group_ids: scope.visibility === 'GROUPS' ? picked : [],
     }),
     onSuccess: (row) => onCreated(row.id),
     onError: (err) => setError(err instanceof ApiRequestError
@@ -130,6 +147,8 @@ export default function CreateHandoverDialog(
           <input className="input w-full" value={form.remark}
                  onChange={(e) => set('remark', e.target.value)} />
         </Labeled>
+
+        <ScopePicker visibility={scope.visibility} groupIds={picked} onChange={setScope} />
 
         <label className="flex items-center gap-1.5 cursor-pointer">
           <input type="checkbox" checked={form.is_important}

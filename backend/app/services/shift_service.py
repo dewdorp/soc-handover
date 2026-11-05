@@ -30,8 +30,8 @@ from app.models.shift import (SESSION_CLOSED, SESSION_DRAFT, SESSION_SENT, Shift
                               ShiftHandover, ShiftHandoverItem, ShiftHandoverRecipient)
 from app.models.user import User
 from app.search.dsl import Filter, SearchRequest, Sort
-from app.services import (ack_service, handover_service, notification_service,
-                          search_service, settings_service)
+from app.services import (ack_service, group_service, handover_service,
+                          notification_service, search_service, settings_service)
 
 MAX_CHAIN = 100
 #: 한 번에 고를 수 있는 인수자 수. 교대 인원을 넉넉히 넘는 값 — 실수로 전원을 고르는 것을 막는다.
@@ -184,6 +184,83 @@ def cockpit(db: Session, actor: User, *, shift_date: date | None = None,
             "area": selected, "areas": areas, "basket_handover_ids": in_basket}
 
 
+# --------------------------------------------------------------------------- 교대 마감 점검
+
+def closing_check(db: Session, actor: User) -> dict[str, Any]:
+    """근무를 넘기기 전에 확인할 것들. **숫자를 누르면 그 목록이 열린다**.
+
+    숫자를 여기서 따로 세지 않는다 — 전부 목록과 같은 검색 조건(search_service)이나
+    같은 함수를 쓴다. 그래야 '점검은 3건인데 목록은 2건'이 생기지 않는다.
+    """
+    from app.services import roster_service
+
+    window = current_window(db)
+    rows: list[dict[str, Any]] = []
+
+    # 1) 내가 아직 확인하지 않은 인계
+    unacked = inbox(db, actor)   # 이미 '확인하지 않은 것'만 담겨 있다
+    rows.append({
+        "key": "unacked", "label": "확인하지 않은 인계", "count": len(unacked),
+        "url": "/shift/inbox", "tone": "check" if unacked else "ok",
+        "hint": "받은 인계 중 아직 확인(또는 재확인)하지 않은 건",
+    })
+
+    # 2) 바구니에 담았지만 아직 보내지 않은 것
+    basket, _ = get_basket(db, actor)
+    pending = len(basket.items)
+    rows.append({
+        "key": "basket", "label": "보내지 않은 인계 바구니", "count": pending,
+        "url": "/shift", "tone": "check" if pending else "ok",
+        "hint": "담아 둔 채 아직 넘기지 않은 건 — 근무를 마치기 전에 보내야 한다",
+    })
+
+    # 3) 내 담당인데 아직 끝나지 않은 것(수행일이 오늘까지)
+    due = search_service.count_only(db, area_request_due_today(window), actor, cap=COUNT_CAP)
+    rows.append({
+        "key": "my_open", "label": "내 담당 미완료", "count": due,
+        "url": "/my-work", "tone": "check" if due else "ok",
+        "hint": "수행일이 오늘까지인데 끝나지 않은 내 담당 건",
+    })
+
+    # 4) 지연
+    overdue = search_service.count_only(db, _quick_request("OVERDUE"), actor, cap=COUNT_CAP)
+    rows.append({
+        "key": "overdue", "label": "지연", "count": overdue,
+        "url": "/handovers?quick=OVERDUE", "tone": "urgent" if overdue else "ok",
+        "hint": "수행일이 지났는데 끝나지 않은 건",
+    })
+
+    # 5) 다음 근무 결원 — 받을 사람이 없으면 인계가 비게 된다
+    nxt = roster_service.suggested_recipients(db)
+    rows.append({
+        "key": "next_shift", "label": "다음 근무 결원", "count": nxt["short_by"],
+        "url": "/schedules/roster", "tone": "urgent" if nxt["is_short"] else "ok",
+        "hint": (f"{nxt['work_date']:%m/%d} {nxt['shift_label']} · "
+                 + (", ".join(nxt["names"]) if nxt["names"] else "배정된 사람이 없습니다")),
+    })
+
+    return {
+        "window": describe(db, window),
+        "next_shift": {"work_date": nxt["work_date"], "shift_label": nxt["shift_label"],
+                       "names": nxt["names"], "user_ids": nxt["user_ids"],
+                       "is_short": nxt["is_short"]},
+        "rows": rows,
+        "all_clear": all(r["count"] == 0 for r in rows),
+    }
+
+
+def _quick_request(quick: str) -> SearchRequest:
+    return SearchRequest(quick=[quick], page=1, size=1)
+
+
+def area_request_due_today(window) -> SearchRequest:
+    """내 담당 · 미완료 · 수행일 오늘까지. 목록(내 업무)과 같은 조건을 쓴다."""
+    return SearchRequest(quick=["MINE", "OPEN"],
+                         filters=[Filter(field="work_date", op="lte",
+                                         value=window.shift_date.isoformat())],
+                         page=1, size=1)
+
+
 # --------------------------------------------------------------------------- Carry chain
 
 def chain_depth(db: Session, item: ShiftHandoverItem) -> int:
@@ -333,6 +410,10 @@ def add_items(db: Session, actor: User, handover_ids: list[int],
     for hid in dict.fromkeys(handover_ids):
         handover = db.get(Handover, hid)
         if handover is None or handover.is_deleted or hid in existing:
+            skipped.append(hid)
+            continue
+        # 내가 못 보는 건은 바구니에도 담기지 않는다(담으면 받는 사람 화면에 제목이 뜬다).
+        if not group_service.can_see(db, handover, actor):
             skipped.append(hid)
             continue
         prev = carried.get(hid)

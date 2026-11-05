@@ -7,7 +7,8 @@ import { api } from '@/services/api/client'
 import { handoverApi } from '@/services/api/handovers'
 import { shiftApi, type InboxItem } from '@/services/api/shift'
 import { taskApi, type MyWorkItem } from '@/services/api/tasks'
-import UpcomingSchedules from '@/features/calendar/UpcomingSchedules'
+import MySchedules from '@/features/calendar/MySchedules'
+import ClosingCheck from '@/features/shift/ClosingCheck'
 import { fieldLabel } from '@/features/handovers/VersionHistory'
 import { useFeatures } from '@/hooks/useAuth'
 import type { Company, HandoverStatus, Shift } from '@/types/api'
@@ -114,7 +115,7 @@ export default function DashboardPage() {
       <h1 className="text-xl font-semibold tracking-tight">근무 대시보드</h1>
       <Link className="btn" to="/shift"><Send size={14} /> 다음 교대에 인계하기</Link>
     </header>
-    <UpcomingSchedules />
+    <MySchedules />
     <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
       <section className="card min-w-0 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -128,6 +129,7 @@ export default function DashboardPage() {
           ? <ul className="mt-2 divide-y divide-surface-border">{preview.map(row => <InboxRow key={row.handover_id} row={row} />)}</ul>
           : !inbox.isError && <p className="mt-3 text-ink-muted">확인할 인수인계가 없습니다.</p>)}
       </section>
+      <ClosingCheck />
       <section className="card min-w-0 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="text-lg font-semibold">내 업무 요약</h2>
           <div className="flex items-center gap-3 text-sm text-brand">
@@ -189,6 +191,7 @@ export default function DashboardPage() {
             <li>✔ Phase 6 — 할일 · 체크리스트 · 보드 · 내 업무</li>
             <li>✔ Phase 7 — 일정 · 달력 · 반복 · 연계</li>
             <li>✔ Phase 8 — 감사로그 · 관리자 · 설정 · 통계 · 댓글 · 첨부 · 알림 · 백업</li>
+            <li>✔ 1.3.0 — 열람 그룹 · 4조 근무표 · 교대 마감 점검 · 일정 알림 · RAG 바닥 공사</li>
             <li className="text-ink-faint">· Phase 10 — 안정화 (Phase 9 AI 는 범위에서 제외)</li>
           </ul>
         </section>

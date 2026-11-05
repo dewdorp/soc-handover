@@ -17,6 +17,7 @@ import MyNotesPage from '@/features/mywork/MyNotesPage'
 import MyWorkPage from '@/features/mywork/MyWorkPage'
 import TaskPage from '@/features/tasks/TaskPage'
 import CalendarPage from '@/features/calendar/CalendarPage'
+import RosterPage from '@/features/calendar/RosterPage'
 import CredentialsPage from '@/features/credentials/CredentialsPage'
 import SearchPage from '@/features/search/SearchPage'
 import AuditPage from '@/features/audit/AuditPage'
@@ -54,6 +55,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path="/my-work/notes" element={<MyNotesPage />} />
         <Route path="/tasks/*" element={<TaskPage />} />
         <Route path="/schedules" element={<CalendarPage />} />
+        <Route path="/schedules/roster" element={<RosterPage />} />
       </Route>
       <Route path="/credentials" element={<CredentialsPage />} />
       <Route path="/search" element={<SearchPage />} />

@@ -232,13 +232,15 @@ def pending_acknowledgements(db: Session = Depends(get_db),
                              actor: User = Depends(get_current_user)):
     """내가 확인/재확인해야 할 목록(FR-C-04 미확인 배너)."""
     from app.models.handover import ACK_PENDING, ACK_REACK
+    from app.services import group_service
 
     rows = db.scalars(
         select(HandoverAcknowledgement)
         .join(Handover, Handover.id == HandoverAcknowledgement.handover_id)
         .where(HandoverAcknowledgement.user_id == actor.id,
                HandoverAcknowledgement.state.in_((ACK_PENDING, ACK_REACK)),
-               Handover.is_deleted == false())
+               Handover.is_deleted == false(),
+               group_service.visible_clause(db, actor.id))
         .order_by(HandoverAcknowledgement.id)
     ).all()
     return list(rows)

@@ -64,7 +64,7 @@ def update_setting(key: str, payload: SettingUpdate, db: Session = Depends(get_d
 @router.get("/handovers/{handover_id}/comments", response_model=list[HandoverCommentOut])
 def list_comments(handover_id: int, db: Session = Depends(get_db),
                   actor: User = Depends(require("handover:read"))):
-    return [comment_service.to_out(db, actor, c) for c in comment_service.list_for(db, handover_id)]
+    return [comment_service.to_out(db, actor, c) for c in comment_service.list_for(db, handover_id, actor)]
 
 
 @router.post("/handovers/{handover_id}/comments", response_model=HandoverCommentOut,
@@ -96,7 +96,7 @@ def delete_comment(comment_id: int, db: Session = Depends(get_db),
 def list_attachments(entity_type: str = Query(max_length=20), entity_id: int = Query(ge=1),
                      db: Session = Depends(get_db), actor: User = Depends(require("handover:read"))):
     return [attachment_service.to_out(db, actor, a)
-            for a in attachment_service.list_for(db, entity_type, entity_id)]
+            for a in attachment_service.list_for(db, entity_type, entity_id, actor)]
 
 
 @router.post("/attachments", response_model=AttachmentOut, status_code=status.HTTP_201_CREATED)
@@ -122,14 +122,14 @@ def download_attachment(attachment_id: int, db: Session = Depends(get_db),
 
 @router.get("/attachments/{attachment_id}/preview")
 def preview_attachment(attachment_id: int, db: Session = Depends(get_db),
-                       _: User = Depends(require("handover:read"))):
+                       actor: User = Depends(require("handover:read"))):
     """그림 첨부를 화면에서 바로 보여 준다(내려받기와 달리 감사에 남기지 않는다 — 화면을 여는 것과 같다).
 
     그림인지는 파일 **내용**으로 판단하고, 아니면 거절한다. 브라우저가 내용을 다른 것으로
     해석하지 않도록(nosniff) 하고, 혹시 모를 경우에 대비해 스스로 아무것도 불러오지
     못하게(CSP) 막는다.
     """
-    path, att, mime = attachment_service.preview(db, attachment_id)
+    path, att, mime = attachment_service.preview(db, attachment_id, actor)
     headers = {"Content-Disposition": f"inline; filename*=UTF-8''{quote(att.original_name)}",
                "X-Content-Type-Options": "nosniff",
                "Content-Security-Policy": "default-src 'none'; img-src 'self'; sandbox",
@@ -149,8 +149,8 @@ def delete_attachment(attachment_id: int, db: Session = Depends(get_db),
 
 @router.get("/stats/summary")
 def stats_summary(start: date | None = None, end: date | None = None, db: Session = Depends(get_db),
-                  _: User = Depends(require("stats:read_all"))):
-    """기본은 최근 30일. 최대 366일."""
+                  actor: User = Depends(require("stats:read_all"))):
+    """기본은 최근 30일. 최대 366일. 집계도 **내가 볼 수 있는 범위**에서만 센다."""
     end = end or today()
     start = start or (end - timedelta(days=29))
-    return stats_service.summary(db, start, end)
+    return stats_service.summary(db, start, end, actor)

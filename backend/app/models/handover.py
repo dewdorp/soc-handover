@@ -34,7 +34,7 @@ VERSIONED_FIELDS = (
     "company_id", "title", "content", "remark", "status_code", "priority_code",
     "registered_date", "work_date", "completed_at", "sender_id", "sender_name_raw",
     "assignee_id", "assignee_name_raw", "checker_id", "checker_name_raw",
-    "is_important", "is_pinned", "is_recurring", "tags",
+    "is_important", "is_pinned", "is_recurring", "tags", "visibility", "group_ids",
 )
 
 
@@ -78,6 +78,10 @@ class Handover(Base, TimestampMixin):
     is_pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_recurring: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
+    #: 공개 범위 — GROUPS(handover_groups 에 적힌 그룹) / ALL(로그인한 모든 사람).
+    #: 기본값은 GROUPS 다. '전체 공개'는 쓴 사람이 명시적으로 고를 때만 된다.
+    visibility: Mapped[str] = mapped_column(String(20), nullable=False, default="GROUPS")
+
     current_version_no: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     ack_state_cache: Mapped[str] = mapped_column(String(20), nullable=False, default=ACK_NONE)
     last_transferred_at: Mapped[datetime | None] = mapped_column(TZDateTime)
@@ -108,6 +112,7 @@ class Handover(Base, TimestampMixin):
     sender = relationship("User", foreign_keys=[sender_id], lazy="joined")
     checker = relationship("User", foreign_keys=[checker_id], lazy="joined")
     tag_links = relationship("HandoverTag", cascade="all, delete-orphan", lazy="selectin")
+    group_links = relationship("HandoverGroup", cascade="all, delete-orphan", lazy="selectin")
 
 
 class HandoverVersion(Base):

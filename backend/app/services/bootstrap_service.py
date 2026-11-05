@@ -45,7 +45,18 @@ SHIFTS = [
 
 
 def ensure_reference_data(db: Session) -> dict[str, int]:
-    created = {"roles": 0, "statuses": 0, "priorities": 0, "shifts": 0, "settings": 0}
+    from app.services import group_service
+
+    created = {"roles": 0, "statuses": 0, "priorities": 0, "shifts": 0, "settings": 0,
+               "groups": 0}
+
+    # 열람 그룹의 기본 자리('미분류'). 없으면 만든다 — 글에는 반드시 그룹이 하나는 있어야 한다.
+    from sqlalchemy import func, select
+
+    from app.models.group import Group
+    before = db.scalar(select(func.count()).select_from(Group)) or 0
+    group_service.ensure_unclassified(db)
+    created["groups"] = (db.scalar(select(func.count()).select_from(Group)) or 0) - before
 
     for code, name, desc, order in ROLES:
         if db.get(Role, code) is None:
@@ -72,6 +83,9 @@ def ensure_reference_data(db: Session) -> dict[str, int]:
                          crosses_midnight=crosses, sort_order=order))
             created["shifts"] += 1
 
+    from app.services import roster_service
+    created["roster_teams"] = roster_service.ensure_teams(db)
+
     created["settings"] = settings_service.ensure_defaults(db)
     db.flush()
     return created
@@ -97,6 +111,16 @@ def create_admin(db: Session, *, username: str, display_name: str, password: str
     user.failed_login_count = 0
     user.locked_until = None
     db.flush()
+
+    # 설치 직후의 관리자는 어느 그룹에도 속하지 않는다 — 그러면 자기가 쓴 글만 보인다.
+    # '미분류'를 기본 그룹으로 넣어 준다(관리자는 그 뒤에 실제 그룹을 만들어 옮긴다).
+    from app.models.group import UserGroup
+    from app.services import group_service
+
+    group = group_service.ensure_unclassified(db)
+    if not group_service.my_group_ids(db, user.id):
+        db.add(UserGroup(user_id=user.id, group_id=group.id, is_default=True))
+        db.flush()
     return user
 
 

@@ -35,6 +35,7 @@ def export_handovers(payload: ExportRequest, db: Session = Depends(get_db),
 
 
 @router.get("/download/{token}")
-def download(token: str, actor: User = Depends(require("export:run"))):
-    path, name = export_service.resolve_download(token, actor)
+def download(token: str, db: Session = Depends(get_db),
+             actor: User = Depends(require("export:run"))):
+    path, name = export_service.resolve_download(token, actor, db)
     return FileResponse(path, filename=name, media_type=_MEDIA.get(path.suffix, "application/octet-stream"))

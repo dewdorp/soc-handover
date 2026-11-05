@@ -81,10 +81,12 @@ def collect(db: Session, actor: User, source: str = "all") -> tuple[list[dict[st
             })
 
     if source in ("all", "handover"):
+        from app.services import group_service
         handovers = db.execute(
             select(Handover, HandoverStatus.category)
             .join(HandoverStatus, HandoverStatus.code == Handover.status_code)
             .where(Handover.assignee_id == actor.id, Handover.is_deleted == false(),
+                   group_service.visible_clause(db, actor.id),
                    or_(HandoverStatus.category != "CLOSED",
                        Handover.updated_at >= since))).all()
         for h, category in handovers:

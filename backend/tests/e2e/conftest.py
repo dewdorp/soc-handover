@@ -126,6 +126,8 @@ def login(page, server):
         page.get_by_label("계정").fill(username)
         page.get_by_label("비밀번호").fill(password)
         page.get_by_role("button", name="로그인").click()
-        page.wait_for_url(lambda u: "/login" not in u, timeout=15000)
+        # 다른 시험·설치 작업과 함께 돌면 로그인 뒤 첫 화면이 15초를 넘기는 일이 있다.
+        # 이 기다림은 "로그인이 되는가"를 보는 것이지 속도를 재는 것이 아니므로 넉넉히 준다.
+        page.wait_for_url(lambda u: "/login" not in u, timeout=30000)
         return page
     return _login

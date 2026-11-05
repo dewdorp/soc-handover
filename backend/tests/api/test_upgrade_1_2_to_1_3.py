@@ -74,6 +74,10 @@ def upgraded(tmp_path):
                 "VALUES (1, :t, '쌓여 있던 내용', 'NEW', 'NORMAL', '2026-01-10', 1, 'NONE',"
                 "        0, 0, 0, 0, :deleted, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"),
                 {"t": f"1.2.0 때 쓴 업무 {i}", "deleted": 1 if i == 4 else 0})
+        # 담당자가 있는 건 — 올린 뒤 '대표 담당'으로 들어가야 한다
+        conn.execute(text(
+            "UPDATE handovers SET assignee_id = (SELECT id FROM users WHERE username='old_day') "
+            "WHERE id IN (1, 2)"))
     engine.dispose()
 
     _alembic(url, "head")
@@ -136,6 +140,25 @@ class TestExistingDataKeepsBeingVisible:
                 assert visible == 4, f"{username} 에게 보이던 건수가 달라졌다"
 
 
+class TestAssigneesBecomeOwners:
+    def test_existing_assignee_becomes_the_representative_owner(self, upgraded):
+        """담당자가 있던 건은 그 사람이 '대표 담당'으로 들어간다 — 보이는 것이 달라지지 않게."""
+        with upgraded.connect() as conn:
+            rows = conn.execute(text(
+                "SELECT h.id, p.user_id, p.role FROM handovers h "
+                "JOIN handover_participants p ON p.handover_id = h.id")).all()
+            with_assignee = conn.execute(text(
+                "SELECT COUNT(*) FROM handovers WHERE assignee_id IS NOT NULL")).scalar_one()
+        assert len(rows) == with_assignee
+        assert all(r.role == "OWNER" for r in rows)
+
+    def test_request_flow_starts_empty(self, upgraded):
+        with upgraded.connect() as conn:
+            states = {r[0] for r in conn.execute(text(
+                "SELECT DISTINCT request_state FROM handovers")).all()}
+        assert states == {"NONE"}, "올리자마자 의뢰 중인 건이 생기면 안 된다"
+
+
 class TestRosterAndRemindersArrive:
     def test_four_teams_exist_with_no_people(self, upgraded):
         with upgraded.connect() as conn:
@@ -171,5 +194,6 @@ class TestDowngradeLeavesNoDebris:
         engine.dispose()
         assert not ({"groups", "user_groups", "handover_groups",
                      "roster_teams", "roster_members", "roster_overrides",
-                     "schedule_reminders"} & names)
+                     "schedule_reminders", "handover_participants"} & names)
         assert "visibility" not in cols
+        assert "request_state" not in cols

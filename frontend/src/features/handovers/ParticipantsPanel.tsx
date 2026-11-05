@@ -61,8 +61,14 @@ export default function ParticipantsPanel({ handoverId, canEdit }: {
     () => (users.data ?? []).filter((u) => !rows.some((r) => r.user_id === u.id)),
     [users.data, rows])
 
+  // 대표 담당은 한 명이다. 다른 사람을 대표로 올리면 지금 대표를 공동 담당으로 내린다 —
+  // 그러지 않으면 서버가 422 로 막고, 쓰는 사람은 왜 안 되는지 알 수 없다.
   const setRole = (userId: number, role: ParticipantRole) =>
-    save.mutate(rows.map((r) => (r.user_id === userId ? { ...r, role } : r)))
+    save.mutate(rows.map((r) => {
+      if (r.user_id === userId) return { ...r, role }
+      if (role === 'OWNER' && r.role === 'OWNER') return { ...r, role: 'CO_OWNER' as const }
+      return r
+    }))
   const remove = (userId: number) => save.mutate(rows.filter((r) => r.user_id !== userId))
   const add = () => {
     const user = (users.data ?? []).find((u) => u.id === Number(adding))

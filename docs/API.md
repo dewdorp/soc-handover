@@ -278,6 +278,28 @@ GET    /admin/integrity-check [ADMIN]          버전 정합성/고아 레코드
 
 ---
 
+## 8-2-1. 복수 담당 · 전파 · 분석 의뢰 (1.3.0)
+
+| 메서드 | 경로 | 권한 | 설명 |
+|---|---|---|---|
+| GET | `/handovers/{id}/participants` | `handover:read` | 대표 담당 · 공동 담당 · 필수 인수자 · 참고 + 역할별 수 |
+| PUT | `/handovers/{id}/participants` | `handover:update_own` + 본인 건 | 통째로 바꾼다. **사람을 뺄 수 있어서** 본문 수정과 같은 자격 |
+| POST | `/handovers/{id}/propagate/preview` | `handover:read` | 누르기 전에 — 담당 N / 필수 N / 참고 N / 제외 M |
+| POST | `/handovers/{id}/propagate` | `handover:read` | 그룹 단위 전파. **더하기만** 하고 공개 범위는 바뀌지 않는다 |
+| GET/POST | `/handovers/{id}/request` | `handover:read` | 분석 의뢰(받는 사람은 필수 인수자로 걸린다) |
+| POST | `/handovers/{id}/request/accept` | `handover:read` | 접수 — 여기서부터 응답 시간이 재어진다 |
+| POST | `/handovers/{id}/request/answer` | `handover:read` | 회신. **내용이 없으면 422** |
+
+역할은 `OWNER`(대표 담당) · `CO_OWNER`(공동 담당) · `REQUIRED`(필수 인수자) · `FYI`(참고).
+한 사람은 한 역할만 가지며, 같은 사람이 여럿 들어오면 **강한 역할**만 남는다. 확인(ack)
+의무는 `FYI` 를 뺀 셋에 붙는다 — 참고로 보낸 사람이 미확인으로 잡히면 안 된다.
+
+의뢰 상태는 `NONE → REQUESTED → ACCEPTED → ANSWERED`. 접수를 건너뛰고 바로 회신할 수
+있지만(간단한 건은 보자마자 답한다) **되돌릴 수는 없다**. 회신한 건에 다시 의뢰하면
+앞선 회신을 남긴 채 `REQUESTED` 로 돌아간다(추가 질문).
+
+---
+
 ## 8-3. 교대 마감 점검 · 내 일정 · 일정 알림 (1.3.0)
 
 | 메서드 | 경로 | 권한 | 설명 |
@@ -333,5 +355,7 @@ GET    /admin/integrity-check [ADMIN]          버전 정합성/고아 레코드
 | 근무표 보기 | ✅ | ✅ | ✅ |
 | 조 편성 · 대근 · 맞교환(`shift:manage`) | ❌ | ❌ | ✅ |
 | RAG 사례 묶음(`export:run`) | ✅ | ✅ | ✅ — 내가 볼 수 있는 범위만 |
+| 담당 · 전파 대상 바꾸기 | 본인 건 | 전체 | 전체 |
+| 그룹 전파 · 분석 의뢰 · 접수 · 회신 | ✅ | ✅ | ✅ — 볼 수 있는 건에 한해 |
 
 권한 체크는 라우터 데코레이터(`Depends(require("handover:update"))`) + 서비스 레이어의 소유권 검사 2단으로 수행한다.

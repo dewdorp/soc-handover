@@ -1,4 +1,5 @@
 /** 인수인계 · 검색 DSL 타입. 백엔드 스키마와 1:1 대응. */
+import type { AnalysisRequest, Participant, ParticipantCounts } from '@/services/api/participants'
 import type { Company, HandoverStatus, Priority, UserBrief } from '@/types/api'
 
 export type AckState = 'NONE' | 'PENDING' | 'ACKED' | 'REACK_REQUIRED'
@@ -30,6 +31,8 @@ export interface HandoverListItem {
   /** 공개 범위 — GROUPS(공개 그룹만) · ALL(로그인한 모든 사람) */
   visibility: 'GROUPS' | 'ALL'
   group_names: string[]
+  /** 분석 의뢰 흐름(§5). 'NONE' 이면 의뢰가 없는 건이다. */
+  request_state: 'NONE' | 'REQUESTED' | 'ACCEPTED' | 'ANSWERED'
   carry_count: number
   updated_at: string
   is_deleted: boolean
@@ -48,6 +51,9 @@ export interface Acknowledgement {
 
 export interface HandoverDetail extends HandoverListItem {
   group_ids: number[]
+  participants: Participant[]
+  participant_counts: ParticipantCounts | null
+  request: AnalysisRequest | null
   task_count: number
   schedule_count: number
   comment_count: number

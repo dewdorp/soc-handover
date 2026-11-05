@@ -163,6 +163,11 @@ def get_or_404(db: Session, handover_id: int, actor: User, *, lock: bool = False
     return row
 
 
+def ensure_editable(handover: Handover, actor: User) -> None:
+    """본문을 고칠 자격 — 작성자 · 담당자 · handover:update_any. 사람을 빼는 동작도 이것을 쓴다."""
+    _ensure_editable(handover, actor)
+
+
 def _ensure_editable(handover: Handover, actor: User) -> None:
     if not can_edit_handover(role_code=actor.role_code, user_id=actor.id,
                              creator_id=handover.created_by,

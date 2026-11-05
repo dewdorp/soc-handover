@@ -13,7 +13,18 @@ from app.models.handover import Handover, HandoverAcknowledgement, HandoverStar
 from app.models.user import User
 from app.schemas.handover import AckOut, HandoverDetail, HandoverListItem
 from app.services import (ack_service, attachment_service, comment_service, group_service,
-                          handover_service, schedule_service, task_service)
+                          handover_service, participant_service, request_service,
+                          schedule_service, task_service)
+
+
+def _participant_counts(raw: dict[str, int]) -> dict[str, int]:
+    from app.models.participant import (MUST_ACK, ROLE_CO_OWNER, ROLE_FYI, ROLE_OWNER,
+                                        ROLE_REQUIRED)
+
+    return {"owner": raw[ROLE_OWNER], "co_owner": raw[ROLE_CO_OWNER],
+            "required": raw[ROLE_REQUIRED], "fyi": raw[ROLE_FYI],
+            "total": sum(raw.values()),
+            "must_ack": sum(v for k, v in raw.items() if k in MUST_ACK)}
 
 
 def base_fields(h: Handover, group_names: list[str] | None = None) -> dict:
@@ -40,6 +51,7 @@ def base_fields(h: Handover, group_names: list[str] | None = None) -> dict:
         "is_recurring": h.is_recurring,
         "current_version_no": h.current_version_no,
         "ack_state_cache": h.ack_state_cache,
+        "request_state": h.request_state,
         "tags": handover_service.tag_names(h),
         "carry_count": h.carry_count,
         "updated_at": h.updated_at,
@@ -102,6 +114,9 @@ def detail(db: Session, h: Handover, actor: User) -> HandoverDetail:
         "schedule_count": schedule_service.count_for_handover(db, h.id),
         "comment_count": comment_service.count_for(db, h.id),
         "attachment_count": attachment_service.count_for(db, "HANDOVER", h.id),
+        "participants": participant_service.list_for(db, h),
+        "participant_counts": _participant_counts(participant_service.counts(db, h)),
+        "request": request_service.describe(h),
         "acknowledgements": [
             AckOut.model_validate({
                 "user_id": a.user_id, "user": db.get(User, a.user_id), "state": a.state,

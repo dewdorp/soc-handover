@@ -8,6 +8,7 @@ from app.models.handover import (Handover, HandoverAcknowledgement, HandoverComm
 from app.models.importjob import ExcelImportError, ExcelImportJob, ExcelImportRow
 from app.models.credential import Credential, CredentialVersion
 from app.models.private_note import PrivateNote
+from app.models.participant import HandoverParticipant
 from app.models.reference import Company, HandoverStatus, Priority, Shift, Tag
 from app.models.roster import RosterMember, RosterOverride, RosterTeam
 from app.models.schedule import Schedule, ScheduleReminder
@@ -20,7 +21,7 @@ __all__ = [
     "Base",
     "Role", "User", "RefreshToken", "LoginAttempt",
     "Company", "HandoverStatus", "Priority", "Shift", "Tag",
-    "Group", "UserGroup", "HandoverGroup",
+    "Group", "UserGroup", "HandoverGroup", "HandoverParticipant",
     "Handover", "HandoverVersion", "HandoverAcknowledgement", "HandoverStar",
     "HandoverTag", "HandoverComment",
     "ShiftHandover", "ShiftHandoverItem", "ShiftHandoverRecipient", "ShiftCarrySkip",

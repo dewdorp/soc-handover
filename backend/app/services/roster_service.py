@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from typing import Any
 
@@ -44,6 +45,21 @@ _LETTER = {"D": SHIFT_DAY, "N": SHIFT_NIGHT, ".": SHIFT_OFF}
 
 # --------------------------------------------------------------------------- 주기 계산
 
+@dataclass(frozen=True, slots=True)
+class Plan:
+    """한 요청 동안 바뀌지 않는 것들 — 기준일 · 조 편성 · 정원.
+
+    월 보기 한 번에 이 셋을 수백 번 다시 읽던 것을 한 번으로 줄인다.
+    """
+    epoch: date
+    teams: tuple[RosterTeam, ...]
+    size: int
+
+
+def plan(db: Session) -> Plan:
+    return Plan(epoch=epoch(db), teams=tuple(teams(db)), size=team_size(db))
+
+
 def epoch(db: Session) -> date:
     raw = settings_service.get_value(db, EPOCH_KEY) or DEFAULT_EPOCH
     try:
@@ -57,13 +73,14 @@ def team_size(db: Session) -> int:
     return int(value) if isinstance(value, int) and value > 0 else DEFAULT_TEAM_SIZE
 
 
-def phase_index(db: Session, team: RosterTeam, day: date) -> int:
+def phase_index(db: Session, team: RosterTeam, day: date, *, at: Plan | None = None) -> int:
     """그 날 이 조가 주기의 몇 번째 날인가(0..15)."""
-    return (day - epoch(db)).days - team.phase_days
+    base = (at or plan(db)).epoch
+    return (day - base).days - team.phase_days
 
 
-def shift_of(db: Session, team: RosterTeam, day: date) -> str:
-    return _LETTER[PATTERN[phase_index(db, team, day) % CYCLE_DAYS]]
+def shift_of(db: Session, team: RosterTeam, day: date, *, at: Plan | None = None) -> str:
+    return _LETTER[PATTERN[phase_index(db, team, day, at=at) % CYCLE_DAYS]]
 
 
 def teams(db: Session, *, include_inactive: bool = False) -> list[RosterTeam]:
@@ -73,10 +90,12 @@ def teams(db: Session, *, include_inactive: bool = False) -> list[RosterTeam]:
     return list(db.scalars(stmt))
 
 
-def team_on(db: Session, day: date, shift_code: str) -> RosterTeam | None:
+def team_on(db: Session, day: date, shift_code: str, *,
+            at: Plan | None = None) -> RosterTeam | None:
     """그 날 그 교대를 서는 조. 주기가 맞물려 있으면 하나뿐이다."""
-    for team in teams(db):
-        if shift_of(db, team, day) == shift_code:
+    at = at or plan(db)
+    for team in at.teams:
+        if shift_of(db, team, day, at=at) == shift_code:
             return team
     return None
 
@@ -92,17 +111,23 @@ def _overrides(db: Session, day: date, shift_code: str) -> list[RosterOverride]:
         .order_by(RosterOverride.id)))
 
 
-def planned_user_ids(db: Session, day: date, shift_code: str) -> list[int]:
-    team = team_on(db, day, shift_code)
+def planned_user_ids(db: Session, day: date, shift_code: str, *,
+                     at: Plan | None = None) -> list[int]:
+    team = team_on(db, day, shift_code, at=at)
     if team is None:
         return []
     return [m.user_id for m in team.members]
 
 
-def staffing(db: Session, day: date, shift_code: str) -> dict[str, Any]:
-    """그 날 그 교대의 계획 · 실제 · 결원. 화면과 인계 추천이 같은 함수를 쓴다."""
-    team = team_on(db, day, shift_code)
-    planned = planned_user_ids(db, day, shift_code)
+def staffing(db: Session, day: date, shift_code: str, *,
+             at: Plan | None = None) -> dict[str, Any]:
+    """그 날 그 교대의 계획 · 실제 · 결원. 화면과 인계 추천이 같은 함수를 쓴다.
+
+    at 을 주면 기준일 · 조 편성 · 정원을 다시 읽지 않는다(달력이 하루씩 부를 때).
+    """
+    at = at or plan(db)
+    team = team_on(db, day, shift_code, at=at)
+    planned = planned_user_ids(db, day, shift_code, at=at)
     actual = list(planned)
     changes: list[dict[str, Any]] = []
 
@@ -120,7 +145,7 @@ def staffing(db: Session, day: date, shift_code: str) -> dict[str, Any]:
             "reason": ovr.reason,
         })
 
-    size = team_size(db)
+    size = at.size
     names = _names(db, actual)
     return {
         "work_date": day,
@@ -166,33 +191,35 @@ def calendar(db: Session, start: date, end: date, *, actor: User | None = None,
     if (end - start).days > 92:
         raise ValidationFailed("근무표는 한 번에 93일까지 볼 수 있습니다.")
 
+    at = plan(db)
     my_id = actor.id if actor else None
     days: list[dict[str, Any]] = []
     day = start
     while day <= end:
         shifts = []
         for code in (SHIFT_DAY, SHIFT_NIGHT):
-            row = staffing(db, day, code)
+            row = staffing(db, day, code, at=at)
             row["is_mine"] = my_id in row["actual_user_ids"] if my_id else False
             row["was_mine_planned"] = my_id in row["planned_user_ids"] if my_id else False
             if not mine or row["is_mine"] or row["was_mine_planned"]:
                 shifts.append(row)
-        off = [t for t in teams(db) if shift_of(db, t, day) == SHIFT_OFF]
+        off = [t for t in at.teams if shift_of(db, t, day, at=at) == SHIFT_OFF]
         days.append({"day": day, "shifts": shifts,
                      "off_team_codes": [t.code for t in off]})
         day += timedelta(days=1)
     return {"start": start, "end": end, "days": days,
-            "cycle_days": CYCLE_DAYS, "pattern": PATTERN, "epoch": epoch(db)}
+            "cycle_days": CYCLE_DAYS, "pattern": PATTERN, "epoch": at.epoch}
 
 
 def my_upcoming(db: Session, actor: User, *, days: int = 14) -> list[dict[str, Any]]:
     """'내 근무' — 오늘부터 N일. 대근으로 들어온 근무도 포함한다."""
     out: list[dict[str, Any]] = []
+    at = plan(db)
     t0 = today()
     for offset in range(days):
         day = t0 + timedelta(days=offset)
         for code in (SHIFT_DAY, SHIFT_NIGHT):
-            row = staffing(db, day, code)
+            row = staffing(db, day, code, at=at)
             if actor.id in row["actual_user_ids"]:
                 start, end = window_bounds(day, code)
                 out.append({"work_date": day, "shift_code": code,
@@ -507,11 +534,12 @@ def coverage_check(db: Session, start: date, days: int = 32) -> dict[str, Any]:
     설정 화면이 저장 전에 이 함수로 확인한다.
     """
     problems: list[dict[str, Any]] = []
+    at = plan(db)
     for offset in range(days):
         day = start + timedelta(days=offset)
         counts = {SHIFT_DAY: [], SHIFT_NIGHT: [], SHIFT_OFF: []}
-        for team in teams(db):
-            counts[shift_of(db, team, day)].append(team.code)
+        for team in at.teams:
+            counts[shift_of(db, team, day, at=at)].append(team.code)
         if len(counts[SHIFT_DAY]) != 1 or len(counts[SHIFT_NIGHT]) != 1:
             problems.append({"day": day, "day_teams": counts[SHIFT_DAY],
                              "night_teams": counts[SHIFT_NIGHT]})

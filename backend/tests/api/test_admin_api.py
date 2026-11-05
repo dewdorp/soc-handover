@@ -152,6 +152,14 @@ class TestAuditCoverage:
         pub = _handover(admin, cid, "공개 범위 변경용")
         admin.patch(f"{H}/{pub['id']}", json={"expected_version": 1, "visibility": "ALL"})    # HANDOVER_SCOPE_CHANGE
 
+        # 담당 · 전파 · 분석 의뢰 (§5)
+        admin.put(f"{H}/{pub['id']}/participants", json={"participants": [          # PARTICIPANTS
+            {"user_id": ids["analyst"]["id"], "role": "CO_OWNER"}]})
+        admin.post(f"{H}/{pub['id']}/propagate", json={                             # PROPAGATE
+            "group_ids": [g["id"]], "role": "FYI"})
+        admin.post(f"{H}/{pub['id']}/request", json={                               # REQUEST
+            "to_user_ids": [ids["analyst"]["id"]], "note": "감사 확인용 의뢰"})
+
         # 근무표 — 조 편성 · 대근 · 취소
         rteams = admin.get("/api/v1/roster/teams").json()
         admin.put(f"/api/v1/roster/teams/{rteams[0]['id']}/members",                          # ROSTER_TEAM_CHANGE

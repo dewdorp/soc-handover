@@ -25,6 +25,14 @@ export interface ColumnDef {
   pinned?: boolean
 }
 
+/** 의뢰 흐름의 색과 글자 — 목록에서 '맡겼는데 아직 접수 안 됨'이 눈에 띄어야 한다. */
+const REQUEST_LABEL: Record<string, string> = {
+  REQUESTED: '의뢰함', ACCEPTED: '접수함', ANSWERED: '회신함',
+}
+const REQUEST_TONE: Record<string, string> = {
+  REQUESTED: 'text-state-check', ACCEPTED: 'text-state-waiting', ANSWERED: 'text-state-done',
+}
+
 export const COLUMNS: ColumnDef[] = [
   { key: 'star', label: '★', width: '32px', align: 'center', pinned: true },
   { key: 'company', label: '관계사', field: 'company_id', width: '110px', pinned: true },
@@ -39,6 +47,8 @@ export const COLUMNS: ColumnDef[] = [
   { key: 'tags', label: '태그', field: 'tags', width: '130px' },
   // 누가 볼 수 있는 글인지 — 목록에서도 한눈에 보이게 한다(§3)
   { key: 'scope', label: '공개', width: '120px' },
+  // 맡겨 놓고 답을 기다리는 건은 상태 코드로는 보이지 않는다(§5)
+  { key: 'request', label: '의뢰', width: '78px' },
   { key: 'updated_at', label: '최근수정', field: 'updated_at', width: '96px' },
 ]
 
@@ -242,6 +252,12 @@ function Cell({ col, row, onToggleStar }: {
       return <AckCell row={row} />
     case 'scope':
       return <ScopeBadge visibility={row.visibility} groupNames={row.group_names} />
+    case 'request':
+      return row.request_state === 'NONE'
+        ? <span className="text-ink-faint">-</span>
+        : <span className={`text-sm ${REQUEST_TONE[row.request_state]}`}>
+            {REQUEST_LABEL[row.request_state]}
+          </span>
     case 'tags':
       return (
         <span className="flex gap-0.5 overflow-hidden">

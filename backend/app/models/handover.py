@@ -50,6 +50,7 @@ class Handover(Base, TimestampMixin):
         Index("ix_ho_fingerprint", "fingerprint"),
         Index("ix_ho_import", "import_job_id"),
         Index("ix_ho_updated", "updated_at"),
+        Index("ix_ho_request", "request_state", "registered_date"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -102,6 +103,18 @@ class Handover(Base, TimestampMixin):
     deleted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     delete_reason: Mapped[str | None] = mapped_column(Text)
 
+    # 분석 의뢰 흐름(§5) — NONE → REQUESTED(의뢰) → ACCEPTED(접수) → ANSWERED(회신).
+    # 한 업무에 흐름이 하나뿐이고 목록에서 '의뢰 중'을 걸러야 해서 같은 행에 둔다.
+    request_state: Mapped[str] = mapped_column(String(12), nullable=False, default="NONE")
+    requested_at: Mapped[datetime | None] = mapped_column(TZDateTime)
+    requested_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    accepted_at: Mapped[datetime | None] = mapped_column(TZDateTime)
+    accepted_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    answered_at: Mapped[datetime | None] = mapped_column(TZDateTime)
+    answered_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    request_note: Mapped[str | None] = mapped_column(Text)
+    answer_note: Mapped[str | None] = mapped_column(Text)
+
     #: 검색용 결합 텍스트(제목+내용+비고+관계사+인명+태그). PG에서는 tsvector 컬럼이 추가된다.
     search_text: Mapped[str | None] = mapped_column(Text)
 
@@ -113,6 +126,8 @@ class Handover(Base, TimestampMixin):
     checker = relationship("User", foreign_keys=[checker_id], lazy="joined")
     tag_links = relationship("HandoverTag", cascade="all, delete-orphan", lazy="selectin")
     group_links = relationship("HandoverGroup", cascade="all, delete-orphan", lazy="selectin")
+    participants = relationship("HandoverParticipant", cascade="all, delete-orphan",
+                                lazy="selectin")
 
 
 class HandoverVersion(Base):

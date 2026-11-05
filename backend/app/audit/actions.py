@@ -48,6 +48,12 @@ CREDENTIAL_REVEAL: Final = "CREDENTIAL_REVEAL"
 CREDENTIAL_REVEAL_DENIED: Final = "CREDENTIAL_REVEAL_DENIED"
 
 # 관리
+#: 업무에 걸린 사람 — 복수 담당 · 필수 인수자 · 참고 전파 · 그룹 단위 전파
+HANDOVER_PARTICIPANTS: Final = "HANDOVER_PARTICIPANTS"
+HANDOVER_PROPAGATE: Final = "HANDOVER_PROPAGATE"
+#: 분석 의뢰 → 접수 → 회신
+HANDOVER_REQUEST: Final = "HANDOVER_REQUEST"
+
 #: 근무표 — 조 편성 변경 · 대근/맞교환/결원 · 그 취소
 ROSTER_TEAM_CHANGE: Final = "ROSTER_TEAM_CHANGE"
 ROSTER_OVERRIDE: Final = "ROSTER_OVERRIDE"
@@ -81,6 +87,8 @@ CRITICAL_ACTIONS: Final[frozenset[str]] = frozenset({
     HANDOVER_SCOPE_CHANGE,
     # 누가 언제 근무하는지 바꾼 기록 — 인계 누락을 따질 때 이것이 근거가 된다
     ROSTER_TEAM_CHANGE, ROSTER_OVERRIDE, ROSTER_OVERRIDE_CANCEL,
+    # 누구에게 퍼졌는지 남지 않으면 '그 건을 누가 알고 있었나'를 따질 수 없다
+    HANDOVER_PARTICIPANTS, HANDOVER_PROPAGATE,
     # 비밀번호를 열어 본 기록이 남지 않으면 열어 주지 않는다(기록이 이 기능의 유일한 통제다)
     CREDENTIAL_REVEAL, CREDENTIAL_REVEAL_DENIED, CREDENTIAL_DELETE,
 })

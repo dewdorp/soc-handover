@@ -290,6 +290,49 @@ UNIQUE `(handover_id, group_id)` · INDEX `(group_id)`
 
 ---
 
+## 4-2-1. 업무에 걸린 사람 · 분석 의뢰 (1.3.0)
+
+`handovers.assignee_id` 하나로는 모자란다. 침해사고 한 건에는 **손대는 사람 / 꼭 확인해야
+하는 사람 / 알고만 있으면 되는 사람**이 섞인다. 구분하지 않으면 참고로 보낸 사람까지
+미확인으로 잡혀 숫자가 늘 빨갛게 남는다.
+
+### handover_participants
+| 컬럼 | 타입 | 비고 |
+|---|---|---|
+| id | BIGSERIAL PK | |
+| handover_id | BIGINT FK handovers CASCADE | |
+| user_id | BIGINT FK users CASCADE | |
+| role | VARCHAR(10) NOT NULL | OWNER(대표 담당) · CO_OWNER(공동) · REQUIRED(필수 인수자) · FYI(참고) |
+| note | TEXT NULL | 왜 걸렸는지. 전파로 들어온 사람은 그 묶음 이름 |
+| added_by | BIGINT FK users NULL | |
+
+UNIQUE `(handover_id, user_id)` — **한 사람은 한 역할만**. 두 줄이 남으면 확인 숫자가 두 번
+세어지고 알림이 두 번 간다. 전파에서 같은 사람이 두 역할로 들어오면 강한 쪽만 남긴다
+(OWNER > CO_OWNER > REQUIRED > FYI).
+INDEX: `(user_id, role)`, `(handover_id, role)`
+
+확인(ack) 의무는 `FYI` 를 뺀 셋에 붙는다. 대표 담당(OWNER)은 `handovers.assignee_id` 와
+같은 사람으로 맞춘다 — 두 곳이 어긋나면 목록의 '담당자'와 상세의 '대표 담당'이 다른
+이름을 보여 준다.
+
+**열람**: 걸린 사람은 그룹과 무관하게 그 건을 본다(`group_service.visible_clause`).
+전파는 글의 `visibility` · 공개 그룹을 **바꾸지 않는다** — 사람을 거는 것이지 글을 여는
+것이 아니다.
+
+### handovers 의 분석 의뢰 칸
+`request_state VARCHAR(12) NOT NULL DEFAULT 'NONE'` — NONE → REQUESTED → ACCEPTED → ANSWERED.
+`requested_at/by` · `accepted_at/by` · `answered_at/by` · `request_note` · `answer_note`.
+INDEX `(request_state, registered_date)`.
+
+별도 테이블을 두지 않은 이유: 한 업무에 흐름이 하나뿐이고, 목록에서 '의뢰 중인 건'을
+거르려면 같은 행에 있어야 한다. 되돌리기는 없다 — 상태 이력이 지워지면 '언제 맡겼고
+언제 답이 왔는가'를 따질 근거가 사라진다.
+
+**이관(f6d2b8a4c137)**: 담당자가 있는 기존 건은 그 사람이 **대표 담당**으로 들어간다.
+보이는 것이 달라지지 않고, 공동 담당·필수 인수자를 더할 자리만 생긴다.
+
+---
+
 ## 4-3. 근무표 (1.3.0)
 
 4조 2교대는 **16일 주기로 완전히 되풀이**된다('주주주주' + '야비비'×4). 그래서 날짜마다

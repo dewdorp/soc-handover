@@ -32,6 +32,7 @@ from app.core.errors import Conflict, NotFound, ValidationFailed
 from app.models.group import (GROUP_UNCLASSIFIED, VIS_ALL, VIS_GROUPS, VISIBILITIES,
                               Group, HandoverGroup, UserGroup)
 from app.models.handover import Handover
+from app.models.participant import HandoverParticipant
 from app.models.shift import ShiftHandoverItem, ShiftHandoverRecipient
 from app.models.user import User
 from app.services.audit_service import record
@@ -118,6 +119,17 @@ def visible_clause(db: Session, user_id: int) -> ColumnElement[bool]:
                      Handover.sender_id == user_id,
                      Handover.assignee_id == user_id,
                      Handover.checker_id == user_id))
+
+    # 공동 담당 · 필수 인수자 · 참고로 걸린 사람(§5). 전파는 글의 공개 범위를 넓히지 않고
+    # **사람을 건다** — 그래서 그룹이 아니라 여기로 들어온다.
+    terms.append(
+        exists(
+            select(HandoverParticipant.id).where(
+                HandoverParticipant.handover_id == Handover.id,
+                HandoverParticipant.user_id == user_id,
+            ).correlate(Handover)
+        )
+    )
 
     # 교대 인계로 나에게 온 건
     terms.append(

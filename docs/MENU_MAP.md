@@ -55,6 +55,19 @@
 | 변경 이력 · 알림 | 줄 아래 변경 목록 · 알림함 | `GET /roster/overrides` | `test_history_keeps_canceled_rows` |
 | 인계 상대 추천 | 인계 준비 → '실근무자로 채우기' | `GET /roster/next-shift` | `test_substitute_shows_up_in_the_suggestion` |
 
+### ③-2 복수 담당 · CERT 전파 · 분석 의뢰
+
+| 요구 | 화면 위치 | API | 시험 |
+|---|---|---|---|
+| 대표 · 공동 담당 | 상세 서랍 → 담당 · 전파 대상 | `PUT /handovers/{id}/participants` | `test_participants_and_request.py::TestRolesAreDeduplicated` |
+| 필수 인수자 · 참고 전파자 | 같은 자리의 역할 선택 | 같은 API | `test_fyi_does_not_create_a_pending_ack` |
+| 같은 사람이 두 역할이면 | 서버가 강한 쪽만 남긴다 | 같은 API | `test_same_person_twice_keeps_the_stronger_role` |
+| CERT 전체 전파 · 받는 사람 미리보기 | 상세 서랍 → '그룹에 전파' | `POST /handovers/{id}/propagate/preview` | `TestPropagation` |
+| 담당 N / 필수 N / 참고 N / 제외 M | 전파 창 안 | 같은 API | `test_preview_shows_who_and_how_many` |
+| 전파가 공개 범위를 넓히지 않는다 | 전파 창의 안내 문구 | `POST …/propagate` | `test_propagation_does_not_widen_the_public_scope` |
+| 분석 의뢰 → 접수 → 회신 | 상세 서랍 → 분석 의뢰 | `POST …/request`, `…/request/accept`, `…/request/answer` | `TestAnalysisRequest` |
+| 목록에서 '의뢰 중' 보기 | 인수인계 목록의 '의뢰' 열 | 목록 응답의 `request_state` | `test_request_state_is_on_the_list_row` |
+
 ### ④ 대시보드 · 일정 알림 · 메모 연결
 
 | 요구 | 화면 위치 | API | 시험 |
@@ -81,6 +94,8 @@
 |---|---|---|
 | `group:manage` | 관리자 | 그룹 만들기 · 구성원 · 자료 이관. **원문 열람 권한이 아니다** |
 | `shift:manage` | 관리자 | 조 편성 · 대근 · 맞교환 · 기준일 |
+| `handover:update_own` | 모두(본인 건) | 담당 · 전파 대상 **바꾸기**(사람을 뺄 수 있어서) |
+| `handover:read` | 모두 | 그룹 전파(더하기만) · 분석 의뢰 · 접수 · 회신 |
 | `schedule:read` | 모두 | 근무표 보기 |
 | `export:run` | 모두 | Excel · RAG 사례 묶음(둘 다 '대량으로 꺼내기'라 같은 권한) |
 | `credential:read` | 모두 | 비밀번호 목록(값은 본인 확인 후에만) |

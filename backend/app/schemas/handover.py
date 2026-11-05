@@ -11,6 +11,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.auth import UserBrief
+from app.schemas.participant import ParticipantCounts, ParticipantOut, RequestOut
 from app.schemas.reference import CompanyOut, PriorityOut, StatusOut
 
 #: 낙관적 잠금/사유는 업무 필드가 아니므로 변경분에서 제외한다.
@@ -146,6 +147,8 @@ class HandoverListItem(BaseModel):
     #: 공개 범위 — 목록에서도 '전체 공개'인지 한눈에 보이게 한다.
     visibility: str = "GROUPS"
     group_names: list[str] = []
+    #: 분석 의뢰 흐름(§5). 'NONE' 이면 의뢰가 없는 건이다.
+    request_state: str = "NONE"
     carry_count: int
     updated_at: datetime
     is_deleted: bool
@@ -171,6 +174,9 @@ class HandoverDetail(HandoverListItem):
     comment_count: int = 0
     attachment_count: int = 0
     group_ids: list[int] = []
+    participants: list[ParticipantOut] = []
+    participant_counts: ParticipantCounts | None = None
+    request: RequestOut | None = None
 
 
 class VersionSummary(BaseModel):

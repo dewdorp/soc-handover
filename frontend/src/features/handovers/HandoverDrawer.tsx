@@ -9,6 +9,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { Check, Pin, Plus, Star, Trash2, X } from 'lucide-react'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import AnalysisRequest from '@/features/handovers/AnalysisRequest'
+import ParticipantsPanel from '@/features/handovers/ParticipantsPanel'
 import ScopePicker, { ScopeBadge, type Visibility } from '@/features/handovers/ScopePicker'
 import ConflictDialog from '@/features/handovers/ConflictDialog'
 import TaskCreateDialog from '@/features/tasks/TaskCreateDialog'
@@ -294,6 +296,9 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
                 }}
               />
             )}
+
+            <ParticipantsPanel handoverId={row.id} canEdit={canEdit} />
+            <AnalysisRequest handoverId={row.id} />
 
             <section>
               <h3 className="text-ink-muted mb-1">내용</h3>

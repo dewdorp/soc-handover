@@ -26,8 +26,12 @@ from app.schemas.handover import (AcknowledgeRequest, AckOut, AsOfOut, DeleteReq
                                   HandoverCreate, HandoverDetail, HandoverListItem,
                                   HandoverUpdate, PinRequest, RestoreRequest, TimelineEvent,
                                   VersionDetail, VersionSummary)
+from app.schemas.participant import (AcceptIn, AnswerIn, ParticipantsOut,
+                                    ParticipantsUpdate, PropagatePreview,
+                                    PropagateRequest, RequestIn, RequestOut)
 from app.search.dsl import Filter, SearchRequest, Sort
-from app.services import ack_service, handover_service, search_service
+from app.services import (ack_service, handover_service, participant_service,
+                          request_service, search_service)
 
 router = APIRouter(tags=["handovers"], dependencies=[Depends(require_password_changed)])
 
@@ -225,6 +229,105 @@ def acknowledge(handover_id: int, payload: AcknowledgeRequest, db: Session = Dep
     handover = handover_service.get_or_404(db, handover_id, actor, lock=True)
     return ack_service.acknowledge(db, handover, actor, expected_version=payload.expected_version,
                                    note=payload.note, ctx=ctx)
+
+
+# --------------------------------------------------------------------------- 담당 · 전파 (§5)
+
+def _counts(raw: dict) -> dict:
+    from app.models.participant import MUST_ACK, ROLE_CO_OWNER, ROLE_FYI, ROLE_OWNER, ROLE_REQUIRED
+
+    return {"owner": raw[ROLE_OWNER], "co_owner": raw[ROLE_CO_OWNER],
+            "required": raw[ROLE_REQUIRED], "fyi": raw[ROLE_FYI],
+            "total": sum(raw.values()),
+            "must_ack": sum(v for k, v in raw.items() if k in MUST_ACK)}
+
+
+@router.get("/handovers/{handover_id}/participants", response_model=ParticipantsOut)
+def list_participants(handover_id: int, db: Session = Depends(get_db),
+                      actor: User = Depends(require("handover:read"))):
+    handover = handover_service.get_or_404(db, handover_id, actor)
+    return {"participants": participant_service.list_for(db, handover),
+            "counts": _counts(participant_service.counts(db, handover))}
+
+
+@router.put("/handovers/{handover_id}/participants", response_model=ParticipantsOut)
+def set_participants(handover_id: int, payload: ParticipantsUpdate,
+                     db: Session = Depends(get_db),
+                     actor: User = Depends(require("handover:update_own")),
+                     ctx: RequestContext = Depends(get_context)):
+    """담당 · 필수 인수자 · 참고를 통째로 바꾼다. 같은 사람이 여럿이면 강한 역할만 남는다.
+
+    사람을 **빼는** 동작이라 본문 수정과 같은 자격을 요구한다(작성자 · 담당자 · 관리자).
+    전파(아래)는 더하기만 하므로 볼 수 있는 사람이면 누구나 할 수 있다.
+    """
+    handover = handover_service.get_or_404(db, handover_id, actor)
+    handover_service.ensure_editable(handover, actor)
+    participant_service.set_participants(
+        db, handover, [p.model_dump() for p in payload.participants],
+        actor=actor, ctx=ctx, note=payload.note)
+    return {"participants": participant_service.list_for(db, handover),
+            "counts": _counts(participant_service.counts(db, handover))}
+
+
+@router.post("/handovers/{handover_id}/propagate/preview", response_model=PropagatePreview)
+def propagate_preview(handover_id: int, payload: PropagateRequest,
+                      db: Session = Depends(get_db),
+                      actor: User = Depends(require("handover:read"))):
+    """누르기 전에 — 담당 N / 필수 N / 참고 N / 제외 M."""
+    handover = handover_service.get_or_404(db, handover_id, actor)
+    return participant_service.propagate_preview(
+        db, handover, group_ids=payload.group_ids, role=payload.role,
+        exclude_user_ids=payload.exclude_user_ids, actor=actor)
+
+
+@router.post("/handovers/{handover_id}/propagate", response_model=PropagatePreview)
+def propagate(handover_id: int, payload: PropagateRequest, db: Session = Depends(get_db),
+              actor: User = Depends(require("handover:read")),
+              ctx: RequestContext = Depends(get_context)):
+    """그룹 단위 전파(CERT 전체 전파 등). **글의 공개 범위는 바뀌지 않는다**.
+
+    볼 수 있는 사람이면 누구나 할 수 있다 — 야간 근무자가 CERT 에 알리는 것이 이 기능의
+    쓰임이다. 더하기만 하고(빼지 않고) 누가 언제 어디에 퍼뜨렸는지 감사에 남는다.
+    """
+    handover = handover_service.get_or_404(db, handover_id, actor)
+    return participant_service.propagate(
+        db, handover, group_ids=payload.group_ids, role=payload.role,
+        exclude_user_ids=payload.exclude_user_ids, note=payload.note, actor=actor, ctx=ctx)
+
+
+# --------------------------------------------------------------------------- 분석 의뢰 (§5)
+
+@router.get("/handovers/{handover_id}/request", response_model=RequestOut)
+def get_request(handover_id: int, db: Session = Depends(get_db),
+                actor: User = Depends(require("handover:read"))):
+    handover = handover_service.get_or_404(db, handover_id, actor)
+    return request_service.describe(handover)
+
+
+@router.post("/handovers/{handover_id}/request", response_model=RequestOut)
+def make_request(handover_id: int, payload: RequestIn, db: Session = Depends(get_db),
+                 actor: User = Depends(require("handover:read")),
+                 ctx: RequestContext = Depends(get_context)):
+    """분석을 의뢰한다 — 받는 사람은 필수 인수자로 걸린다(접수를 추적할 사람)."""
+    handover = handover_service.get_or_404(db, handover_id, actor)
+    return request_service.request(db, handover, to_user_ids=payload.to_user_ids,
+                                   note=payload.note, actor=actor, ctx=ctx)
+
+
+@router.post("/handovers/{handover_id}/request/accept", response_model=RequestOut)
+def accept_request(handover_id: int, payload: AcceptIn, db: Session = Depends(get_db),
+                   actor: User = Depends(require("handover:read")),
+                   ctx: RequestContext = Depends(get_context)):
+    handover = handover_service.get_or_404(db, handover_id, actor)
+    return request_service.accept(db, handover, note=payload.note, actor=actor, ctx=ctx)
+
+
+@router.post("/handovers/{handover_id}/request/answer", response_model=RequestOut)
+def answer_request(handover_id: int, payload: AnswerIn, db: Session = Depends(get_db),
+                   actor: User = Depends(require("handover:read")),
+                   ctx: RequestContext = Depends(get_context)):
+    handover = handover_service.get_or_404(db, handover_id, actor)
+    return request_service.answer(db, handover, note=payload.note, actor=actor, ctx=ctx)
 
 
 @router.get("/acknowledgements/pending", response_model=list[AckOut])

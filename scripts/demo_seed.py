@@ -220,6 +220,29 @@ def main() -> int:
                 c.put(f"/schedules/{r.json()['id']}/reminder", json={"minutes_before": reminder * 10})
         print(f"일정 {len(SCHEDULES)}건")
 
+        # 복수 담당 · CERT 전파 · 분석 의뢰 (§5)
+        if made_ids and len(user_ids) >= 4:
+            people = list(user_ids.values())
+            ransom = made_ids[2]          # 랜섬웨어 의심 건
+            c.put(f"/handovers/{ransom}/participants", json={"participants": [
+                {"user_id": people[0], "role": "OWNER"},
+                {"user_id": people[1], "role": "CO_OWNER"},
+                {"user_id": people[4], "role": "REQUIRED"},
+            ], "note": "야간 대응조"})
+            # CERT 그룹에 참고로 전파 — 미리보기와 같은 계산으로 들어간다
+            c.post(f"/handovers/{ransom}/propagate", json={
+                "group_ids": [group_ids[2]], "role": "FYI", "note": "침해사고 공유"})
+            # 분석 의뢰 → 접수까지(회신은 남겨 둬서 '답을 기다리는 중'이 보이게)
+            c.post(f"/handovers/{ransom}/request", json={
+                "to_user_ids": [people[8]],
+                "note": "확보한 포렌식 이미지에서 C2 통신 흔적과 초기 침투 경로를 확인해 주십시오."})
+            phish = made_ids[7]           # 피싱 신고 건 — 회신까지 끝난 예
+            c.post(f"/handovers/{phish}/request", json={
+                "to_user_ids": [people[9]], "note": "발신 도메인 평판 확인 부탁드립니다."})
+            c.post(f"/handovers/{phish}/request/answer", json={
+                "note": "해당 도메인은 3일 전 등록된 신규 도메인이며 다수 기관에서 악성으로 분류. 차단 권고."})
+            print("담당 · 전파 · 의뢰 설정")
+
         # 개인 메모
         c.post("/me/notes", json={
             "title": "인계 전 확인 목록",

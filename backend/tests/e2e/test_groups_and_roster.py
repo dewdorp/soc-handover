@@ -217,3 +217,85 @@ def test_narrow_screen_does_not_overflow(login, server, page: Page):
         overflow = page.evaluate(
             "() => document.documentElement.scrollWidth - document.documentElement.clientWidth")
         assert overflow <= 1, f"{path} 에서 가로로 {overflow}px 넘쳤다"
+
+
+# --------------------------------------------------------------------------- 12 · 13 (§5)
+
+def test_participants_and_propagation_preview(login, server, page: Page):
+    """담당 · 참고를 지정하고, 그룹 전파가 **누르기 전에** 몇 명인지 보여 준다."""
+    import httpx
+
+    base = server["base"] + "/api/v1"
+    with httpx.Client(base_url=base, timeout=20) as c:
+        c.post("/auth/login", json={"username": "admin", "password": ADMIN_PW}).raise_for_status()
+        c.headers["X-CSRF-Token"] = c.cookies.get("soc_csrf")
+        made = c.post("/groups", json={"name": "E2E CERT", "description": "전파 확인"})
+        gid = made.json()["id"] if made.status_code == 201 else             next(g["id"] for g in c.get("/groups").json() if g["name"] == "E2E CERT")
+        me = c.get("/auth/me").json()
+        mine = [g["id"] for g in c.get("/groups/mine").json()] + [gid]
+        c.put(f"/users/{me['id']}/groups", json={"group_ids": mine, "default_group_id": mine[0]})
+        users = {u["display_name"]: u["id"] for u in c.get("/users/lookup").json()}
+        c.put(f"/users/{users['야간근무자']}/groups",
+              json={"group_ids": [gid], "default_group_id": gid})
+        company = c.get("/companies").json()[0]["id"]
+        hid = c.post("/handovers", json={"company_id": company, "title": "E2E 전파 대상",
+                                         "content": "전파"}).json()["id"]
+
+    login("admin", ADMIN_PW)
+    page.goto(f"{server['base']}/handovers?id={hid}")
+    panel = page.get_by_role("region", name="담당 · 전파 대상")
+    expect(panel).to_be_visible(timeout=20000)
+
+    # 참고로 한 명 넣는다 — 확인 대기로 잡히지 않는다고 적혀 있다
+    panel.get_by_label("사람 추가").select_option(label="주간근무자")
+    panel.get_by_label("추가할 역할").select_option("FYI")
+    expect(panel.get_by_text("확인 대기로 잡히지 않는다")).to_be_visible()
+    panel.get_by_role("button", name="넣기").click()
+    expect(panel.get_by_text("주간근무자")).to_be_visible(timeout=15000)
+    expect(panel.get_by_text("확인 불필요")).to_be_visible()
+
+    # 전파 — 누르기 전에 몇 명인지 보여 준다
+    panel.get_by_role("button", name=re.compile("그룹에 전파")).click()
+    dialog = page.get_by_role("dialog", name="그룹에 전파")
+    expect(dialog).to_be_visible()
+    dialog.get_by_role("checkbox", name="E2E CERT").check()
+    expect(dialog.get_by_text(re.compile(r"\d+명에게"))).to_be_visible(timeout=15000)
+    expect(dialog.get_by_text(re.compile("공개 범위"))).to_be_visible()
+    dialog.get_by_role("button", name=re.compile("명에게 전파")).click()
+    expect(dialog).not_to_be_visible(timeout=15000)
+    expect(panel.get_by_text("야간근무자")).to_be_visible(timeout=15000)
+
+
+def test_analysis_request_flow(login, server, page: Page):
+    """의뢰 → 접수 → 회신이 화면에서 한 바퀴 돈다. 내용 없는 회신은 막힌다."""
+    import httpx
+
+    base = server["base"] + "/api/v1"
+    with httpx.Client(base_url=base, timeout=20) as c:
+        c.post("/auth/login", json={"username": "admin", "password": ADMIN_PW}).raise_for_status()
+        c.headers["X-CSRF-Token"] = c.cookies.get("soc_csrf")
+        company = c.get("/companies").json()[0]["id"]
+        hid = c.post("/handovers", json={"company_id": company, "title": "E2E 의뢰 대상",
+                                         "content": "분석 의뢰"}).json()["id"]
+
+    login("admin", ADMIN_PW)
+    page.goto(f"{server['base']}/handovers?id={hid}")
+    panel = page.get_by_role("region", name="분석 의뢰")
+    expect(panel).to_be_visible(timeout=20000)
+    expect(panel.get_by_text("의뢰 없음")).to_be_visible()
+
+    panel.get_by_role("button", name="의뢰하기").click()
+    panel.get_by_label("의뢰받을 사람").select_option(label="주간근무자")
+    panel.get_by_label(re.compile("무엇을 봐 달라는")).fill("C2 통신 로그 분석 부탁드립니다.")
+    panel.get_by_role("button", name=re.compile("^의뢰$")).click()
+    expect(panel.get_by_text("의뢰함")).to_be_visible(timeout=15000)
+
+    panel.get_by_role("button", name="접수하기").click()
+    expect(panel.get_by_text("접수함")).to_be_visible(timeout=15000)
+
+    panel.get_by_role("button", name="회신하기").click()
+    panel.get_by_role("button", name=re.compile("^회신$")).click()      # 내용 없이
+    expect(panel.get_by_text("회신함")).to_have_count(0)
+    panel.get_by_label(re.compile("회신 내용")).fill("오탐으로 확인되었습니다.")
+    panel.get_by_role("button", name=re.compile("^회신$")).click()
+    expect(panel.get_by_text("회신함")).to_be_visible(timeout=15000)

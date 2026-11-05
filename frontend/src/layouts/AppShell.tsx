@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import NotificationPopups from '@/features/notifications/NotificationPopups'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import ShortcutHelp from '@/components/ui/ShortcutHelp'
@@ -93,6 +94,7 @@ export default function AppShell() {
           <Outlet />
         </main>
       </div>
+      <NotificationPopups />
       {overlay === 'palette' && <CommandPalette onClose={close} />}
       {overlay === 'help' && <ShortcutHelp onClose={close} />}
       {overlay === 'new-task' && (

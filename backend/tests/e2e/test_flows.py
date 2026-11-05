@@ -44,9 +44,10 @@ def _new_handover(page: Page, title: str, content: str = "E2E 점검용 내용")
 def test_login_and_dashboard(login, server):
     page = login()
     expect(page.get_by_role("heading", name="근무 대시보드")).to_be_visible(timeout=15000)
-    page.get_by_text("시스템 상태 및 구현 현황", exact=True).click()
-    expect(page.get_by_role("heading", name="구현 현황")).to_be_visible()
-    expect(page.get_by_role("heading", name="시스템 상태")).to_be_visible()
+    # 대시보드에는 근무에 쓰는 것만 둔다('시스템 상태 · 구현 현황'은 1.3.0 에서 뺐다).
+    expect(page.get_by_text("구현 현황")).to_have_count(0)
+    for card in ("교대 마감 점검", "내 일정", "인수 확인"):
+        expect(page.get_by_text(card).first).to_be_visible(timeout=15000)
     # 왼쪽 메뉴가 권한대로 보인다(관리자)
     expect(_menu(page, "인수인계")).to_be_visible()
     page.get_by_role("navigation", name="주 메뉴").get_by_role("button", name="운영·관리").click()

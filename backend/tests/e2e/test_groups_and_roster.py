@@ -301,3 +301,33 @@ def test_analysis_request_flow(login, server, page: Page):
     panel.get_by_label(re.compile("회신 내용")).fill("오탐으로 확인되었습니다.")
     panel.get_by_role("button", name=re.compile("^회신$")).click()
     expect(panel.get_by_text("회신함")).to_be_visible(timeout=15000)
+
+
+# --------------------------------------------------------------------------- 14 (알림 팝업)
+
+def test_new_notification_pops_up(login, server, page: Page):
+    """화면을 열어 둔 사이에 온 알림이 구석에 뜬다 — 종의 숫자는 보고 있어야 보인다."""
+    import httpx
+
+    day = login("e2e_day", USER_PW)
+    expect(page.get_by_role("heading", name="근무 대시보드")).to_be_visible(timeout=20000)
+    # 열자마자 쌓여 있던 것이 우르르 뜨지는 않는다
+    expect(page.get_by_role("region", name="새 알림")).to_have_count(0)
+
+    base = server["base"] + "/api/v1"
+    with httpx.Client(base_url=base, timeout=20) as c:
+        c.post("/auth/login", json={"username": "admin", "password": ADMIN_PW}).raise_for_status()
+        c.headers["X-CSRF-Token"] = c.cookies.get("soc_csrf")
+        company = c.get("/companies").json()[0]["id"]
+        users = {u["display_name"]: u["id"] for u in c.get("/users/lookup").json()}
+        made = c.post("/handovers", json={"company_id": company, "title": "E2E 팝업 확인",
+                                          "content": "담당 지정", "assignee_id": users["주간근무자"]})
+        made.raise_for_status()
+
+    popup = page.get_by_role("region", name="새 알림")
+    expect(popup).to_be_visible(timeout=40000)
+    expect(popup.get_by_text("E2E 팝업 확인")).to_be_visible()
+
+    # 눌러 보면 그 건으로 간다
+    popup.get_by_role("button", name=re.compile("열어 보기")).first.click()
+    expect(day).to_have_url(re.compile(r"/handovers\?id="), timeout=15000)

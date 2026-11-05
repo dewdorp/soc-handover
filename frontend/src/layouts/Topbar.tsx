@@ -1,6 +1,8 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
-import { Bell, Keyboard, LogOut, Menu, Search, ShieldAlert } from 'lucide-react'
+import { Bell, BellOff, BellRing, Keyboard, LogOut, Menu, Search, ShieldAlert } from 'lucide-react'
+import { desktopEnabled, disableDesktop, enableDesktop } from '@/features/notifications/NotificationPopups'
 import { useFeatures, useLogout, useMe } from '@/hooks/useAuth'
 import { notificationApi } from '@/services/api/shift'
 
@@ -23,6 +25,20 @@ export default function Topbar({ onToggleSidebar, onOpenSearch, onOpenHelp }: {
     enabled: Boolean(me), refetchInterval: 30_000,
   })
   const unreadCount = unread?.unread ?? me?.unread_notification_count ?? 0
+
+  // 바탕화면 알림. 권한은 **사람이 눌렀을 때만** 묻는다 — 들어오자마자 묻는 창은 업무를 가린다.
+  const [popup, setPopup] = useState(desktopEnabled)
+  const togglePopup = async () => {
+    if (popup) { disableDesktop(); setPopup(false); return }
+    const result = await enableDesktop()
+    if (result === 'granted') { setPopup(true); return }
+    setPopup(false)
+    window.alert(result === 'unsupported'
+      ? '이 브라우저는 바탕화면 알림을 지원하지 않습니다. 화면 안 팝업은 그대로 뜹니다.'
+      : ['브라우저가 바탕화면 알림을 막았습니다.',
+         '주소창 왼쪽 자물쇠에서 알림을 허용해 주십시오.',
+         '허용하지 않아도 화면 안 팝업은 그대로 뜹니다.'].join('\n'))
+  }
 
   return (
     <header className="h-14 shrink-0 border-b border-surface-border bg-surface flex items-center gap-1.5 px-2 sm:gap-3 sm:px-3">
@@ -58,6 +74,15 @@ export default function Topbar({ onToggleSidebar, onOpenSearch, onOpenHelp }: {
 
       <button className="btn btn-sm hidden sm:inline-flex" onClick={onOpenHelp} aria-label="키보드 단축키 (?)" title="키보드 단축키 (?)">
         <Keyboard size={15} />
+      </button>
+
+      <button className="btn btn-sm hidden sm:inline-flex" onClick={togglePopup}
+              aria-pressed={popup}
+              aria-label={popup ? '바탕화면 알림 끄기' : '바탕화면 알림 켜기'}
+              title={popup
+                ? '바탕화면 알림이 켜져 있습니다 — 다른 창을 보고 있어도 뜹니다'
+                : '바탕화면 알림 켜기 — 다른 창을 보고 있어도 새 알림이 뜹니다'}>
+        {popup ? <BellRing size={15} className="text-brand" /> : <BellOff size={15} />}
       </button>
 
       <button className="btn btn-sm relative" onClick={() => navigate('/notifications')}

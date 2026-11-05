@@ -1,9 +1,7 @@
-import { useState } from 'react'
 import { useQueries, useQuery } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
 import { format, parseISO } from 'date-fns'
 import { ArrowRight, Inbox, Send } from 'lucide-react'
-import { api } from '@/services/api/client'
 import { handoverApi } from '@/services/api/handovers'
 import { shiftApi, type InboxItem } from '@/services/api/shift'
 import { taskApi, type MyWorkItem } from '@/services/api/tasks'
@@ -11,7 +9,6 @@ import MySchedules from '@/features/calendar/MySchedules'
 import ClosingCheck from '@/features/shift/ClosingCheck'
 import { fieldLabel } from '@/features/handovers/VersionHistory'
 import { useFeatures } from '@/hooks/useAuth'
-import type { Company, HandoverStatus, Shift } from '@/types/api'
 import type { Filter } from '@/types/handover'
 
 /**
@@ -100,10 +97,6 @@ function InboxRow({ row }: { row: InboxItem }) {
 export default function DashboardPage() {
   const system = useFeatures()
   const features = system.data
-  const [expanded, setExpanded] = useState(false)
-  const companies = useQuery({ queryKey: ['companies'], queryFn: () => api.get<Company[]>('/companies'), enabled: expanded })
-  const statuses = useQuery({ queryKey: ['statuses'], queryFn: () => api.get<HandoverStatus[]>('/statuses'), enabled: expanded })
-  const shifts = useQuery({ queryKey: ['shifts'], queryFn: () => api.get<Shift[]>('/shifts'), enabled: expanded })
   const inbox = useQuery({ queryKey: ['inbox'], queryFn: shiftApi.inbox, staleTime: 15_000, refetchInterval: 30_000 })
   const preview = inbox.data?.slice().sort((a, b) => Number(b.priority_code === 'URGENT') - Number(a.priority_code === 'URGENT')).slice(0, 3)
   const counts = useQueries({ queries: KPI.map(k => ({ queryKey: ['kpi', k.key],
@@ -151,51 +144,5 @@ export default function DashboardPage() {
       {counts.some(q => q.isError) && <p className="mt-2 text-sm">일부 지표를 불러오지 못했습니다. <Retry onRetry={() => counts.filter(q => q.isError).forEach(q => q.refetch())} /></p>}
     </section>
     {features?.database_warning && <p className="rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-state-check">{features.database} · {features.database_warning}</p>}
-    <details onToggle={e => setExpanded(e.currentTarget.open)}>
-      <summary className="cursor-pointer py-1 font-medium text-ink-muted">시스템 상태 및 구현 현황</summary>
-      {[system, companies, statuses, shifts].some(q => q.isError) && <p className="py-2 text-sm">일부 시스템 정보를 불러오지 못했습니다. <Retry onRetry={() => [system, companies, statuses, shifts].filter(q => q.isError).forEach(q => q.refetch())} /></p>}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        <section className="card p-4">
-          <h2 className="text-md font-semibold mb-3 flex items-center gap-1.5">
-            시스템 상태
-          </h2>
-          <dl className="text-sm grid grid-cols-[110px_1fr] gap-y-1">
-            <dt className="text-ink-muted">데이터베이스</dt>
-            <dd className="flex items-center gap-1.5">
-              {features?.database ?? '-'}
-            </dd>
-            <dt className="text-ink-muted">관계사</dt>
-            <dd>{companies.data ? `${companies.data.length}개` : '–'}</dd>
-            <dt className="text-ink-muted">상태 코드</dt>
-            <dd>{statuses.data ? `${statuses.data.length}개` : '–'}</dd>
-            <dt className="text-ink-muted">교대 정의</dt>
-            <dd>
-              {shifts.data?.map((s) => `${s.name} ${s.start_time.slice(0, 5)}`).join(' · ') || '-'}
-            </dd>
-            <dt className="text-ink-muted">재확인 필드</dt>
-            <dd className="truncate" title={features?.ack.reack_fields.join(', ')}>
-              {features ? `${features.ack.reack_fields.length}개` : '–'}
-            </dd>
-          </dl>
-        </section>
-
-        <section className="card p-4">
-          <h2 className="text-md font-semibold mb-3">구현 현황</h2>
-          <ul className="text-sm space-y-1">
-            <li>✔ Phase 0 — 설계 문서 7종</li>
-            <li>✔ Phase 1 — 인증 · RBAC · 감사 기반 · Windows 실행환경</li>
-            <li>✔ Phase 2 — 인수인계 CRUD · Version · Diff · 복원</li>
-            <li>✔ Phase 3 — Data Grid · 컬럼 필터 · 검색 · 저장된 보기 · 통합검색(Ctrl+K)</li>
-            <li>✔ Phase 4 — Excel Import/Export</li>
-            <li>✔ Phase 5 — 교대 인수인계 · 확인 · Carry Forward</li>
-            <li>✔ Phase 6 — 할일 · 체크리스트 · 보드 · 내 업무</li>
-            <li>✔ Phase 7 — 일정 · 달력 · 반복 · 연계</li>
-            <li>✔ Phase 8 — 감사로그 · 관리자 · 설정 · 통계 · 댓글 · 첨부 · 알림 · 백업</li>
-            <li>✔ 1.3.0 — 열람 그룹 · 4조 근무표 · 교대 마감 점검 · 일정 알림 · RAG 바닥 공사</li>
-            <li className="text-ink-faint">· Phase 10 — 안정화 (Phase 9 AI 는 범위에서 제외)</li>
-          </ul>
-        </section>
-      </div>
-    </details>
   </div>
 }

@@ -123,6 +123,8 @@ def _statement(actor: User, req):
         stmt = stmt.where(AuditLog.user_id == req.user_id)
     if req.username:
         stmt = stmt.where(AuditLog.username.icontains(req.username.strip(), autoescape=True))
+    if getattr(req, "hide_views", False) and (not req.actions or actions.HANDOVER_VIEW not in req.actions):
+        stmt = stmt.where(AuditLog.action != actions.HANDOVER_VIEW)
     if req.actions:
         unknown = sorted(set(req.actions) - set(ACTION_LABELS))
         if unknown:

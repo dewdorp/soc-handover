@@ -19,6 +19,7 @@ import TaskPage from '@/features/tasks/TaskPage'
 import CalendarPage from '@/features/calendar/CalendarPage'
 import RosterPage from '@/features/calendar/RosterPage'
 import CredentialsPage from '@/features/credentials/CredentialsPage'
+import KnowledgePage from '@/features/knowledge/KnowledgePage'
 import SearchPage from '@/features/search/SearchPage'
 import AuditPage from '@/features/audit/AuditPage'
 import AdminPage from '@/features/admin/AdminPage'
@@ -58,6 +59,7 @@ const router = createBrowserRouter(createRoutesFromElements(
         <Route path="/schedules/roster" element={<RosterPage />} />
       </Route>
       <Route path="/credentials" element={<CredentialsPage />} />
+      <Route path="/knowledge" element={<KnowledgePage />} />
       <Route path="/search" element={<SearchPage />} />
       <Route path="/import/*" element={<ImportWizardPage />} />
       <Route path="/stats" element={<StatsPage />} />

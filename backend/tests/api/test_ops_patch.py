@@ -591,3 +591,21 @@ def test_outside_scope_propagation_is_recorded_in_the_audit(admin, users, db):
     assert detail.get("outside_scope_groups") == ["감사 기록 확인 바깥"], detail
     assert detail.get("scope_groups") == ["감사 기록 확인 안쪽"], detail
     assert detail.get("visibility") == "GROUPS", detail
+
+
+def test_knowledge_attachments_follow_the_same_file_policy(admin, db):
+    """운영 지식 첨부도 기존 첨부 정책(확장자 · 크기)을 그대로 지난다.
+
+    새 붙이는 곳이 생겼다고 검사 없이 받으면, 막아 둔 길 옆에 뚫린 길이 생긴다.
+    """
+    aid = admin.post(K, json={"category": "참고 자료", "title": "첨부 정책 확인"}).json()["id"]
+    blocked = admin.post("/api/v1/attachments",
+                         data={"entity_type": "KNOWLEDGE", "entity_id": str(aid)},
+                         files={"file": ("악성.exe", b"MZ\x90\x00", "application/octet-stream")})
+    assert blocked.status_code == 422, blocked.text
+    assert "확장자" in blocked.text or "허용" in blocked.text
+
+    ok = admin.post("/api/v1/attachments",
+                    data={"entity_type": "KNOWLEDGE", "entity_id": str(aid)},
+                    files={"file": ("절차.pdf", b"%PDF-1.4\nok\n%%EOF", "application/pdf")})
+    assert ok.status_code == 201, ok.text

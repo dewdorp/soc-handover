@@ -14,6 +14,7 @@ class AuditSearch(BaseModel):
     user_id: int | None = None
     username: str | None = Field(default=None, max_length=64)
     actions: list[str] | None = Field(default=None, max_length=40)
+    hide_views: bool = True
     resource_type: str | None = Field(default=None, max_length=30)
     resource_id: str | None = Field(default=None, max_length=50)
     client_ip: str | None = Field(default=None, max_length=45)

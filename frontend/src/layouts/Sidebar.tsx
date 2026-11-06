@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import clsx from 'clsx'
 import {
   LayoutDashboard, ClipboardList, UserCheck, FileSpreadsheet, BarChart3, ShieldCheck, KeyRound,
-  Settings, Users, ChevronDown, CalendarClock,
+  Settings, Users, ChevronDown, CalendarClock, BookOpen,
 } from 'lucide-react'
 import { useCan } from '@/hooks/useAuth'
 
@@ -21,6 +21,7 @@ const MAIN: NavEntry[] = [
   { to: '/my-work', label: '내 업무', icon: UserCheck, sections: ['/my-work', '/tasks'] },
   { to: '/schedules', label: '일정 · 근무표', icon: CalendarClock, sections: ['/schedules'] },
   { to: '/credentials', label: '비밀번호', icon: KeyRound, permission: 'credential:read' },
+  { to: '/knowledge', label: '운영 지식', icon: BookOpen, permission: 'handover:read' },
 ]
 
 const OPERATIONS: NavEntry[] = [

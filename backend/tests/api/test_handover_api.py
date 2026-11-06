@@ -507,12 +507,20 @@ class TestListAndExtras:
         assert body["total"] == 1
         assert body["items"][0]["status"]["code"] == "IN_PROGRESS"
 
-    def test_view_endpoint_writes_audit(self, admin_client, company_id, db):
+    def test_view_endpoint_writes_audit_when_enabled(self, admin_client, company_id, db):
         from sqlalchemy import select
 
         from app.models.common import AuditLog
 
+        from app.models.common import SystemSetting
         hid = _new(admin_client, company_id)["id"]
         assert admin_client.post(f"{BASE}/{hid}/view").status_code == 204
+        rows = db.scalars(select(AuditLog).where(AuditLog.action == "HANDOVER_VIEW")).all()
+        assert rows == [], "기본값은 단순 열람 기록 생략"
+        row = db.get(SystemSetting, "audit.track_handover_views")
+        row.value = True
+        db.commit()
+        assert admin_client.post(f"{BASE}/{hid}/view").status_code == 204
+        db.expire_all()
         rows = db.scalars(select(AuditLog).where(AuditLog.action == "HANDOVER_VIEW")).all()
         assert [r.resource_id for r in rows] == [str(hid)]

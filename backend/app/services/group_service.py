@@ -210,8 +210,9 @@ def apply_scope(db: Session, handover: Handover, *, visibility: str | None,
         wanted = set(group_ids_of(handover))
 
     if handover.visibility == VIS_GROUPS and not wanted:
-        fallback = default_group_id(db, actor.id)
-        wanted = {fallback} if fallback else {ensure_unclassified(db).id}
+        # 그룹을 지정하지 않은 인수인계는 전체 공개.
+        # 단, 명시적으로 특정 그룹을 지정한 건은 제한을 유지한다.
+        handover.visibility = VIS_ALL
 
     current = {link.group_id: link for link in list(handover.group_links)}
     for gid, link in current.items():

@@ -60,6 +60,12 @@ def record(
     error_message: str | None = None,
     detail: dict | None = None,
 ) -> AuditLog | None:
+    # 일반 화면 열기 성공은 기본 기록하지 않는다. 과거 감사기록을 삭제하거나
+    # 인증 실패·권한 변경·내보내기·비밀번호 열람 증적을 누락시키지 않는다.
+    if action == "HANDOVER_VIEW" and result == "SUCCESS":
+        from app.services import settings_service
+        if not bool(settings_service.get_value(db, "audit.track_handover_views")):
+            return None
     entry = AuditLog(
         event_uuid=uuid.uuid4().hex,
         occurred_at=now(),

@@ -43,9 +43,8 @@ export interface ScopeCheckResult {
   outsiders: {
     user_id: number
     display_name: string
-    username: string
-    role_code: string | null
-    my_groups: string[]
+    /** 어느 그룹에든 속해 있는가 — 어느 그룹인지는 서버가 알려 주지 않는다 */
+    has_any_group: boolean
   }[]
 }
 

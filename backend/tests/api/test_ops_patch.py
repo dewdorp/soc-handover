@@ -101,6 +101,10 @@ def test_scope_check_warns_about_assignees_without_group_access(admin, users, db
     assert body["public"] is False
     assert [x["user_id"] for x in body["outsiders"]] == [outsider]
     assert body["group_names"] == ["경고 확인 그룹"]
+    # 남의 소속 그룹 **이름**은 돌려주지 않는다 — 이 응답으로 조 편성을 긁어 갈 수 있으면
+    # 구성원 목록을 관리자에게만 보여 주는 통제가 무의미해진다.
+    assert set(body["outsiders"][0]) == {"user_id", "display_name", "has_any_group"},         body["outsiders"][0]
+    assert "관제" not in warn.text and "그룹" not in str(body["outsiders"])
 
     quiet = admin.post(f"{G}/scope-check", json={"group_ids": [], "user_ids": [outsider]})
     assert quiet.json() == {"visibility": "ALL", "group_names": [], "public": True,

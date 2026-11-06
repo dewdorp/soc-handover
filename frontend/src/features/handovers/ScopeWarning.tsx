@@ -40,7 +40,9 @@ export default function ScopeWarning({ visibility, groupIds, userIds }: Props) {
         {data.outsiders.map((x) => (
           <li key={x.user_id}>
             {x.display_name}
-            <span className="text-ink-muted"> ({x.my_groups.length ? x.my_groups.join(' · ') : '소속 그룹 없음'})</span>
+            <span className="text-ink-muted">
+              {x.has_any_group ? ' (다른 그룹 소속)' : ' (소속 그룹 없음)'}
+            </span>
           </li>
         ))}
       </ul>

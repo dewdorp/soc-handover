@@ -140,11 +140,15 @@ class ScopeCheckRequest(BaseModel):
 
 
 class ScopeOutsider(BaseModel):
+    """지정한 그룹에 속하지 않은 사람.
+
+    소속 그룹 **이름은 담지 않는다** — 이 응답으로 '누가 어느 조인지'를 긁어 갈 수
+    있으면 구성원 목록을 관리자에게만 보여 주는 통제가 무의미해진다.
+    """
     user_id: int
     display_name: str
-    username: str
-    role_code: str | None = None
-    my_groups: list[str] = []
+    #: 어느 그룹에든 속해 있는가(어느 그룹인지는 알려 주지 않는다)
+    has_any_group: bool = False
 
 
 class ScopeCheckResult(BaseModel):

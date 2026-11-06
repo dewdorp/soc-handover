@@ -461,18 +461,27 @@ def scope_check(db: Session, *, visibility: str | None, group_ids: list[int] | N
     ids = {int(u) for u in user_ids if u}
     outsiders: list[dict[str, Any]] = []
     if ids and wanted:
+        # **남의 소속 그룹 이름은 돌려주지 않는다.** 그룹 구성원 목록은 group:manage
+        # 권한이 있어야 볼 수 있는데, 여기로 사람 번호를 넣어 보며 '누가 어느 조인지'를
+        # 긁어 가면 그 통제가 무의미해진다. 쓰는 사람에게 필요한 것은 '이 사람은 이
+        # 그룹으로는 못 본다'는 사실 하나다.
         rows = db.execute(
-            select(User.id, User.display_name, User.username, User.role_code)
+            select(User.id, User.display_name)
             .where(User.id.in_(ids), User.is_active.is_(True))
         ).all()
-        for uid, display, username, role in rows:
-            if not (set(my_group_ids(db, uid)) & wanted):
+        # 사람마다 따로 묻지 않는다 — 담당자를 여럿 넣는 화면에서 질의가 그만큼 늘어난다.
+        membership: dict[int, set[int]] = {uid: set() for uid, _ in rows}
+        for uid, gid in db.execute(
+            select(UserGroup.user_id, UserGroup.group_id)
+            .join(Group, Group.id == UserGroup.group_id)
+            .where(UserGroup.user_id.in_(membership or {0}), Group.is_active.is_(True))
+        ).all():
+            membership[uid].add(gid)
+        for uid, display in rows:
+            mine = membership.get(uid, set())
+            if not (mine & wanted):
                 outsiders.append({"user_id": uid, "display_name": display,
-                                  "username": username, "role_code": role,
-                                  "my_groups": sorted(db.scalars(
-                                      select(Group.name)
-                                      .join(UserGroup, UserGroup.group_id == Group.id)
-                                      .where(UserGroup.user_id == uid)).all())})
+                                  "has_any_group": bool(mine)})
     return {"visibility": VIS_GROUPS, "group_names": names,
             "outsiders": outsiders, "public": False}
 

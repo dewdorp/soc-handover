@@ -63,7 +63,7 @@ export interface AdminUser {
 }
 
 export interface SettingSpec {
-  kind: 'bool' | 'int' | 'fields' | 'ext_list' | 'aliases'
+  kind: 'bool' | 'int' | 'date' | 'fields' | 'ext_list' | 'aliases'
   label: string
   min?: number
   max?: number

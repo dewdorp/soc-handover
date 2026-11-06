@@ -36,12 +36,10 @@ export default function CreateHandoverDialog(
     is_important: false,
   })
   const [scope, setScope] = useState<{ visibility: Visibility; group_ids: number[] }>(
-    { visibility: 'GROUPS', group_ids: [] })
-  const { data: myGroups } = useMyGroups()
+    { visibility: 'ALL', group_ids: [] })
+  useMyGroups()
   // 기본 그룹을 한 번만 채운다. 손대지 않고 올려도 서버가 같은 값을 쓰므로 결과는 같다.
-  const picked = scope.group_ids.length
-    ? scope.group_ids
-    : (myGroups?.filter((g) => g.is_default).map((g) => g.id) ?? [])
+  const picked = scope.group_ids
   const companyId = form.company_id ?? companies[0]?.id
   const [error, setError] = useState<string | null>(null)
 

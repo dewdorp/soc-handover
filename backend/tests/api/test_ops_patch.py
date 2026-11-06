@@ -62,7 +62,7 @@ def test_handover_view_audit_optional(users, db):
         row = db.get(SystemSetting, "audit.track_handover_views")
         row.value = True
         db.commit()
-        assert admin.get(f"/api/v1/handovers/{hid}").status_code == 200
+        assert admin.post(f"/api/v1/handovers/{hid}/view").status_code == 204
         db.expire_all()
         assert len(db.scalars(select(AuditLog).where(
             AuditLog.action == actions.HANDOVER_VIEW)).all()) == 1

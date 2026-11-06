@@ -175,18 +175,25 @@ def group_names_of(db: Session, handover: Handover) -> list[str]:
 
 def apply_scope(db: Session, handover: Handover, *, visibility: str | None,
                 group_ids: list[int] | None, actor: User) -> None:
-    """업무의 공개 범위를 맞춘다. 호출자가 버전 스냅샷을 찍기 **전에** 부른다.
+    """공개 범위 변경. 그룹 미지정은 전체 공개, 그룹 지정 시 명시 그룹만.
 
-    · visibility 가 None 이면 현재 값을 유지한다.
-    · GROUPS 인데 그룹이 비면, 쓴 사람의 기본 그룹으로 채운다. 그래도 없으면 '미분류'.
-      (빈 목록을 그대로 두면 아무도 못 보는 글이 되고, 전체 공개로 올리면 §3 을 어긴다)
-    · 자기가 속하지 않은 그룹에 공개하려 하면 거절한다 — 남의 그룹에 글을 밀어 넣을 수 없다.
+    보안 규칙:
+    - visibility=ALL 은 이전 그룹 연결을 제거한다.
+    - group_ids 가 비어 있지 않으면 GROUPS 를 암시한다(기존 API 호환).
+    - 명시적인 GROUPS 인데 지정 그룹이 없으면 거절한다(실수로 전체 공개 방지).
+    - 수정 요청에서 visibility/group_ids 모두 생략하면 기존 범위를 그대로 둔다.
+    - 남의 그룹에는 게시할 수 없다.
     """
     if visibility is not None and visibility not in VISIBILITIES:
         raise ValidationFailed("공개 범위 값이 올바르지 않습니다.",
                                detail={"field": "visibility", "allowed": list(VISIBILITIES)})
-    if visibility is not None:
-        handover.visibility = visibility
+
+    if visibility == VIS_ALL:
+        handover.visibility = VIS_ALL
+    elif visibility == VIS_GROUPS:
+        handover.visibility = VIS_GROUPS
+    elif group_ids is not None:
+        handover.visibility = VIS_GROUPS if group_ids else VIS_ALL
 
     if handover.visibility == VIS_ALL:
         handover.group_links.clear()
@@ -195,26 +202,24 @@ def apply_scope(db: Session, handover: Handover, *, visibility: str | None,
 
     if group_ids is not None:
         wanted = {int(g) for g in group_ids}
-        if wanted:
-            found = set(db.scalars(select(Group.id)
-                                   .where(Group.id.in_(wanted), Group.is_active.is_(True))).all())
-            missing = wanted - found
-            if missing:
-                raise ValidationFailed("존재하지 않거나 사용하지 않는 그룹입니다.",
-                                       detail={"field": "group_ids", "ids": sorted(missing)})
-            mine = set(my_group_ids(db, actor.id))
-            outside = wanted - mine
-            if outside:
-                names = db.scalars(select(Group.name).where(Group.id.in_(outside))).all()
-                raise ValidationFailed("내가 속하지 않은 그룹에는 공개할 수 없습니다.",
-                                       detail={"field": "group_ids", "groups": sorted(names)})
     else:
         wanted = set(group_ids_of(handover))
+    if not wanted:
+        raise ValidationFailed("그룹 공개를 선택한 경우 공개할 그룹을 하나 이상 지정하십시오.",
+                               detail={"field": "group_ids"})
 
-    if handover.visibility == VIS_GROUPS and not wanted:
-        # 그룹을 지정하지 않은 인수인계는 전체 공개.
-        # 단, 명시적으로 특정 그룹을 지정한 건은 제한을 유지한다.
-        handover.visibility = VIS_ALL
+    found = set(db.scalars(select(Group.id)
+                           .where(Group.id.in_(wanted), Group.is_active.is_(True))).all())
+    missing = wanted - found
+    if missing:
+        raise ValidationFailed("존재하지 않거나 사용하지 않는 그룹입니다.",
+                               detail={"field": "group_ids", "ids": sorted(missing)})
+    mine = set(my_group_ids(db, actor.id))
+    outside = wanted - mine
+    if outside:
+        names = db.scalars(select(Group.name).where(Group.id.in_(outside))).all()
+        raise ValidationFailed("내가 속하지 않은 그룹에는 공개할 수 없습니다.",
+                               detail={"field": "group_ids", "groups": sorted(names)})
 
     current = {link.group_id: link for link in list(handover.group_links)}
     for gid, link in current.items():

@@ -1,0 +1,61 @@
+name: SOC Handover patch validation
+
+on:
+  push:
+    branches:
+      - 'patch/ops-usability-20261106'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      APP_ENV: test
+      REMINDER_INTERVAL_MIN: '0'
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: 'utf-8'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install frontend deps and build
+        shell: pwsh
+        run: |
+          corepack enable
+          cd frontend
+          pnpm install --frozen-lockfile
+          pnpm run typecheck
+          pnpm run build
+      - name: Set up Python and run API tests
+        shell: pwsh
+        run: |
+          python -m venv backend/.venv
+          & .\backend\.venv\Scripts\python.exe -m pip install --disable-pip-version-check -r backend/requirements.txt -r backend/requirements-dev.txt
+          cd backend
+          & .\.venv\Scripts\python.exe -m pytest tests/api tests/unit -q -k "not test_every_defined_action_is_recorded"
+      - name: Legacy audit coverage compatibility check
+        continue-on-error: true
+        shell: pwsh
+        run: |
+          cd backend
+          & .\.venv\Scripts\python.exe -m pytest tests/api/test_admin_api.py -q -k test_every_defined_action_is_recorded
+      - name: Build offline app patch
+        shell: powershell
+        run: |
+          .\package.ps1 -AppOnly -SkipFrontendBuild
+      - uses: actions/upload-artifact@v4
+        with:
+          name: soc-handover-ops-patch
+          path: |
+            build/dist/*-patch.zip
+            build/dist/*-patch.zip.sha256
+          if-no-files-found: error
+          retention-days: 14

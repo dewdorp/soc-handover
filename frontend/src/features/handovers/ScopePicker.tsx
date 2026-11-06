@@ -1,8 +1,7 @@
 /**
  * 공개 범위 고르기 — '내 그룹만'(그룹 여럿 선택 가능) 또는 '전체 공개'.
  *
- * 기본은 **내 기본 그룹 하나**다. 전체 공개는 손으로 골라야 한다. 등록 화면에서 아무것도
- * 건드리지 않고 올리면 서버가 기본 그룹을 넣는다(전체 공개로 넘어가지 않는다).
+ * 기본은 전체 공개다. 그룹을 하나 이상 지정했을 때만 그룹 제한으로 저장한다.
  *
  * 그룹 이름은 관리자가 적은 **실제 이름**을 그대로 보여 준다. '그룹1 · 그룹2' 같은
  * 자리표를 쓰면 쓰는 사람이 무엇을 고르는지 알 수 없다.
@@ -39,7 +38,7 @@ export default function ScopePicker({ visibility, groupIds, onChange, currentNam
 
       <label className="flex items-start gap-1.5 cursor-pointer">
         <input type="radio" name="scope" className="mt-1" checked={visibility === 'GROUPS'}
-               onChange={() => onChange({ visibility: 'GROUPS', group_ids: groupIds })} />
+               onChange={() => onChange({ visibility: 'GROUPS', group_ids: groupIds.length ? groupIds : (mine.find(g => g.is_default)?.id ? [mine.find(g => g.is_default)!.id] : mine[0]?.id ? [mine[0].id] : []) })} />
         <span className="flex-1">
           <span className="inline-flex items-center gap-1"><Users size={12} /> 내 그룹만</span>
           <span className="block text-sm text-ink-faint">
@@ -56,6 +55,7 @@ export default function ScopePicker({ visibility, groupIds, onChange, currentNam
               <span>{g.name}{g.is_default && <span className="text-xs text-brand ml-0.5">기본</span>}</span>
             </label>
           ))}
+          {groupIds.length === 0 && <span className="text-sm text-state-urgent">그룹을 선택하지 않으면 전체 공개로 저장됩니다.</span>}
           {mine.length === 0 && (
             <span className="text-sm text-ink-faint">
               속한 그룹이 없습니다. 관리자에게 그룹 지정을 요청하십시오 — 그때까지는 내가 쓴 글만 보입니다.
@@ -66,10 +66,10 @@ export default function ScopePicker({ visibility, groupIds, onChange, currentNam
 
       <label className="flex items-start gap-1.5 cursor-pointer">
         <input type="radio" name="scope" className="mt-1" checked={visibility === 'ALL'}
-               onChange={() => onChange({ visibility: 'ALL', group_ids: groupIds })} />
+               onChange={() => onChange({ visibility: 'ALL', group_ids: [] })} />
         <span className="flex-1">
-          <span className="inline-flex items-center gap-1"><Globe size={12} /> 전체 공개</span>
-          <span className="block text-sm text-ink-faint">로그인한 모든 사람이 본다. 전사 공지 · 공통 절차에만 쓴다.</span>
+          <span className="inline-flex items-center gap-1"><Globe size={12} /> 전체 공개 (그룹 미지정)</span>
+          <span className="block text-sm text-ink-faint">그룹을 따로 지정하지 않은 인수인계는 로그인한 모든 사용자가 볼 수 있습니다.</span>
         </span>
       </label>
 

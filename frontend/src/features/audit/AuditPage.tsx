@@ -23,6 +23,7 @@ interface Draft {
   to: string
   username: string
   action: string          // '' · 'group:<이름>' · 행위 코드
+  hide_views: boolean
   resource_type: string
   resource_id: string
   client_ip: string
@@ -32,7 +33,7 @@ interface Draft {
 const today = () => format(new Date(), 'yyyy-MM-dd')
 const daysAgo = (n: number) => format(addDays(new Date(), -(n - 1)), 'yyyy-MM-dd')
 const empty = (): Draft => ({ from: daysAgo(7), to: today(), username: '', action: '', resource_type: '',
-  resource_id: '', client_ip: '', result: '' })
+  resource_id: '', client_ip: '', result: '', hide_views: true })
 
 export default function AuditPage() {
   const can = useCan()
@@ -52,6 +53,7 @@ export default function AuditPage() {
       end: `${format(addDays(parseISO(applied.to), 1), 'yyyy-MM-dd')}T00:00:00+09:00`,
       username: applied.username.trim() || undefined,
       actions: group ?? (applied.action ? [applied.action] : undefined),
+      hide_views: applied.hide_views,
       resource_type: applied.resource_type || undefined,
       resource_id: applied.resource_id.trim() || undefined,
       client_ip: applied.client_ip.trim() || undefined,
@@ -113,6 +115,11 @@ export default function AuditPage() {
             <option value="SUCCESS">성공</option>
             <option value="FAILURE">실패</option>
           </select>
+          <label className="flex gap-1 items-center text-sm">
+            <input type="checkbox" checked={draft.hide_views}
+              onChange={(e) => set('hide_views', e.target.checked)}/>
+            단순 열람 기록 숨기기
+          </label>
           <button className="btn btn-sm btn-primary"><Search size={12} /> 검색</button>
           <button type="button" className="btn btn-sm" onClick={() => { const d = empty(); setDraft(d); setApplied(d); setPage(1) }}>초기화</button>
           <span className="flex-1" />

@@ -56,6 +56,12 @@ def split(db, users):
 
 
 def _make(client, cid, title, **over):
+    # 그룹 격리를 검증할 사례들은 해당 그룹으로 명시적으로 게시한다.
+    if "visibility" not in over and "group_ids" not in over:
+        groups = client.get("/api/v1/groups/mine").json()
+        own = next((g["id"] for g in groups if g.get("is_default")), None)
+        if own is not None:
+            over = {**over, "visibility": "GROUPS", "group_ids": [own]}
     r = client.post(H, json={"company_id": cid, "title": title, "content": f"{title} 본문",
                              "status_code": "IN_PROGRESS", **over})
     assert r.status_code == 201, r.text

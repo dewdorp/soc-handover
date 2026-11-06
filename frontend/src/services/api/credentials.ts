@@ -3,7 +3,7 @@
  *
  * 비밀번호 값은 reveal() 응답에만 들어 있다. 목록 · 상세 · 이력에는 없다.
  */
-import { api } from './client'
+import { api, request } from './client'
 
 export type CredentialScope = 'SHARED' | 'PERSONAL'
 
@@ -58,7 +58,27 @@ export interface CredentialInput {
 
 const P = '/credentials'
 
+export interface VaultSessionResult {
+  token: string
+  expires_in_seconds: number
+  remaining_absolute_seconds: number
+}
+export type VaultTimes = Pick<VaultSessionResult, 'expires_in_seconds' | 'remaining_absolute_seconds'>
+
 export const credentialApi = {
+  unlockVault: (password: string) =>
+    api.post<VaultSessionResult>(`${P}/vault/unlock`, { password }),
+  vaultSecrets: (token: string, ids: number[]) => {
+    const qs = new URLSearchParams()
+    ids.forEach(id => qs.append('ids', String(id)))
+    return request<RevealResult[]>(`${P}/vault/secrets?${qs.toString()}`, {
+      method: 'GET', headers: {'X-Vault-Token': token},
+    })
+  },
+  extendVault: (token: string) =>
+    request<VaultTimes>(`${P}/vault/extend`, { method: 'POST', headers: {'X-Vault-Token': token} }),
+  lockVault: (token: string) =>
+    request<void>(`${P}/vault/lock`, { method: 'POST', headers: {'X-Vault-Token': token} }),
   list: (params: { q?: string; scope?: CredentialScope | ''; company_id?: number | null } = {}) => {
     const qs = new URLSearchParams()
     if (params.q) qs.set('q', params.q)

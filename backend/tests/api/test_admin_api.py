@@ -97,6 +97,7 @@ class TestAuditCoverage:
 
         # 인수인계
         h = _handover(hong, cid, "감사 확인용", assignee_id=ids["analyst"]["id"])         # CREATE
+        admin.patch('/api/v1/settings/audit.track_handover_views', json={'value': True})
         hong.post(f"{H}/{h['id']}/view")                                                  # VIEW
         hong.patch(f"{H}/{h['id']}", json={"expected_version": 1, "content": "v2"})      # UPDATE
         mgr.post(f"{H}/{h['id']}/versions/1/restore",                                     # RESTORE

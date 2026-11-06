@@ -262,7 +262,7 @@ def create_handover(db: Session, payload: dict[str, Any], actor: User,
     db.flush()
 
     _apply_tags(db, handover, tags)
-    # 범위를 비우고 올리면 내 기본 그룹이 들어간다 — 전체 공개로 자동 넘어가지 않는다(§3).
+    # 그룹을 명시하지 않으면 전체 공개한다(기존 그룹 지정 기록은 보존).
     group_service.apply_scope(db, handover, visibility=visibility, group_ids=group_ids,
                               actor=actor)
     handover.search_text = build_search_text(db, handover)

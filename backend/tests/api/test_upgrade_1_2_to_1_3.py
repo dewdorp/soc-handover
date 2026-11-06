@@ -106,22 +106,26 @@ class TestExistingDataKeepsBeingVisible:
         assert members == users == 3, "한 사람이라도 빠지면 그 사람은 빈 목록을 본다"
         assert defaults == users, "기본 그룹이 없으면 새 글을 어디에 올릴지 정해지지 않는다"
 
-    def test_every_existing_handover_lands_in_the_group(self, upgraded):
+    def test_legacy_ungrouped_handovers_become_public(self, upgraded):
         with upgraded.connect() as conn:
             total = conn.execute(text("SELECT COUNT(*) FROM handovers")).scalar_one()
             linked = conn.execute(text(
                 "SELECT COUNT(*) FROM handover_groups hg JOIN groups g ON g.id = hg.group_id "
                 "WHERE g.code = 'UNCLASSIFIED'")).scalar_one()
-        assert linked == total == 5, "지운 건까지 넣어야 복구했을 때 보인다"
+        assert linked == 0 and total == 5, "1.3.1 이후 그룹 미지정 이력은 전체 공개로 이관한다"
+        # 이전 분류를 기록해 downgrade와 감사 조사에서 확인 가능해야 한다.
+        with upgraded.connect() as conn:
+            migrated = conn.execute(text("SELECT COUNT(*) FROM scope_public_migration")).scalar_one()
+        assert migrated == total
 
-    def test_nothing_becomes_public(self, upgraded):
+    def test_unclassified_legacy_rows_become_public(self, upgraded):
         with upgraded.connect() as conn:
             public = conn.execute(text(
                 "SELECT COUNT(*) FROM handovers WHERE visibility = 'ALL'")).scalar_one()
             grouped = conn.execute(text(
                 "SELECT COUNT(*) FROM handovers WHERE visibility = 'GROUPS'")).scalar_one()
-        assert public == 0, "쌓인 자료를 전체 공개로 바꾸면 안 된다(§3)"
-        assert grouped == 5
+        assert public == 5, "사용자가 요청한 1.3.1 정책: 그룹 미지정 기존 자료는 전체 공개"
+        assert grouped == 0
 
     def test_the_same_people_still_see_the_same_rows(self, upgraded):
         """올리기 전에 보이던 5건이 올린 뒤에도 그대로 보인다 — 실제 판정 함수로 확인한다."""

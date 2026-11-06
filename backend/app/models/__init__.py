@@ -5,6 +5,7 @@ from app.models.common import (Attachment, AuditLog, Notification, SavedView,
 from app.models.group import Group, HandoverGroup, UserGroup
 from app.models.handover import (Handover, HandoverAcknowledgement, HandoverComment,
                                  HandoverStar, HandoverTag, HandoverVersion)
+from app.models.knowledge import KnowledgeArticle, KnowledgeGroup
 from app.models.importjob import ExcelImportError, ExcelImportJob, ExcelImportRow
 from app.models.credential import Credential, CredentialVersion
 from app.models.private_note import PrivateNote
@@ -32,4 +33,5 @@ __all__ = [
     "Attachment", "SavedView", "Notification", "AuditLog", "SystemSetting",
     "SearchFeedback",
     "ExcelImportJob", "ExcelImportRow", "ExcelImportError",
+    "KnowledgeArticle", "KnowledgeGroup",
 ]

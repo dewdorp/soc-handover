@@ -45,6 +45,11 @@ ACTION_LABELS: dict[str, str] = {
     actions.CREDENTIAL_CREATE: "비밀번호 등록", actions.CREDENTIAL_UPDATE: "비밀번호 수정",
     actions.CREDENTIAL_DELETE: "비밀번호 삭제", actions.CREDENTIAL_REVEAL: "비밀번호 열람",
     actions.CREDENTIAL_REVEAL_DENIED: "비밀번호 열람 거부",
+    actions.CREDENTIAL_VAULT_UNLOCK: "금고 단기 열람 시작",
+    actions.CREDENTIAL_VAULT_DENIED: "금고 인증 실패",
+    actions.CREDENTIAL_VAULT_BATCH_REVEAL: "금고 비밀번호 일괄 열람",
+    actions.CREDENTIAL_VAULT_EXTEND: "금고 열람 시간 연장",
+    actions.CREDENTIAL_VAULT_LOCK: "금고 잠금",
     actions.HANDOVER_PARTICIPANTS: "업무 담당 · 전파 대상 변경",
     actions.HANDOVER_PROPAGATE: "그룹 단위 전파",
     actions.HANDOVER_REQUEST: "분석 의뢰 · 접수 · 회신",
@@ -56,6 +61,9 @@ ACTION_LABELS: dict[str, str] = {
     actions.HANDOVER_SCOPE_CHANGE: "공개 범위 변경",
     actions.USER_CREATE: "사용자 등록", actions.USER_UPDATE: "사용자 수정", actions.ROLE_CHANGE: "권한 변경",
     actions.SETTING_CHANGE: "설정 변경",
+    actions.KNOWLEDGE_CREATE: "운영 지식 등록",
+    actions.KNOWLEDGE_UPDATE: "운영 지식 수정",
+    actions.KNOWLEDGE_DELETE: "운영 지식 삭제",
     actions.BACKUP: "백업", actions.RESTORE: "복구", actions.AUDIT_ARCHIVE: "감사로그 보관 정리",
 }
 
@@ -77,7 +85,11 @@ ACTION_GROUPS: dict[str, list[str]] = {
     "데이터 이동": [actions.EXCEL_IMPORT, actions.EXCEL_IMPORT_ROLLBACK, actions.EXCEL_EXPORT,
                actions.ATTACHMENT_UPLOAD, actions.ATTACHMENT_DOWNLOAD, actions.ATTACHMENT_DELETE],
     "비밀번호 보관": [actions.CREDENTIAL_CREATE, actions.CREDENTIAL_UPDATE, actions.CREDENTIAL_DELETE,
-                actions.CREDENTIAL_REVEAL, actions.CREDENTIAL_REVEAL_DENIED],
+                actions.CREDENTIAL_REVEAL, actions.CREDENTIAL_REVEAL_DENIED,
+                actions.CREDENTIAL_VAULT_UNLOCK, actions.CREDENTIAL_VAULT_DENIED,
+                actions.CREDENTIAL_VAULT_BATCH_REVEAL, actions.CREDENTIAL_VAULT_EXTEND,
+                actions.CREDENTIAL_VAULT_LOCK],
+    "운영 지식": [actions.KNOWLEDGE_CREATE, actions.KNOWLEDGE_UPDATE, actions.KNOWLEDGE_DELETE],
     "관리": [actions.USER_CREATE, actions.USER_UPDATE, actions.ROLE_CHANGE, actions.SETTING_CHANGE,
            actions.BACKUP, actions.RESTORE, actions.AUDIT_ARCHIVE],
 }
@@ -111,6 +123,8 @@ def _statement(actor: User, req):
         stmt = stmt.where(AuditLog.user_id == req.user_id)
     if req.username:
         stmt = stmt.where(AuditLog.username.icontains(req.username.strip(), autoescape=True))
+    if getattr(req, "hide_views", False) and (not req.actions or actions.HANDOVER_VIEW not in req.actions):
+        stmt = stmt.where(AuditLog.action != actions.HANDOVER_VIEW)
     if req.actions:
         unknown = sorted(set(req.actions) - set(ACTION_LABELS))
         if unknown:

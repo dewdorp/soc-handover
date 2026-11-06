@@ -62,6 +62,9 @@ def logout(request: Request, response: Response, db: Session = Depends(get_db),
     if user is None:
         from app.auth.deps import get_optional_user
         user = get_optional_user(request, db)
+    if user is not None:
+        from app.services import vault_session_service
+        vault_session_service.revoke_user(user.id)
     auth_service.logout(db, response, raw_refresh=request.cookies.get(REFRESH_COOKIE),
                         user=user, ctx=ctx)
     # 주의: 새 Response 를 만들어 돌려주면 위에서 쿠키를 지운 헤더가 버려져 브라우저에 세션이 남는다.
@@ -79,6 +82,8 @@ def me(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
 def change_password(payload: ChangePasswordRequest, response: Response,
                     db: Session = Depends(get_db), user: User = Depends(get_current_user),
                     ctx: RequestContext = Depends(get_context)):
+    from app.services import vault_session_service
+    vault_session_service.revoke_user(user.id)
     auth_service.change_password(db, user=user, current=payload.current_password,
                                  new=payload.new_password, ctx=ctx)
     auth_service.clear_auth_cookies(response)

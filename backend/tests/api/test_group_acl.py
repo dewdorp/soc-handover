@@ -75,6 +75,12 @@ def pair(users, two_groups):
 
 
 def _make(client, cid, title="그룹 통제 확인", **over) -> dict:
+    # 이 파일의 격리 테스트는 의도적으로 한 그룹에 게시한다.
+    if "visibility" not in over and "group_ids" not in over:
+        groups = client.get(f"{G}/mine").json()
+        own = next((g["id"] for g in groups if g.get("is_default")), None)
+        if own is not None:
+            over = {**over, "visibility": "GROUPS", "group_ids": [own]}
     r = client.post(H, json={"company_id": cid, "title": title, "content": title,
                              "status_code": "IN_PROGRESS", **over})
     assert r.status_code == 201, r.text
@@ -84,10 +90,10 @@ def _make(client, cid, title="그룹 통제 확인", **over) -> dict:
 # --------------------------------------------------------------------------- ① 목록 · 숫자
 
 class TestOtherGroupsAreNotListed:
-    def test_default_scope_is_my_group_not_everyone(self, pair, cid):
+    def test_explicit_scope_is_my_group_not_everyone(self, pair, cid):
         body = _make(pair["a"], cid)
         assert body["visibility"] == "GROUPS"
-        assert body["group_names"] == ["관제1팀"], "비워 두면 내 기본 그룹이 들어가야 한다"
+        assert body["group_names"] == ["관제1팀"], "명시 그룹은 해당 그룹만 노출되어야 한다"
 
     def test_list_hides_other_groups(self, pair, cid):
         mine = _make(pair["a"], cid, title="1팀 전용")

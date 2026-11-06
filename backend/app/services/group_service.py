@@ -188,7 +188,9 @@ def apply_scope(db: Session, handover: Handover, *, visibility: str | None,
     if visibility is not None:
         handover.visibility = visibility
 
-    if group_ids is None and handover.visibility == VIS_ALL:
+    if handover.visibility == VIS_ALL:
+        handover.group_links.clear()
+        db.flush()
         return
 
     if group_ids is not None:

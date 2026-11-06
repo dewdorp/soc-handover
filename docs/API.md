@@ -367,6 +367,9 @@ GET    /admin/integrity-check [ADMIN]          버전 정합성/고아 레코드
 | POST | `/groups/public-migration/apply` | `{confirm, backup_confirmed}` — 문구가 틀리거나 백업 동의가 없으면 422 |
 | POST | `/groups/public-migration/batches/{batch_id}/revert` | 묶음 단위 되돌리기 |
 
+그룹 단위 전파에도 같은 경고가 있다 — `POST /handovers/{id}/propagate/preview` 응답의
+`outside_scope` 는 그룹 제한 글을 그 그룹 밖으로 전파할 때만 채워진다(아니면 `null`).
+
 `scope-check` 응답의 `outsiders` 는 지정 그룹에 속하지 않은 담당자·전파 대상이다.
 **거절하지 않고 알린다** — 담당자는 그 일을 해야 하므로 글을 볼 수 있어야 하지만,
 그룹 제한이 그 사람에게만 풀린다는 사실을 쓰는 사람이 알아야 한다.

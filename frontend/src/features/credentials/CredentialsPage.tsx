@@ -237,7 +237,9 @@ export default function CredentialsPage() {
                 <td className="px-3 py-1.5">{row.scope==='SHARED'?<span className="chip"><Users size={11}/> 공용</span>:<span className="chip"><Lock size={11}/> 개인</span>}</td>
                 <td className="px-3 py-1.5">
                   {vaultToken&&active&&secrets[row.id]!==undefined ? <div className="flex gap-1 items-center">
-                    <input readOnly className="input w-36 font-mono" aria-label={`${row.device_name} 비밀번호`} value={secrets[row.id]}
+                    {/* 보려고 연 값이 잘려 보이면 연 뜻이 없다 — 흔한 길이는 다 보이게 둔다 */}
+                    <input readOnly className="input w-56 max-w-[60vw] font-mono" size={28}
+                           aria-label={`${row.device_name} 비밀번호`} value={secrets[row.id]}
                            onFocus={e=>e.currentTarget.select()}/>
                     <button className="btn btn-sm" aria-label={`${row.device_name} 복사`} onClick={()=>copy(row.id)}><Copy size={12}/>{copiedId===row.id?'복사됨':''}</button>
                   </div> : <span className="text-ink-faint">••••••••</span>}

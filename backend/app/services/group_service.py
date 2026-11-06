@@ -490,6 +490,14 @@ def scope_check(db: Session, *, visibility: str | None, group_ids: list[int] | N
 #: ③ 에서 관리자가 그대로 입력해야 하는 문구. 눌러서 지나칠 수 있는 버튼으로는 안 받는다.
 PUBLIC_MIGRATION_CONFIRM: str = "전체공개로 전환"
 
+#: 한 SQL 문의 IN (...) 에 넣는 최대 개수. PostgreSQL 바인드 파라미터 상한을 넉넉히 피한다.
+_IN_CHUNK = 5_000
+
+
+def _chunks(items: list[int], size: int):
+    for at in range(0, len(items), size):
+        yield items[at:at + size]
+
 
 def _has_migration_table(db: Session) -> bool:
     from sqlalchemy import inspect
@@ -514,23 +522,26 @@ def public_migration_preview(db: Session, *, limit: int = 50) -> dict[str, Any]:
     """바꾸기 전에 관리자가 보는 화면. 아무것도 바꾸지 않는다."""
     from app.models.reference import Company
 
-    ids = list(db.scalars(_eligible_ids_stmt()))
+    total = db.scalar(select(func.count()).select_from(
+        _eligible_ids_stmt().order_by(None).subquery())) or 0
     active_ids = list(db.scalars(
-        _eligible_ids_stmt().where(Handover.is_deleted == false()))) if ids else []
+        _eligible_ids_stmt().where(Handover.is_deleted == false()))) if total else []
+    # 미리보기는 limit 건만 — 전체를 끌어오면 큰 DB 에서 화면이 멈춘다.
+    preview_ids = sorted(active_ids, reverse=True)[:limit]
     rows = db.execute(
         select(Handover.id, Handover.title, Handover.created_at, Handover.is_important,
                Company.name, User.display_name)
         .join(Company, Company.id == Handover.company_id, isouter=True)
         .join(User, User.id == Handover.created_by, isouter=True)
-        .where(Handover.id.in_(active_ids[:limit]))
+        .where(Handover.id.in_(preview_ids))
         .order_by(Handover.id.desc())
-    ).all() if active_ids else []
+    ).all() if preview_ids else []
     readers = db.scalar(select(func.count()).select_from(User)
                         .where(User.is_active.is_(True))) or 0
     return {
-        "eligible": len(ids),
+        "eligible": total,
         "visible_after": len(active_ids),
-        "deleted_included": len(ids) - len(active_ids),
+        "deleted_included": total - len(active_ids),
         "reader_count": readers,
         "confirm_phrase": PUBLIC_MIGRATION_CONFIRM,
         "items": [{"id": i, "title": t, "created_at": c, "is_important": bool(imp),
@@ -596,16 +607,19 @@ def public_migration_apply(db: Session, *, actor: User, confirm: str,
     unclassified = ensure_unclassified(db)
     batch = uuid.uuid4().hex[:16]
     stamp = now()
-    linked = set(db.scalars(select(HandoverGroup.handover_id)
-                            .where(HandoverGroup.handover_id.in_(ids),
-                                   HandoverGroup.group_id == unclassified.id)))
-    for hid in ids:
-        db.add(ScopePublicMigration(batch_id=batch, handover_id=hid,
-                                    had_unclassified=hid in linked,
-                                    converted_at=stamp, converted_by=actor.id))
-    db.execute(delete(HandoverGroup).where(HandoverGroup.handover_id.in_(ids),
-                                           HandoverGroup.group_id == unclassified.id))
-    db.execute(update(Handover).where(Handover.id.in_(ids)).values(visibility=VIS_ALL))
+    # 수만 건이 쌓인 DB 에서도 돌아야 한다 — IN (...) 에 한 번에 다 넣으면
+    # PostgreSQL 의 바인드 파라미터 상한(65535)에 걸려 전환 자체가 실패한다.
+    for part in _chunks(ids, _IN_CHUNK):
+        linked = set(db.scalars(select(HandoverGroup.handover_id)
+                                .where(HandoverGroup.handover_id.in_(part),
+                                       HandoverGroup.group_id == unclassified.id)))
+        for hid in part:
+            db.add(ScopePublicMigration(batch_id=batch, handover_id=hid,
+                                        had_unclassified=hid in linked,
+                                        converted_at=stamp, converted_by=actor.id))
+        db.execute(delete(HandoverGroup).where(HandoverGroup.handover_id.in_(part),
+                                               HandoverGroup.group_id == unclassified.id))
+        db.execute(update(Handover).where(Handover.id.in_(part)).values(visibility=VIS_ALL))
     db.flush()
     record(db, action=actions.SCOPE_PUBLIC_MIGRATE, ctx=ctx, user=actor,
            resource_type="GROUP", resource_id=unclassified.id,
@@ -623,7 +637,8 @@ def public_migration_revert(db: Session, *, actor: User, batch_id: str,
         raise Conflict("전환 이력 표가 없습니다.")
     rows = list(db.scalars(select(ScopePublicMigration)
                            .where(ScopePublicMigration.batch_id == (batch_id or "").strip(),
-                                  ScopePublicMigration.reverted_at.is_(None))))
+                                  ScopePublicMigration.reverted_at.is_(None))
+                           .execution_options(yield_per=500)))
     if not rows:
         raise NotFound("되돌릴 전환 이력이 없습니다.")
 

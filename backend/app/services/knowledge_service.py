@@ -328,7 +328,8 @@ def to_out(db: Session, actor: User, row: KnowledgeArticle) -> dict[str, Any]:
         select(User.id, User.display_name)
         .where(User.id.in_({x for x in (row.created_by, row.updated_by) if x}))
     ).all())
-    overdue = bool(row.review_due and row.review_due < date.today())
+    # 목록의 '재검토 기한이 지난 문서만' 필터와 같은 기준을 쓴다(오늘까지).
+    overdue = bool(row.review_due and row.review_due <= date.today())
     return {
         "id": row.id, "category": row.category, "title": row.title, "body": row.body,
         "visibility": row.visibility, "group_ids": sorted(x.group_id for x in row.group_links),

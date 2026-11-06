@@ -53,6 +53,12 @@ export interface PropagatePreview {
   excluded_already_stronger: string[]
   after: ParticipantCounts
   visibility_note: string
+  /** 그룹 제한 글을 그 그룹 밖으로 전파할 때만 온다 */
+  outside_scope: {
+    scope_groups: string[]
+    outside_groups: string[]
+    message: string
+  } | null
   applied?: boolean
   participants?: Participant[]
 }

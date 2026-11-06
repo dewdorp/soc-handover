@@ -470,3 +470,94 @@ def test_closing_check_counts_pending_inspections(admin, db):
     rows = {r["key"]: r for r in admin.get("/api/v1/shift-handovers/closing-check").json()["rows"]}
     assert rows["inspections"]["count"] >= 1
     assert rows["inspections"]["url"].startswith("/schedules")
+
+
+def test_conversion_handles_more_rows_than_one_sql_statement(admin, db, users, monkeypatch):
+    """수만 건이 쌓인 DB 에서도 돌아야 한다 — IN (...) 을 나눠 보내는지 확인한다.
+
+    한 문장에 다 넣으면 PostgreSQL 바인드 파라미터 상한(65535)에 걸려 전환 자체가
+    실패한다. 여기서는 묶음 크기를 3 으로 줄여 나눠 보내는 길을 실제로 지나가게 한다.
+    """
+    from app.models.group import HandoverGroup
+    from app.services import group_service
+
+    monkeypatch.setattr(group_service, "_IN_CHUNK", 3)
+    cid = _company_id(db)
+    my_group = next(x["id"] for x in admin.get(f"{G}/mine").json())
+    unclassified = group_service.ensure_unclassified(db)
+    # API 로 먼저 다 만든다. 사이에 DB 세션이 쓰기 트랜잭션을 물고 있으면
+    # SQLite 는 단일 writer 라 다음 POST 가 'database is locked' 로 막힌다.
+    ids = [admin.post(H, json={"company_id": cid, "title": f"묶음 전환 {n}", "content": "본문",
+                               "visibility": "GROUPS", "group_ids": [my_group]}).json()["id"]
+           for n in range(7)]
+    db.query(HandoverGroup).filter(HandoverGroup.handover_id.in_(ids)).delete(
+        synchronize_session=False)
+    for hid in ids:
+        db.add(HandoverGroup(handover_id=hid, group_id=unclassified.id))
+    db.commit()
+
+    preview = admin.get(f"{G}/public-migration").json()
+    assert preview["eligible"] == len(ids)
+    done = admin.post(f"{G}/public-migration/apply", json={
+        "confirm": preview["confirm_phrase"], "backup_confirmed": True})
+    assert done.status_code == 200, done.text
+    assert done.json()["converted"] == len(ids), "묶음 경계에서 빠진 건이 없어야 한다"
+    assert all(admin.get(f"{H}/{i}").json()["visibility"] == "ALL" for i in ids)
+
+    back = admin.post(f"{G}/public-migration/batches/{done.json()['batch_id']}/revert")
+    assert back.status_code == 200 and back.json()["restored"] == len(ids), back.text
+    assert all(admin.get(f"{H}/{i}").json()["visibility"] == "GROUPS" for i in ids)
+
+
+def test_second_unlock_invalidates_the_first_tab(other, db):
+    """같은 사람이 탭을 두 개 열고 각각 인증하면, 앞 탭의 열람은 끝난다.
+
+    공용 콘솔에서 탭이 여러 개 열린 채 남는 일이 흔하다. 세션을 사람마다 하나만
+    두면 '지금 잠그기' 한 번으로 그 사람의 열람이 확실히 끝난다.
+    """
+    first = other.post(f"{C}/vault/unlock", json={"password": ANALYST_PW})
+    assert first.status_code == 200, first.text
+    h1 = {"X-Vault-Token": first.json()["token"]}
+    assert other.get(f"{C}/vault/status", headers=h1).status_code == 200
+
+    second = other.post(f"{C}/vault/unlock", json={"password": ANALYST_PW})
+    assert second.status_code == 200, second.text
+    h2 = {"X-Vault-Token": second.json()["token"]}
+    assert other.get(f"{C}/vault/status", headers=h2).status_code == 200
+    assert other.get(f"{C}/vault/status", headers=h1).status_code == 403, \
+        "앞 탭의 토큰이 살아 있으면 '지금 잠그기'가 한 번으로 끝나지 않는다"
+
+    assert other.post(f"{C}/vault/lock", headers=h2).status_code == 204
+    assert other.get(f"{C}/vault/status", headers=h2).status_code == 403
+
+
+def test_propagating_outside_the_scope_warns_before_sending(admin, users, db):
+    """그룹 제한 글을 그 그룹 밖으로 전파하려 하면, 보내기 전에 알려 준다(§3).
+
+    막지는 않는다 — 받는 사람이 그 일을 해야 하니까 전파하는 것이다. 다만
+    '이 글은 A팀 전용인데 B팀도 읽게 된다'를 누르기 전에 알아야 한다.
+    """
+    cid = _company_id(db)
+    inside = _group(db, users, "전파 경고 안쪽 그룹")
+    outside = _group(db, users, "전파 경고 바깥 그룹")
+    row = admin.post(H, json={"company_id": cid, "title": "그룹 제한 인계", "content": "본문",
+                              "visibility": "GROUPS", "group_ids": [inside]}).json()
+
+    same = admin.post(f"{H}/{row['id']}/propagate/preview",
+                      json={"group_ids": [inside], "role": "FYI"})
+    assert same.status_code == 200, same.text
+    assert same.json()["outside_scope"] is None, "같은 그룹 안이면 경고할 것이 없다"
+
+    out = admin.post(f"{H}/{row['id']}/propagate/preview",
+                     json={"group_ids": [outside], "role": "FYI"})
+    assert out.status_code == 200, out.text
+    warn = out.json()["outside_scope"]
+    assert warn is not None, "그룹 밖 전파인데 경고가 없다"
+    assert warn["scope_groups"] == ["전파 경고 안쪽 그룹"]
+    assert warn["outside_groups"] == ["전파 경고 바깥 그룹"]
+
+    # 전체 공개 글에는 경고하지 않는다(넓힐 범위가 없다).
+    public = admin.post(H, json={"company_id": cid, "title": "전체 공개", "content": "본문"}).json()
+    plain = admin.post(f"{H}/{public['id']}/propagate/preview",
+                       json={"group_ids": [outside], "role": "FYI"})
+    assert plain.json()["outside_scope"] is None

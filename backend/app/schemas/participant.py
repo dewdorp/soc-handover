@@ -58,6 +58,13 @@ class PropagateGroup(BaseModel):
     member_count: int
 
 
+class OutsideScopeWarning(BaseModel):
+    """그룹 제한 글을 그 그룹 밖으로 전파할 때의 경고(§3)."""
+    scope_groups: list[str] = []
+    outside_groups: list[str] = []
+    message: str
+
+
 class PropagatePreview(BaseModel):
     groups: list[PropagateGroup] = []
     role: str
@@ -69,6 +76,8 @@ class PropagatePreview(BaseModel):
     excluded_already_stronger: list[str] = []
     after: ParticipantCounts
     visibility_note: str
+    #: 그룹 제한을 그 그룹 밖으로 넓히는 전파일 때만 채워진다
+    outside_scope: OutsideScopeWarning | None = None
     applied: bool = False
     participants: list[ParticipantOut] = []
 

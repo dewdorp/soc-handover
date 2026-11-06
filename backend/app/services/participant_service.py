@@ -278,14 +278,14 @@ def _outside_scope_warning(db: Session, handover: Handover, group_ids: list[int]
     outside = [gid for gid in group_ids if gid not in allowed]
     if not outside:
         return None
+    scope_names = group_service.group_names_of(db, handover)
+    outside_names = [found_groups[gid] for gid in outside if gid in found_groups]
     return {
-        "scope_groups": group_service.group_names_of(db, handover),
-        "outside_groups": [found_groups[gid] for gid in outside if gid in found_groups],
-        "message": ("이 글은 "
-                    + " · ".join(group_service.group_names_of(db, handover))
-                    + " 에만 공개돼 있습니다. 전파하면 "
-                    + " · ".join(found_groups[gid] for gid in outside if gid in found_groups)
-                    + " 구성원도 이 글을 읽게 됩니다(그 사람들에게만 열립니다)."),
+        "scope_groups": scope_names,
+        "outside_groups": outside_names,
+        "message": (f"이 글은 {' · '.join(scope_names)}에만 공개돼 있습니다. "
+                    f"전파하면 {' · '.join(outside_names)} 구성원도 이 글을 읽게 됩니다"
+                    " — 글의 공개 범위는 그대로이고, 그 사람들에게만 열립니다."),
     }
 
 
@@ -300,11 +300,16 @@ def propagate(db: Session, handover: Handover, *, group_ids: list[int], role: st
         set_participants(db, handover,
                          [{"user_id": uid, "role": role} for uid in preview["add_user_ids"]],
                          actor=actor, ctx=ctx, note=label, replace=False)
+    after = {"groups": [g["name"] for g in preview["groups"]],
+             "role": role, "added": preview["add_count"],
+             "excluded": preview["excluded_count"],
+             "visibility": handover.visibility}
+    if preview.get("outside_scope"):
+        # 조사하는 사람이 '그룹 제한 글이 그 그룹 밖으로 나갔다'를 기록만 보고 알 수 있게
+        # 남긴다. 나중에 재구성하려면 그때의 공개 그룹을 따로 찾아야 한다.
+        after["outside_scope_groups"] = preview["outside_scope"]["outside_groups"]
+        after["scope_groups"] = preview["outside_scope"]["scope_groups"]
     record(db, action=actions.HANDOVER_PROPAGATE, ctx=ctx, user=actor,
-           resource_type="HANDOVER", resource_id=handover.id,
-           after={"groups": [g["name"] for g in preview["groups"]],
-                  "role": role, "added": preview["add_count"],
-                  "excluded": preview["excluded_count"],
-                  "visibility": handover.visibility})
+           resource_type="HANDOVER", resource_id=handover.id, after=after)
     return {**preview, "applied": True,
             "participants": list_for(db, handover)}

@@ -561,3 +561,29 @@ def test_propagating_outside_the_scope_warns_before_sending(admin, users, db):
     plain = admin.post(f"{H}/{public['id']}/propagate/preview",
                        json={"group_ids": [outside], "role": "FYI"})
     assert plain.json()["outside_scope"] is None
+
+
+def test_outside_scope_propagation_is_recorded_in_the_audit(admin, users, db):
+    """그룹 밖 전파는 감사 기록만 보고도 알 수 있어야 한다.
+
+    나중에 '이 글이 어떻게 저 팀에 갔지'를 조사할 때, 그때의 공개 그룹을 따로
+    찾아 맞춰 보게 하면 안 된다.
+    """
+    cid = _company_id(db)
+    inside = _group(db, users, "감사 기록 확인 안쪽")
+    outside = _group(db, users, "감사 기록 확인 바깥")
+    row = admin.post(H, json={"company_id": cid, "title": "감사 기록 확인 인계", "content": "본문",
+                              "visibility": "GROUPS", "group_ids": [inside]}).json()
+    sent = admin.post(f"{H}/{row['id']}/propagate",
+                      json={"group_ids": [outside], "role": "FYI", "note": "확인용"})
+    assert sent.status_code == 200, sent.text
+
+    db.expire_all()
+    log = db.scalars(select(AuditLog).where(
+        AuditLog.action == actions.HANDOVER_PROPAGATE,
+        AuditLog.resource_id == str(row["id"]))).all()
+    assert log, "전파 기록이 없다"
+    detail = log[-1].after_value or {}
+    assert detail.get("outside_scope_groups") == ["감사 기록 확인 바깥"], detail
+    assert detail.get("scope_groups") == ["감사 기록 확인 안쪽"], detail
+    assert detail.get("visibility") == "GROUPS", detail

@@ -28,6 +28,27 @@
 **기존 E2E 도 깨져 있었습니다.** 브랜치가 `RevealDialog` 문구를 바꿨는데 E2E 가 CI 에 없어
 아무도 몰랐습니다(`test_credential_vault`). 고쳤습니다.
 
+### 0-1. 재현 조건과 재검증
+
+찾은 것을 '고쳤다'로 끝내지 않고, **어떻게 하면 다시 나타나는지**와 **무엇으로 막았는지**를
+남깁니다. 아래는 그대로 따라 하면 고치기 전 코드에서 재현되는 조건입니다.
+
+| # | 재현 조건 | 고치기 전 | 고친 뒤 | 막아 두는 시험 |
+|---|---|---|---|---|
+| 1 | 1.3.0 DB(그룹 미지정 자료 N건)에 패치를 적용하고 `SELECT count(*) FROM handovers WHERE visibility='ALL'` | **N건이 ALL** 로 바뀜 | 0건 | `test_upgrading_alone_publishes_nothing` |
+| 2 | `pytest tests/api/test_admin_api.py -k test_every_defined_action_is_recorded` | 감사 9종 누락으로 실패(CI 가 덮고 있었다) | 통과 | 같은 시험 + CI 에서 우회 제거 |
+| 3 | 설정 화면에서 `credential.max_session_minutes` 를 60 으로 저장 | 저장됨 | 422 | `test_vault_session_cannot_be_configured_beyond_fifteen_minutes` |
+| 4 | 금고를 연 뒤 관리자가 그 사람의 그룹 소속을 바꾸고 `GET /credentials/vault/status` | 200(세션 살아 있음) | 403 | `test_vault_session_dies_when_groups_or_role_change` |
+| 5 | 비밀번호 201건 이상인 상태에서 금고 열기 | 400 → 화면이 금고를 잠금 | 100건씩 나눠 받아 정상 | `test_vault_batch_is_capped_and_rejects_duplicates` + 화면 분할 호출 |
+| 6 | 토큰 없이 `POST /credentials/vault/lock` 뒤 기존 토큰으로 조회 | 200(안 잠김) | 403 | `test_vault_lock_without_token_still_closes_the_session` |
+| 9 | 그룹 제한 글에 `PATCH {"group_ids": []}` | 전체 공개로 바뀜 | 422 | `test_empty_group_list_cannot_silently_publish_a_restricted_handover` |
+| 10 | `UPDATE system_settings SET value='"pdf,xlsx"' WHERE key='attachment.allowed_ext'` 뒤 설정 화면 | 화면 전체가 빔 | 그 줄만 경고 | E2E `test_one_bad_setting_value_does_not_blank_the_page` |
+| 11 | 금고에서 복사 → 지금 잠그기 → 다른 곳에 붙여 넣기 | 평문이 붙음 | 비어 있음 | 화면 코드(`clearLocal`) · 수동 확인 |
+| — | 'A팀 전용' 글을 B팀에 그룹 전파 | 경고 없이 B팀 전원이 읽게 됨 | 보내기 전 경고 | `test_propagating_outside_the_scope_warns_before_sending` |
+| — | 전환 대상이 5,000건을 넘는 DB 에서 승인 | 바인드 파라미터 상한으로 실패 | 나눠 보내 정상 | `test_conversion_handles_more_rows_than_one_sql_statement` |
+| — | 같은 사람이 탭 두 개에서 각각 인증 | 앞 탭 토큰이 살아 있어 '지금 잠그기' 가 반만 듣는다 | 앞 탭 토큰 무효 | `test_second_unlock_invalidates_the_first_tab` |
+
+각 항목은 고친 뒤 **SQLite 와 PostgreSQL 양쪽에서** 다시 돌려 통과를 확인했습니다.
 ---
 
 ## 1. 요구별 구현 — 전 / 후

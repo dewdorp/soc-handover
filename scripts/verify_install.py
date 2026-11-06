@@ -42,8 +42,14 @@ def main() -> int:
         check("'미분류' 말고 실제 그룹이 있다", bool(named),
               " · ".join(g["name"] for g in named) or "없음 — 관리자 화면에서 만드십시오")
         left = c.get("/groups/unclassified/summary").json()
-        check("미분류로 남은 자료가 없다", left["total"] == 0,
-              f"{left['total']}건 남음 — 관리자 → 열람 그룹에서 옮기십시오")
+        # 1.3.1 부터 '미분류로 남아 있음'은 잘못이 아니라 **아직 안 정한 것**이다.
+        # 실제 그룹으로 옮기거나, 전체 공개로 전환하거나 — 둘 다 관리자가 정할 일이라
+        # 실패로 세지 않고 알리기만 한다.
+        if left["total"]:
+            print(f"  [--] '미분류'에 {left['total']}건 남아 있습니다 — 관리자 → 열람 그룹에서 "
+                  "실제 그룹으로 옮기거나 전체 공개로 전환할지 정하십시오")
+        else:
+            check("미분류로 남은 자료가 없다", True, "0건")
 
         # --- 2. 다른 그룹의 업무가 섞이지 않는가 (사람마다 보이는 수가 다른가)
         users = {u["display_name"]: u["id"] for u in c.get("/users/lookup?limit=100").json()}
@@ -90,10 +96,9 @@ def main() -> int:
         # --- 7. 1.3.1 — 공개 범위 전환 대기 · 금고 상한 · 감사 소음 · 정기 점검
         pending = c.get("/groups/public-migration").json()
         if pending.get("eligible"):
-            print(f"  [--] 그룹 미지정 과거 자료 {pending['eligible']}건(전환 대기) — "
-                  "관리자 → 열람 그룹에서 전체 공개로 바꿀지 정하십시오")
-        else:
-            check("그룹 미지정 과거 자료가 남아 있지 않다", True, "0건")
+            print(f"  [--] 그 중 전체 공개로 전환할 수 있는 자료는 {pending['eligible']}건입니다"
+                  f"(전환하면 활성 계정 {pending['reader_count']}명이 읽습니다). "
+                  "미리보기에서 목록을 먼저 확인하십시오")
 
         settings = {row["key"]: row["value"] for row in c.get("/settings").json()}
         ttl = int(settings.get("credential.unlock_minutes") or 5)

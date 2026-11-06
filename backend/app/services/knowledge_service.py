@@ -54,7 +54,9 @@ def can_edit(actor: User, row: KnowledgeArticle) -> bool:
 def _scope(db: Session, row: KnowledgeArticle, actor: User, visibility: str,
            group_ids: list[int]) -> None:
     wanted = {int(v) for v in group_ids}
-    if visibility == VIS_ALL or not wanted:
+    if visibility == VIS_GROUPS and not wanted:
+        raise ValidationFailed("그룹을 제한하려면 공개할 그룹을 하나 이상 선택하십시오.")
+    if visibility == VIS_ALL:
         row.visibility = VIS_ALL
         row.group_links.clear()
         db.flush()
@@ -143,7 +145,8 @@ def edit(db: Session, actor: User, article_id: int, changes: dict[str, Any],
         gids = [x.group_id for x in row.group_links]
     # 버전 비교와 갱신을 한 SQL 문으로 처리해 동시 편집 덮어쓰기를 방지한다.
     vals = {k: v for k, v in changes.items() if k in (
-        "category", "body", "is_pinned", "review_due") and v is not None}
+        "category", "body", "is_pinned", "review_due") and
+        (v is not None or k == "review_due")}
     vals.update(title=title, updated_by=actor.id, version_no=expected + 1)
     result = db.execute(update(KnowledgeArticle).where(
         KnowledgeArticle.id == article_id, KnowledgeArticle.version_no == expected

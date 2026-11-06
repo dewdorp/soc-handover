@@ -107,6 +107,31 @@ export const scheduleApi = {
   remove: (id: number, reason?: string) => api.delete<void>(`/schedules/${id}`, reason ? { reason } : undefined),
   forHandover: (handoverId: number) => api.get<Schedule[]>(`/handovers/${handoverId}/schedules`),
   forTask: (taskId: number) => api.get<Schedule[]>(`/tasks/${taskId}/schedules`),
+
+  /** 그 날 돌아야 하는 '점검' 종류 반복 일정과 완료 여부 */
+  inspections: (day?: string) =>
+    api.get<Inspection[]>(`/schedules/inspections${day ? `?day=${day}` : ''}`),
+  completeInspection: (id: number, day: string, note?: string) =>
+    api.post<Inspection>(`/schedules/${id}/completions`, { occurrence_date: day, note: note ?? null }),
+  reopenInspection: (id: number, day: string) =>
+    api.delete<void>(`/schedules/${id}/completions/${day}`),
+}
+
+/** 정기 점검 한 회차 */
+export interface Inspection {
+  schedule_id: number
+  title: string
+  occurrence_date: string
+  start_at: string
+  company: string | null
+  owner_id: number | null
+  owner_name: string | null
+  recurrence_text: string | null
+  is_done: boolean
+  done_by_name: string | null
+  done_at: string | null
+  note: string | null
+  is_mine: boolean
 }
 
 export const EVENT_TYPE_LABEL: Record<EventType, string> = {

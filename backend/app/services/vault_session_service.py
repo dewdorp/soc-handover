@@ -50,9 +50,24 @@ def _identity(ctx: RequestContext | None) -> tuple[str, str]:
     return (ctx.client_ip if ctx else "", ctx.user_agent if ctx else "")
 
 
+#: 한 번 인증으로 이어서 볼 수 있는 **절대 상한**(분). 설정으로도 넘길 수 없다.
+HARD_MAX_MINUTES = 15
+#: 한 번에 열어 두는 기본 시간의 상한(분).
+HARD_TTL_MINUTES = 10
+
+
 def _minutes(db: Session) -> tuple[int, int]:
-    ttl = max(1, min(10, int(settings_service.get_value(db, "credential.unlock_minutes") or 5)))
-    max_ttl = max(ttl, min(60, int(settings_service.get_value(db, "credential.max_session_minutes") or 15)))
+    """(한 번 열어 두는 시간, 연속 유지 상한) — 설정값이 이상해도 상한을 넘지 않는다."""
+    try:
+        ttl_raw = int(settings_service.get_value(db, "credential.unlock_minutes") or 5)
+    except (TypeError, ValueError):
+        ttl_raw = 5
+    try:
+        max_raw = int(settings_service.get_value(db, "credential.max_session_minutes") or HARD_MAX_MINUTES)
+    except (TypeError, ValueError):
+        max_raw = HARD_MAX_MINUTES
+    ttl = max(1, min(HARD_TTL_MINUTES, ttl_raw))
+    max_ttl = max(ttl, min(HARD_MAX_MINUTES, max_raw))
     return ttl, max_ttl
 
 
@@ -99,7 +114,10 @@ def unlock(db: Session, actor: User, password: str, ctx: RequestContext | None) 
         expires_at = min(now + ttl * 60, max_at)
         _sessions[_hash(token)] = VaultSession(actor.id, fp, ip, agent, expires_at, max_at)
         if len(_sessions) > _MAX_SESSIONS:
-            _cleanup_locked(now)
+            # 끝나는 시각이 가장 이른 것부터 버린다. 지금 만든 세션은 남는다.
+            for key, _ in sorted(_sessions.items(), key=lambda kv: kv[1].expires_at
+                                 )[:len(_sessions) - _MAX_SESSIONS]:
+                _sessions.pop(key, None)
         _failures.pop(actor.id, None)
     record(db, action=actions.CREDENTIAL_VAULT_UNLOCK, ctx=ctx, user=actor,
            resource_type="CREDENTIAL", detail={"expires_in_seconds": int(expires_at-now),
@@ -148,11 +166,17 @@ def extend(db: Session, actor: User, token: str,
 
 def lock(actor: User, token: str | None, ctx: RequestContext | None,
          db: Session | None = None) -> None:
+    """'지금 잠그기'. 토큰을 잃어버렸어도 그 사람의 열람 세션은 모두 닫는다 —
+    화면이 잠겼다고 말하면서 서버에 세션이 남아 있으면 안 된다."""
     with _lock:
         if token:
             state = _sessions.get(_hash(token))
             if state and state.user_id == actor.id:
                 _sessions.pop(_hash(token), None)
+        else:
+            for key, state in list(_sessions.items()):
+                if state.user_id == actor.id:
+                    _sessions.pop(key, None)
     if db is not None:
         record(db, action=actions.CREDENTIAL_VAULT_LOCK, ctx=ctx, user=actor,
                resource_type="CREDENTIAL")

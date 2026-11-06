@@ -68,13 +68,27 @@ export type VaultTimes = Pick<VaultSessionResult, 'expires_in_seconds' | 'remain
 export const credentialApi = {
   unlockVault: (password: string) =>
     api.post<VaultSessionResult>(`${P}/vault/unlock`, { password }),
-  vaultSecrets: (token: string, ids: number[]) => {
-    const qs = new URLSearchParams()
-    ids.forEach(id => qs.append('ids', String(id)))
-    return request<RevealResult[]>(`${P}/vault/secrets?${qs.toString()}`, {
-      method: 'GET', headers: {'X-Vault-Token': token},
-    })
+  /**
+   * 목록에 보이는 항목의 평문을 한 번에 가져온다.
+   *
+   * 서버는 한 번에 200건까지만 연다. 장비가 그보다 많은 곳에서 400 을 맞고
+   * 금고가 통째로 잠기는 일이 없도록 여기서 나눠 부른다. 돌려받은 평문은
+   * 호출한 화면의 메모리에만 머무르고 어디에도 저장하지 않는다.
+   */
+  vaultSecrets: async (token: string, ids: number[]): Promise<RevealResult[]> => {
+    const CHUNK = 100
+    const out: RevealResult[] = []
+    for (let at = 0; at < ids.length; at += CHUNK) {
+      const qs = new URLSearchParams()
+      ids.slice(at, at + CHUNK).forEach(id => qs.append('ids', String(id)))
+      out.push(...await request<RevealResult[]>(`${P}/vault/secrets?${qs.toString()}`, {
+        method: 'GET', headers: {'X-Vault-Token': token},
+      }))
+    }
+    return out
   },
+  vaultStatus: (token: string) =>
+    request<VaultTimes>(`${P}/vault/status`, { method: 'GET', headers: {'X-Vault-Token': token} }),
   extendVault: (token: string) =>
     request<VaultTimes>(`${P}/vault/extend`, { method: 'POST', headers: {'X-Vault-Token': token} }),
   lockVault: (token: string) =>

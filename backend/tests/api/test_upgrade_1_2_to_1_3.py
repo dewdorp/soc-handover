@@ -106,26 +106,76 @@ class TestExistingDataKeepsBeingVisible:
         assert members == users == 3, "한 사람이라도 빠지면 그 사람은 빈 목록을 본다"
         assert defaults == users, "기본 그룹이 없으면 새 글을 어디에 올릴지 정해지지 않는다"
 
-    def test_legacy_ungrouped_handovers_become_public(self, upgraded):
+    def test_every_existing_handover_lands_in_the_group(self, upgraded):
         with upgraded.connect() as conn:
             total = conn.execute(text("SELECT COUNT(*) FROM handovers")).scalar_one()
             linked = conn.execute(text(
                 "SELECT COUNT(*) FROM handover_groups hg JOIN groups g ON g.id = hg.group_id "
                 "WHERE g.code = 'UNCLASSIFIED'")).scalar_one()
-        assert linked == 0 and total == 5, "1.3.1 이후 그룹 미지정 이력은 전체 공개로 이관한다"
-        # 이전 분류를 기록해 downgrade와 감사 조사에서 확인 가능해야 한다.
-        with upgraded.connect() as conn:
-            migrated = conn.execute(text("SELECT COUNT(*) FROM scope_public_migration")).scalar_one()
-        assert migrated == total
+        assert linked == total == 5, "지운 건까지 넣어야 복구했을 때 보인다"
 
-    def test_unclassified_legacy_rows_become_public(self, upgraded):
+    def test_upgrading_alone_publishes_nothing(self, upgraded):
+        """1.3.1 은 새 글의 기본값만 바꾼다. **올리는 것만으로** 과거 자료가 공개되면 안 된다.
+
+        전환은 관리자가 건수·목록을 보고 확인 문구를 입력해 승인할 때만 일어난다
+        (group_service.public_migration_apply). 아래 두 수가 뒤집히면 업데이트를
+        적용한 그 순간부터 외주 계정이 과거 내부 인계를 읽는다.
+        """
         with upgraded.connect() as conn:
             public = conn.execute(text(
                 "SELECT COUNT(*) FROM handovers WHERE visibility = 'ALL'")).scalar_one()
             grouped = conn.execute(text(
                 "SELECT COUNT(*) FROM handovers WHERE visibility = 'GROUPS'")).scalar_one()
-        assert public == 5, "사용자가 요청한 1.3.1 정책: 그룹 미지정 기존 자료는 전체 공개"
-        assert grouped == 0
+            converted = conn.execute(text(
+                "SELECT COUNT(*) FROM scope_public_migration")).scalar_one()
+        assert public == 0, "쌓인 자료를 올리자마자 전체 공개로 바꾸면 안 된다(§3)"
+        assert grouped == 5
+        assert converted == 0, "승인 없이 전환 이력이 생기면 안 된다"
+
+    def test_admin_approved_conversion_and_revert(self, upgraded):
+        """관리자가 승인하면 전환되고, 묶음 단위로 되돌릴 수 있다."""
+        from sqlalchemy.orm import Session
+
+        from app.core.errors import ValidationFailed
+        from app.models.user import User
+        from app.services import group_service
+
+        with Session(upgraded) as db:
+            admin = db.query(User).filter_by(username="old_admin").one()
+            preview = group_service.public_migration_preview(db)
+            assert preview["eligible"] == 5
+            assert preview["visible_after"] == 4, "지운 건은 '지금 보이게 되는 수'에서 뺀다"
+            assert preview["warnings"], "경고 없이 승인 화면을 보여 주면 안 된다"
+
+            for bad in ({"confirm": "네", "backup_confirmed": True},
+                        {"confirm": preview["confirm_phrase"], "backup_confirmed": False}):
+                try:
+                    group_service.public_migration_apply(db, actor=admin, **bad)
+                except ValidationFailed:
+                    pass
+                else:                      # pragma: no cover
+                    raise AssertionError(f"승인 조건을 건너뛰고 전환했다: {bad}")
+            db.rollback()
+
+            done = group_service.public_migration_apply(
+                db, actor=admin, confirm=group_service.PUBLIC_MIGRATION_CONFIRM,
+                backup_confirmed=True)
+            db.commit()
+            assert done["converted"] == 5
+            with upgraded.connect() as conn:
+                assert conn.execute(text(
+                    "SELECT COUNT(*) FROM handovers WHERE visibility = 'ALL'")).scalar_one() == 5
+
+            back = group_service.public_migration_revert(db, actor=admin,
+                                                         batch_id=done["batch_id"])
+            db.commit()
+            assert back["restored"] == 5
+            with upgraded.connect() as conn:
+                assert conn.execute(text(
+                    "SELECT COUNT(*) FROM handovers WHERE visibility = 'ALL'")).scalar_one() == 0
+                assert conn.execute(text(
+                    "SELECT COUNT(*) FROM handover_groups hg JOIN groups g ON g.id = hg.group_id "
+                    "WHERE g.code = 'UNCLASSIFIED'")).scalar_one() == 5
 
     def test_the_same_people_still_see_the_same_rows(self, upgraded):
         """올리기 전에 보이던 5건이 올린 뒤에도 그대로 보인다 — 실제 판정 함수로 확인한다."""

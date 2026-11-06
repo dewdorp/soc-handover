@@ -22,7 +22,7 @@ interface Draft {
   from: string
   to: string
   username: string
-  action: string          // '' · 'group:<이름>' · 행위 코드
+  action: string          // '' · 'group:<이름>' · 'view:<이름>' · 행위 코드
   hide_views: boolean
   resource_type: string
   resource_id: string
@@ -46,8 +46,12 @@ export default function AuditPage() {
   const { data: catalog } = useQuery({ queryKey: ['audit-catalog'], queryFn: adminApi.auditCatalog, staleTime: 300_000 })
 
   const query = useMemo<AuditQuery>(() => {
+    // 'group:' 은 기능별 묶음, 'view:' 는 중요도별 빠른 보기(§2)
     const group = applied.action.startsWith('group:')
-      ? catalog?.groups.find((g) => g.name === applied.action.slice(6))?.actions.map((a) => a.code) : null
+      ? catalog?.groups.find((g) => g.name === applied.action.slice(6))?.actions.map((a) => a.code)
+      : applied.action.startsWith('view:')
+        ? catalog?.views.find((v) => v.name === applied.action.slice(5))?.actions
+        : null
     return {
       start: `${applied.from}T00:00:00+09:00`,
       end: `${format(addDays(parseISO(applied.to), 1), 'yyyy-MM-dd')}T00:00:00+09:00`,
@@ -97,6 +101,11 @@ export default function AuditPage() {
           {all && <input className="input w-28" placeholder="사용자 계정" value={draft.username} aria-label="사용자" onChange={(e) => set('username', e.target.value)} />}
           <select className="input" value={draft.action} aria-label="행위" onChange={(e) => set('action', e.target.value)}>
             <option value="">행위 전체</option>
+            <optgroup label="빠른 보기">
+              {catalog?.views.map((v) => (
+                <option key={v.name} value={`view:${v.name}`}>{v.name}</option>
+              ))}
+            </optgroup>
             {catalog?.groups.map((g) => (
               <optgroup key={g.name} label={g.name}>
                 <option value={`group:${g.name}`}>{g.name} 전체</option>

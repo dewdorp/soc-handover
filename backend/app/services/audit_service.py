@@ -28,7 +28,8 @@ MAX_RANGE_DAYS = 93
 
 #: 화면 · 내보내기에 쓰는 이름. 모든 Action 에 이름이 있어야 한다(테스트로 강제).
 ACTION_LABELS: dict[str, str] = {
-    actions.LOGIN_SUCCESS: "로그인", actions.LOGIN_FAILURE: "로그인 실패", actions.LOGOUT: "로그아웃",
+    actions.LOGIN_SUCCESS: "로그인", actions.LOGIN_FAILURE: "로그인 실패", actions.ACCOUNT_LOCKED: "계정 잠금",
+    actions.LOGOUT: "로그아웃",
     actions.PASSWORD_CHANGE: "비밀번호 변경", actions.PASSWORD_RESET: "비밀번호 초기화",
     actions.HANDOVER_VIEW: "인수인계 열람", actions.HANDOVER_CREATE: "인수인계 등록",
     actions.HANDOVER_UPDATE: "인수인계 수정", actions.HANDOVER_DELETE: "인수인계 삭제",
@@ -59,13 +60,21 @@ ACTION_LABELS: dict[str, str] = {
     actions.GROUP_MEMBER_CHANGE: "그룹 구성원 변경",
     actions.GROUP_DATA_MOVE: "분류 없는 자료 이관",
     actions.HANDOVER_SCOPE_CHANGE: "공개 범위 변경",
+    actions.SCOPE_PUBLIC_MIGRATE: "과거 자료 전체 공개 전환",
+    actions.SCOPE_PUBLIC_REVERT: "전체 공개 전환 되돌리기",
     actions.USER_CREATE: "사용자 등록", actions.USER_UPDATE: "사용자 수정", actions.ROLE_CHANGE: "권한 변경",
     actions.SETTING_CHANGE: "설정 변경",
     actions.KNOWLEDGE_CREATE: "운영 지식 등록",
     actions.KNOWLEDGE_UPDATE: "운영 지식 수정",
     actions.KNOWLEDGE_DELETE: "운영 지식 삭제",
+    actions.KNOWLEDGE_RESTORE: "운영 지식 복원",
+    actions.KNOWLEDGE_LINK: "운영 지식 · 인수인계 연결",
     actions.BACKUP: "백업", actions.RESTORE: "복구", actions.AUDIT_ARCHIVE: "감사로그 보관 정리",
 }
+
+#: 평상시 업무에서 수없이 쌓이는 '봤다' 기록. 기본으로 남기지 않고, 조회 화면에서도 숨긴다.
+#: 인증 실패 · 권한 변경 · 내보내기 · 비밀번호 열람은 여기에 **넣지 않는다**(§2 보존 대상).
+VIEW_ONLY_ACTIONS: frozenset[str] = frozenset({actions.HANDOVER_VIEW})
 
 ACTION_GROUPS: dict[str, list[str]] = {
     "근무표": [actions.ROSTER_TEAM_CHANGE, actions.ROSTER_OVERRIDE,
@@ -73,7 +82,8 @@ ACTION_GROUPS: dict[str, list[str]] = {
     "열람 그룹": [actions.GROUP_CREATE, actions.GROUP_UPDATE,
               actions.GROUP_MEMBER_CHANGE, actions.GROUP_DATA_MOVE,
               actions.HANDOVER_SCOPE_CHANGE],
-    "인증": [actions.LOGIN_SUCCESS, actions.LOGIN_FAILURE, actions.LOGOUT, actions.PASSWORD_CHANGE,
+    "인증": [actions.LOGIN_SUCCESS, actions.LOGIN_FAILURE, actions.ACCOUNT_LOCKED,
+           actions.LOGOUT, actions.PASSWORD_CHANGE,
            actions.PASSWORD_RESET],
     "인수인계": [actions.HANDOVER_VIEW, actions.HANDOVER_CREATE, actions.HANDOVER_UPDATE,
              actions.HANDOVER_DELETE, actions.HANDOVER_RESTORE, actions.HANDOVER_UNDELETE,
@@ -89,9 +99,57 @@ ACTION_GROUPS: dict[str, list[str]] = {
                 actions.CREDENTIAL_VAULT_UNLOCK, actions.CREDENTIAL_VAULT_DENIED,
                 actions.CREDENTIAL_VAULT_BATCH_REVEAL, actions.CREDENTIAL_VAULT_EXTEND,
                 actions.CREDENTIAL_VAULT_LOCK],
-    "운영 지식": [actions.KNOWLEDGE_CREATE, actions.KNOWLEDGE_UPDATE, actions.KNOWLEDGE_DELETE],
+    "운영 지식": [actions.KNOWLEDGE_CREATE, actions.KNOWLEDGE_UPDATE, actions.KNOWLEDGE_DELETE,
+              actions.KNOWLEDGE_RESTORE, actions.KNOWLEDGE_LINK],
     "관리": [actions.USER_CREATE, actions.USER_UPDATE, actions.ROLE_CHANGE, actions.SETTING_CHANGE,
+           actions.SCOPE_PUBLIC_MIGRATE, actions.SCOPE_PUBLIC_REVERT,
            actions.BACKUP, actions.RESTORE, actions.AUDIT_ARCHIVE],
+}
+
+
+#: §2 가 요구한 네 갈래 빠른 보기. 위의 ACTION_GROUPS 는 '어느 기능'인지로 나눈 것이고,
+#: 이쪽은 '얼마나 중요한가'로 나눈 것이다. 기본 화면은 '일반 열람'을 빼고 보여 준다.
+ACTION_VIEWS: dict[str, list[str]] = {
+    "중요 행위": [
+        actions.LOGIN_FAILURE, actions.ACCOUNT_LOCKED,
+        actions.ROLE_CHANGE, actions.GROUP_MEMBER_CHANGE, actions.HANDOVER_SCOPE_CHANGE,
+        actions.SCOPE_PUBLIC_MIGRATE, actions.SCOPE_PUBLIC_REVERT,
+        actions.CREDENTIAL_REVEAL, actions.CREDENTIAL_REVEAL_DENIED, actions.CREDENTIAL_DELETE,
+        actions.CREDENTIAL_VAULT_UNLOCK, actions.CREDENTIAL_VAULT_DENIED,
+        actions.CREDENTIAL_VAULT_BATCH_REVEAL,
+        actions.EXCEL_EXPORT, actions.EXCEL_IMPORT, actions.EXCEL_IMPORT_ROLLBACK,
+        # 첨부를 내려받은 것은 '자료가 밖으로 나간' 일이다 — 단순 열람으로 묶지 않는다
+        actions.ATTACHMENT_DOWNLOAD,
+        actions.SETTING_CHANGE, actions.BACKUP, actions.RESTORE, actions.AUDIT_ARCHIVE,
+        actions.HANDOVER_DELETE, actions.KNOWLEDGE_DELETE,
+    ],
+    "인증 · 권한": [
+        actions.LOGIN_SUCCESS, actions.LOGIN_FAILURE, actions.LOGOUT, actions.ACCOUNT_LOCKED,
+        actions.PASSWORD_CHANGE, actions.PASSWORD_RESET,
+        actions.USER_CREATE, actions.USER_UPDATE, actions.ROLE_CHANGE,
+        actions.GROUP_CREATE, actions.GROUP_UPDATE, actions.GROUP_MEMBER_CHANGE,
+        actions.CREDENTIAL_VAULT_UNLOCK, actions.CREDENTIAL_VAULT_DENIED,
+        actions.CREDENTIAL_VAULT_EXTEND, actions.CREDENTIAL_VAULT_LOCK,
+    ],
+    "데이터 변경": [
+        actions.HANDOVER_CREATE, actions.HANDOVER_UPDATE, actions.HANDOVER_DELETE,
+        actions.HANDOVER_RESTORE, actions.HANDOVER_UNDELETE, actions.HANDOVER_TRANSFER,
+        actions.HANDOVER_ACKNOWLEDGE, actions.HANDOVER_COMMENT,
+        actions.HANDOVER_PARTICIPANTS, actions.HANDOVER_PROPAGATE, actions.HANDOVER_REQUEST,
+        actions.HANDOVER_SCOPE_CHANGE, actions.SCOPE_PUBLIC_MIGRATE, actions.SCOPE_PUBLIC_REVERT,
+        actions.TASK_CREATE, actions.TASK_UPDATE, actions.TASK_COMPLETE, actions.TASK_DELETE,
+        actions.CALENDAR_CREATE, actions.CALENDAR_UPDATE, actions.CALENDAR_DELETE,
+        actions.KNOWLEDGE_CREATE, actions.KNOWLEDGE_UPDATE, actions.KNOWLEDGE_DELETE,
+        actions.KNOWLEDGE_RESTORE, actions.KNOWLEDGE_LINK,
+        actions.CREDENTIAL_CREATE, actions.CREDENTIAL_UPDATE, actions.CREDENTIAL_DELETE,
+        actions.ATTACHMENT_UPLOAD, actions.ATTACHMENT_DELETE,
+        actions.GROUP_DATA_MOVE, actions.ROSTER_TEAM_CHANGE, actions.ROSTER_OVERRIDE,
+        actions.ROSTER_OVERRIDE_CANCEL,
+    ],
+    # 기본으로 기록하지 않는 갈래. 관리자가 'audit.track_handover_views' 를 켜면 쌓인다.
+    "일반 열람": [
+        actions.HANDOVER_VIEW,
+    ],
 }
 
 
@@ -101,6 +159,7 @@ def catalog(db: Session) -> dict[str, Any]:
     return {
         "groups": [{"name": g, "actions": [{"code": a, "label": ACTION_LABELS[a]} for a in codes]}
                    for g, codes in ACTION_GROUPS.items()],
+        "views": [{"name": v, "actions": sorted(set(codes))} for v, codes in ACTION_VIEWS.items()],
         "resource_types": resource_types,
         "max_range_days": MAX_RANGE_DAYS,
     }
@@ -123,8 +182,9 @@ def _statement(actor: User, req):
         stmt = stmt.where(AuditLog.user_id == req.user_id)
     if req.username:
         stmt = stmt.where(AuditLog.username.icontains(req.username.strip(), autoescape=True))
-    if getattr(req, "hide_views", False) and (not req.actions or actions.HANDOVER_VIEW not in req.actions):
-        stmt = stmt.where(AuditLog.action != actions.HANDOVER_VIEW)
+    # 기본 화면은 '단순 열람'을 빼고 보여 준다. 찾는 사람이 열람 기록을 직접 고르면 그대로 보여 준다.
+    if getattr(req, "hide_views", False) and not (set(req.actions or ()) & VIEW_ONLY_ACTIONS):
+        stmt = stmt.where(AuditLog.action.notin_(sorted(VIEW_ONLY_ACTIONS)))
     if req.actions:
         unknown = sorted(set(req.actions) - set(ACTION_LABELS))
         if unknown:

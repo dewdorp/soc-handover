@@ -160,3 +160,26 @@ class MyScheduleOut(BaseModel):
     occurrence_no: int = 1
     #: 첫 줄에만 — 보여 주지 않은 회차가 몇 번 더 있는가
     more_occurrences: int = 0
+
+
+# --------------------------------------------------------------------------- 정기 점검
+class InspectionOut(BaseModel):
+    """그 날 돌아야 하는 점검 한 건과 완료 여부."""
+    schedule_id: int
+    title: str
+    occurrence_date: date
+    start_at: datetime
+    company: str | None = None
+    owner_id: int | None = None
+    owner_name: str | None = None
+    recurrence_text: str | None = None
+    is_done: bool = False
+    done_by_name: str | None = None
+    done_at: datetime | None = None
+    note: str | None = None
+    is_mine: bool = False
+
+
+class InspectionDone(BaseModel):
+    occurrence_date: date
+    note: str | None = Field(default=None, max_length=300)

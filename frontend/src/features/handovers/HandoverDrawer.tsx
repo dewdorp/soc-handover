@@ -11,7 +11,9 @@ import { Check, Pin, Plus, Star, Trash2, X } from 'lucide-react'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
 import AnalysisRequest from '@/features/handovers/AnalysisRequest'
 import ParticipantsPanel from '@/features/handovers/ParticipantsPanel'
+import RelatedKnowledge from '@/features/handovers/RelatedKnowledge'
 import ScopePicker, { ScopeBadge, type Visibility } from '@/features/handovers/ScopePicker'
+import ScopeWarning from '@/features/handovers/ScopeWarning'
 import ConflictDialog from '@/features/handovers/ConflictDialog'
 import TaskCreateDialog from '@/features/tasks/TaskCreateDialog'
 import LinkedSchedules from '@/features/calendar/LinkedSchedules'
@@ -286,19 +288,28 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
             </dl>
 
             {editing && (
-              <ScopePicker
-                visibility={(field('visibility', row.visibility) as Visibility)}
-                groupIds={(field('group_ids', row.group_ids) as number[]) ?? []}
-                currentNames={row.group_names}
-                onChange={(next) => {
-                  set('visibility', next.visibility)
-                  set('group_ids', next.group_ids)
-                }}
-              />
+              <>
+                <ScopePicker
+                  visibility={(field('visibility', row.visibility) as Visibility)}
+                  groupIds={(field('group_ids', row.group_ids) as number[]) ?? []}
+                  currentNames={row.group_names}
+                  onChange={(next) => {
+                    set('visibility', next.visibility)
+                    set('group_ids', next.group_ids)
+                  }}
+                />
+                {/* 담당자 · 확인자가 그 그룹 사람이 아니면 저장 전에 알려 준다(§3) */}
+                <ScopeWarning
+                  visibility={(field('visibility', row.visibility) as Visibility)}
+                  groupIds={(field('group_ids', row.group_ids) as number[]) ?? []}
+                  userIds={[row.assignee?.id, row.checker?.id, row.sender?.id]}
+                />
+              </>
             )}
 
             <ParticipantsPanel handoverId={row.id} canEdit={canEdit} />
             <AnalysisRequest handoverId={row.id} />
+            <RelatedKnowledge handoverId={row.id} title={row.title} />
 
             <section>
               <h3 className="text-ink-muted mb-1">내용</h3>

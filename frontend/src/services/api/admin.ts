@@ -42,6 +42,8 @@ export interface AuditRow {
 
 export interface AuditCatalog {
   groups: { name: string; actions: { code: string; label: string }[] }[]
+  /** 중요도로 나눈 빠른 보기 — 중요 행위 · 인증·권한 · 데이터 변경 · 일반 열람 */
+  views: { name: string; actions: string[] }[]
   resource_types: string[]
   max_range_days: number
 }

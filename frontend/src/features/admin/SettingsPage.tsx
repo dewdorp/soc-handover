@@ -5,6 +5,7 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
+import RowErrorBoundary from '@/components/RowErrorBoundary'
 import { useCan } from '@/hooks/useAuth'
 import { adminApi, type SystemSettingRow } from '@/services/api/admin'
 import { ApiRequestError } from '@/services/api/client'
@@ -34,7 +35,11 @@ export default function SettingsPage() {
         {groups.map((g) => (
           <section key={g} className="card divide-y divide-surface-border/70">
             <h2 className="px-3 py-2 font-medium bg-surface-sunken/60">{CATEGORY_LABEL[g] ?? g}</h2>
-            {data.filter((r) => r.category === g).map((r) => <SettingRow key={r.key} row={r} />)}
+            {data.filter((r) => r.category === g).map((r) => (
+              <RowErrorBoundary key={r.key} label={r.spec?.label ?? r.key} raw={r.value}>
+                <SettingRow row={r} />
+              </RowErrorBoundary>
+            ))}
           </section>
         ))}
       </div>
@@ -54,7 +59,11 @@ function SettingRow({ row }: { row: SystemSettingRow }) {
       setValue(res.value); setNonce((n) => n + 1); setMessage({ text: '저장했습니다.', bad: false })
       qc.invalidateQueries({ queryKey: ['settings'] }); qc.invalidateQueries({ queryKey: ['features'] })
     },
-    onError: (err) => setMessage({ text: err instanceof ApiRequestError ? err.message : '저장하지 못했습니다.', bad: true }),
+    onError: (err) => {
+      // 켜고 끄는 값은 실패하면 서버 값으로 되돌린다 — 화면만 바뀐 채 두면 켠 줄 안다.
+      if (row.spec?.kind === 'bool') setValue(row.value)
+      setMessage({ text: err instanceof ApiRequestError ? err.message : '저장하지 못했습니다.', bad: true })
+    },
   })
   const spec = row.spec
   const dirty = JSON.stringify(value) !== JSON.stringify(row.value)
@@ -112,6 +121,7 @@ function SettingRow({ row }: { row: SystemSettingRow }) {
         <div className="flex items-center gap-2">
           <button className="btn btn-sm btn-primary" disabled={!dirty || save.isPending} onClick={() => { setMessage(null); save.mutate(value) }}>저장</button>
           {dirty && <button className="btn btn-sm" onClick={() => { setValue(row.value); setNonce((n) => n + 1); setMessage(null) }}>되돌리기</button>}
+          {message?.bad && <button className="btn btn-sm" onClick={() => { setMessage(null); save.mutate(value) }} disabled={save.isPending}>재시도</button>}
         </div>
       )}
       {message && <p role={message.bad ? 'alert' : 'status'} className={`text-sm ${message.bad ? 'text-state-urgent' : 'text-state-done'}`}>{message.text}</p>}

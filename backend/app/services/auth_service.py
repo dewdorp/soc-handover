@@ -79,6 +79,14 @@ def login(db: Session, resp: Response, *, username: str, password: str,
         record(db, action=actions.LOGIN_FAILURE, ctx=ctx, username=username,
                result="FAILURE", error_message=result.reason,
                resource_type="USER", resource_id=username)
+        # 이번 실패로 계정이 잠겼다면 그 사실을 따로 남긴다. 실패 기록을 세어
+        # 짐작하게 하면 조사하는 사람이 잠긴 시각을 놓친다(§2 는 잠금 기록을 요구한다).
+        if result.reason == "BAD_PASSWORD":
+            locked = provider.locked_now(username)
+            if locked is not None:
+                record(db, action=actions.ACCOUNT_LOCKED, ctx=ctx, username=username,
+                       result="FAILURE", resource_type="USER", resource_id=username,
+                       detail={"locked_until": locked.isoformat()})
         # 예외를 던지면 요청 트랜잭션이 롤백되므로, 실패 카운트/증적은 먼저 확정한다.
         # (이 커밋이 없으면 계정 잠금 자체가 동작하지 않는다)
         db.commit()

@@ -235,7 +235,17 @@ def closing_check(db: Session, actor: User) -> dict[str, Any]:
         "hint": "수행일이 지났는데 끝나지 않은 건",
     })
 
-    # 5) 다음 근무 결원 — 받을 사람이 없으면 인계가 비게 된다
+    # 5) 오늘 돌아야 하는 정기 점검 — 끝내지 않고 넘기면 다음 조가 모른다
+    from app.core.time import today as _today
+    from app.services import schedule_service
+    pending_checks = schedule_service.pending_inspection_count(db, actor, _today())
+    rows.append({
+        "key": "inspections", "label": "오늘 점검 미완료", "count": pending_checks,
+        "url": "/schedules?tab=inspections", "tone": "check" if pending_checks else "ok",
+        "hint": "'점검' 종류의 반복 일정 중 오늘 회차를 아직 완료하지 않은 건",
+    })
+
+    # 6) 다음 근무 결원 — 받을 사람이 없으면 인계가 비게 된다
     nxt = roster_service.suggested_recipients(db)
     rows.append({
         "key": "next_shift", "label": "다음 근무 결원", "count": nxt["short_by"],

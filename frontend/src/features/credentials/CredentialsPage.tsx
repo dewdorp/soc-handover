@@ -26,6 +26,7 @@ export default function CredentialsPage() {
   const [unlockPassword, setUnlockPassword] = useState('')
   const [vaultToken, setVaultToken] = useState<string | null>(null)
   const tokenRef = useRef<string | null>(null)
+  const copiedRef = useRef(false)
   const [expiresAt, setExpiresAt] = useState(0)
   const [absoluteAt, setAbsoluteAt] = useState(0)
   const [nowTime, setNowTime] = useState(Date.now())
@@ -46,6 +47,9 @@ export default function CredentialsPage() {
     setUnlockPassword('')
     setExpiresAt(0)
     setAbsoluteAt(0)
+    // 방금 복사한 평문이 클립보드에 남아 있으면 다음 근무자가 붙여 넣을 수 있다.
+    // 공용 콘솔이므로 잠글 때 함께 비운다(막는 브라우저도 있어 실패는 무시한다).
+    if (copiedRef.current) { void navigator.clipboard?.writeText('').catch(() => {}); copiedRef.current = false }
     setCopiedId(null)
   }
 
@@ -71,6 +75,24 @@ export default function CredentialsPage() {
     }
   }, [])
 
+  // 남은 시간은 서버가 판정한다. 20초마다 물어 보고, 서버가 아니라고 하면 바로 가린다
+  // (관리자가 그룹·권한을 바꾸면 그 순간 세션이 끊긴다 — 화면에 평문이 남으면 안 된다).
+  useEffect(() => {
+    if (!vaultToken) return
+    const timer = window.setInterval(() => {
+      const token = tokenRef.current
+      if (!token) return
+      credentialApi.vaultStatus(token)
+        .then(x => {
+          const at = Date.now()
+          setExpiresAt(at + x.expires_in_seconds * 1000)
+          setAbsoluteAt(at + x.remaining_absolute_seconds * 1000)
+        })
+        .catch(() => { clearLocal(); setMessage('열람 권한이 바뀌어 금고를 잠갔습니다.') })
+    }, 20_000)
+    return () => window.clearInterval(timer)
+  }, [vaultToken])
+
   useEffect(() => {
     if (!vaultToken || nowTime < expiresAt) return
     const token = tokenRef.current
@@ -93,10 +115,12 @@ export default function CredentialsPage() {
         }
       })
       .catch(err => {
-        if (!cancelled) {
-          setMessage(friendlyError(err))
-          lockVault()
-        }
+        if (cancelled) return
+        setMessage(friendlyError(err))
+        // 403 은 '세션이 끝났거나 인증 정보가 바뀌었다'는 뜻이다 — 그때만 잠근다.
+        // 일시적인 오류까지 잠가 버리면 장비가 많은 곳에서 금고를 못 쓴다.
+        if (err instanceof ApiRequestError && (err.status === 401 || err.status === 403)) lockVault()
+        else setSecrets({})
       })
     return () => { cancelled = true }
   }, [data, vaultToken, active, expiresAt])
@@ -134,7 +158,9 @@ export default function CredentialsPage() {
     if (!value || !vaultToken) return
     try {
       await navigator.clipboard.writeText(value)
+      copiedRef.current = true
       setCopiedId(id)
+      window.setTimeout(() => setCopiedId((cur) => (cur === id ? null : cur)), 4000)
     } catch { setMessage('자동 복사가 제한된 브라우저입니다. 값을 선택하여 복사해 주세요.') }
   }
   const remaining = Math.max(0, Math.ceil((expiresAt-nowTime)/1000))

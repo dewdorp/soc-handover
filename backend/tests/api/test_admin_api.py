@@ -82,12 +82,22 @@ def _png(width: int = 2, height: int = 2) -> bytes:
 
 class TestAuditCoverage:
     def test_every_defined_action_is_recorded(self, people, cid, db):
-        """정의된 감사 행위 전부(39종)를 실제 API · 배치로 한 번씩 일으킨다(완료 기준: 30종 이상)."""
+        """정의된 감사 행위 전부를 실제 API · 배치로 한 번씩 일으킨다.
+
+        새 행위를 정의하고 이 목록에 넣지 않으면 여기서 떨어진다 — CI 에서
+        제외하거나 continue-on-error 로 덮지 말고, 그 행위를 실제로 일으켜라.
+        """
         admin, mgr, hong = people["admin"], people["mgr"], people["hong"]
         ids = people["ids"]
 
-        # 인증
+        # 인증 — 잠금 기록을 만들 희생 계정을 먼저 둔다(뒤에서 지우지 않는다)
+        admin.post("/api/v1/users", json={"username": "newbie2", "display_name": "잠금확인",
+                                          "password": "Lock#Check2026!zq", "role_code": "ANALYST"})
         ApiClient(app).__enter__().login("analyst1", "wrong-password")                   # LOGIN_FAILURE
+        from app.core.config import settings as _cfg                                      # ACCOUNT_LOCKED
+        locking = ApiClient(app).__enter__()
+        for _ in range(_cfg.LOGIN_MAX_FAILS + 1):
+            locking.login("newbie2", "wrong-password")
         extra = _client("analyst2", ANALYST_PW)                                           # LOGIN_SUCCESS
         extra.post("/api/v1/auth/change-password", json={                                 # PASSWORD_CHANGE
             "current_password": ANALYST_PW, "new_password": "Rotated#Pw2026!qz"})
@@ -150,7 +160,8 @@ class TestAuditCoverage:
         admin.put(f"/api/v1/users/{ids['analyst']['id']}/groups",                            # GROUP_MEMBER_CHANGE
                   json={"group_ids": [g["id"]], "default_group_id": g["id"]})
         admin.post("/api/v1/groups/unclassified/move", json={"to_group_id": g["id"]})         # GROUP_DATA_MOVE
-        pub = _handover(admin, cid, "공개 범위 변경용")
+        my_group = next(x["id"] for x in admin.get("/api/v1/groups/mine").json())
+        pub = _handover(admin, cid, "공개 범위 변경용", visibility="GROUPS", group_ids=[my_group])
         admin.patch(f"{H}/{pub['id']}", json={"expected_version": 1, "visibility": "ALL"})    # HANDOVER_SCOPE_CHANGE
 
         # 담당 · 전파 · 분석 의뢰 (§5)
@@ -172,6 +183,43 @@ class TestAuditCoverage:
                 "off_user_id": duty["user_ids"][0], "reason": "감사 확인"}).json()
             admin.post(f"/api/v1/roster/overrides/{sub['id']}/cancel",                        # ..._CANCEL
                        json={"reason": "되돌림"})
+
+        # 비밀번호 금고 단기 열람 — 인증 실패 · 시작 · 일괄 열람 · 연장 · 잠금
+        vault_cred = hong.post("/api/v1/credentials", json={
+            "device_name": "금고 확인 장비", "secret": "Vault#Pw2026!"}).json()
+        hong.post("/api/v1/credentials/vault/unlock", json={"password": "틀린비밀번호"})   # VAULT_DENIED
+        opened = hong.post("/api/v1/credentials/vault/unlock", json={"password": ANALYST_PW})
+        assert opened.status_code == 200, opened.text                                      # VAULT_UNLOCK
+        vt = {"X-Vault-Token": opened.json()["token"]}
+        hong.get(f"/api/v1/credentials/vault/secrets?ids={vault_cred['id']}", headers=vt)  # BATCH_REVEAL
+        hong.post("/api/v1/credentials/vault/extend", headers=vt)                          # VAULT_EXTEND
+        hong.post("/api/v1/credentials/vault/lock", headers=vt)                            # VAULT_LOCK
+
+        # 운영 지식 — 등록 · 수정 · 연결 · 삭제 · 복원
+        art = hong.post("/api/v1/knowledge", json={                                        # KNOWLEDGE_CREATE
+            "category": "운영 절차", "title": "감사 확인용 절차", "body": "확인→조치",
+            "tags": ["감사", "절차"]}).json()
+        hong.patch(f"/api/v1/knowledge/{art['id']}", json={                                # KNOWLEDGE_UPDATE
+            "version_no": 1, "body": "확인→조치→보고", "change_note": "보고 단계 추가"})
+        hong.post(f"/api/v1/knowledge/{art['id']}/handovers",                              # KNOWLEDGE_LINK
+                  json={"handover_id": pub["id"]})
+        hong.delete(f"/api/v1/knowledge/{art['id']}")                                      # KNOWLEDGE_DELETE
+        hong.post(f"/api/v1/knowledge/{art['id']}/restore")                                # KNOWLEDGE_RESTORE
+
+        # 과거 '그룹 미지정' 자료 전체 공개 전환 — 승인과 되돌리기 (§3)
+        legacy = _handover(admin, cid, "전환 대상 과거 자료",
+                           visibility="GROUPS", group_ids=[my_group])
+        from app.models.group import HandoverGroup
+        from app.services import group_service as _gs
+        unclassified = _gs.ensure_unclassified(db)
+        db.query(HandoverGroup).filter_by(handover_id=legacy["id"]).delete()
+        db.add(HandoverGroup(handover_id=legacy["id"], group_id=unclassified.id))
+        db.commit()
+        moved = admin.post("/api/v1/groups/public-migration/apply", json={
+            "confirm": _gs.PUBLIC_MIGRATION_CONFIRM, "backup_confirmed": True})
+        assert moved.status_code == 200, moved.text                                   # SCOPE_PUBLIC_MIGRATE
+        admin.post(f"/api/v1/groups/public-migration/batches/"                        # SCOPE_PUBLIC_REVERT
+                   f"{moved.json()['batch_id']}/revert")
 
         # 관리
         u = admin.post("/api/v1/users", json={"username": "newbie", "display_name": "신입",   # USER_CREATE

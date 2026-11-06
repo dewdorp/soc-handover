@@ -15,7 +15,8 @@ from app.models.common import SystemSetting
 DEFAULTS: dict[str, tuple[Any, str, str, bool]] = {
     "audit.track_handover_views": (False, "audit", "단순 인수인계 열람 성공을 감사로그에 남김(기본 꺼짐). 실패·중요 행위는 계속 기록.", False),
     "credential.unlock_minutes": (5, "credential", "비밀번호 일괄 열람 세션 유효기간(분). 기본 5분.", False),
-    "credential.max_session_minutes": (15, "credential", "비밀번호 일괄 열람 세션 최대 연속 유지시간(분).", False),
+    "credential.max_session_minutes": (15, "credential",
+                                       "비밀번호 일괄 열람 세션 최대 연속 유지시간(분). 보안 상한 15분.", False),
     "roster.epoch_date": (
         "2026-01-05", "roster",
         "근무표 16일 주기의 기준일. 이 날 주기 위치 0 인 조가 '주간 1일째'다.",
@@ -95,7 +96,8 @@ BLOCKED_EXT = frozenset({
 SPEC: dict[str, dict[str, Any]] = {
     "audit.track_handover_views": {"kind": "bool", "label": "단순 인수인계 열람 기록"},
     "credential.unlock_minutes": {"kind": "int", "min": 1, "max": 10, "unit": "분", "label": "비밀번호 열람 시간"},
-    "credential.max_session_minutes": {"kind": "int", "min": 5, "max": 60, "unit": "분", "label": "열람 세션 최대 유지시간"},
+    # 보안 상한이다. 15분을 넘겨 달라는 요구가 와도 코드가 막는다(vault_session_service.HARD_MAX_MINUTES).
+    "credential.max_session_minutes": {"kind": "int", "min": 5, "max": 15, "unit": "분", "label": "열람 세션 최대 유지시간"},
     "ack.reack_fields": {"kind": "fields", "label": "재확인 필드"},
     "attachment.allowed_ext": {"kind": "ext_list", "label": "첨부 허용 확장자"},
     "attachment.max_size_mb": {"kind": "int", "min": 1, "max": 200, "unit": "MB", "label": "첨부 최대 크기"},

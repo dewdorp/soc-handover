@@ -4,6 +4,7 @@
 import { useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import CalendarView from '@/features/calendar/CalendarView'
+import Inspections from '@/features/calendar/Inspections'
 import ScheduleDialog, { type ScheduleDefaults } from '@/features/calendar/ScheduleDialog'
 
 export default function CalendarPage() {
@@ -19,14 +20,26 @@ export default function CalendarPage() {
     setParams(next, { replace: key !== 'id' })
   }
 
+  const tab = params.get('tab') === 'inspections' ? 'inspections' : 'calendar'
+
   return (
     <div className="h-full flex flex-col min-h-0">
-      <div className="px-3 pt-2">
+      <div className="px-3 pt-2 flex items-center gap-2 flex-wrap">
         <h1 className="text-md font-medium">일정</h1>
+        <div className="flex gap-1">
+          <button className={`btn btn-sm ${tab === 'calendar' ? 'btn-primary' : ''}`}
+                  onClick={() => setParam('tab', null)}>달력</button>
+          <button className={`btn btn-sm ${tab === 'inspections' ? 'btn-primary' : ''}`}
+                  onClick={() => setParam('tab', 'inspections')}>정기 점검</button>
+        </div>
       </div>
+      {tab === 'inspections' ? (
+        <div className="p-3 overflow-auto"><Inspections /></div>
+      ) : (
       <CalendarView mine={mine} onToggleMine={(v) => setParam('mine', v ? '1' : null)}
                     onOpenSchedule={(id) => setParam('id', String(id))}
                     onCreate={(start, allDay) => setCreating({ start, allDay })} />
+      )}
       {openId != null && <ScheduleDialog key={openId} scheduleId={openId} onClose={() => setParam('id', null)} />}
       {creating && <ScheduleDialog defaults={creating} onClose={() => setCreating(null)} />}
     </div>

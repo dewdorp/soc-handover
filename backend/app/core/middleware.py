@@ -36,6 +36,10 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         return response
 
 
+#: 평문 비밀번호가 실릴 수 있는 경로. 브라우저·중계 캐시에 남기지 않는다.
+NO_STORE_PATHS: tuple[str, ...] = ("/api/v1/credentials",)
+
+
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
@@ -44,6 +48,11 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("Referrer-Policy", "same-origin")
         response.headers.setdefault("Permissions-Policy",
                                     "geolocation=(), microphone=(), camera=()")
+        # 비밀번호가 실려 나가는 길목은 중간 저장소에 남지 않게 한다. 라우터에서
+        # 헤더를 붙이면 오류 응답에는 붙지 않으므로(새 응답이 만들어진다) 여기서 건다.
+        if request.url.path.startswith(NO_STORE_PATHS):
+            response.headers["Cache-Control"] = "no-store, max-age=0"
+            response.headers["Pragma"] = "no-cache"
         if not request.url.path.startswith("/api/"):
             # 외부 CDN을 사용하지 않는다(오프라인 운영 요구와 일치)
             response.headers.setdefault(

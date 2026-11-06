@@ -13,7 +13,10 @@
 """
 from __future__ import annotations
 
-from sqlalchemy import Boolean, ForeignKey, Index, SmallInteger, String, Text, UniqueConstraint
+from datetime import datetime
+
+from sqlalchemy import (Boolean, DateTime, ForeignKey, Index, Integer, SmallInteger, String,
+                        Text, UniqueConstraint)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -74,3 +77,28 @@ class HandoverGroup(Base):
                                              nullable=False)
     group_id: Mapped[int] = mapped_column(ForeignKey("groups.id", ondelete="CASCADE"),
                                           nullable=False)
+
+
+class ScopePublicMigration(Base):
+    """'그룹 미지정 과거 자료를 전체 공개로' 전환한 이력.
+
+    1.3.1 에서 그룹을 지정하지 않은 글의 기본값이 '전체 공개'로 바뀌었다. 그러나
+    **이미 쌓인 자료를 올리는 즉시 공개로 바꾸지는 않는다** — 관리자가 건수와 목록을
+    확인하고 승인할 때만 바꾼다. 바꾼 건은 한 줄씩 여기 남고, 이 줄이 있어야 되돌릴 수 있다.
+    """
+
+    __tablename__ = "scope_public_migration"
+    __table_args__ = (
+        UniqueConstraint("batch_id", "handover_id", name="uq_scope_public_batch_row"),
+        Index("ix_scope_public_handover", "handover_id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    #: 한 번의 승인으로 바꾼 묶음. 되돌리기는 묶음 단위로 한다.
+    batch_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    handover_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: 바꾸기 전에 '미분류' 그룹에 걸려 있었는가 — 되돌릴 때 그 링크를 되살린다
+    had_unclassified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    converted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    converted_by: Mapped[int | None] = mapped_column(Integer)
+    reverted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

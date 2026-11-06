@@ -1,7 +1,7 @@
 """일정 · 달력 라우터 (API.md §5, FR-E). 규칙은 services/schedule_service.py 에 있다."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
 from fastapi import APIRouter, Body, Depends, Query, Response, status
 from sqlalchemy.orm import Session
@@ -11,9 +11,9 @@ from app.core.context import RequestContext, get_context
 from app.core.db import get_db
 from app.core.errors import ValidationFailed
 from app.models.user import User
-from app.schemas.schedule import (CalendarOut, DeleteScheduleRequest, MyScheduleOut,
-                                  ReminderOut, ReminderUpdate, ScheduleCreate, ScheduleMove,
-                                  ScheduleOut, ScheduleUpdate)
+from app.schemas.schedule import (CalendarOut, DeleteScheduleRequest, InspectionDone,
+                                  InspectionOut, MyScheduleOut, ReminderOut, ReminderUpdate,
+                                  ScheduleCreate, ScheduleMove, ScheduleOut, ScheduleUpdate)
 from app.services import schedule_service as svc
 
 router = APIRouter(tags=["schedules"], dependencies=[Depends(require_password_changed)])
@@ -48,6 +48,38 @@ def set_reminder(schedule_id: int, payload: ReminderUpdate, db: Session = Depend
     """'내 알림' — 사람마다 따로. null 이면 끄기, 0 이면 시작할 때, 그 밖은 N분 전."""
     value = svc.set_reminder(db, actor, schedule_id, payload.minutes_before)
     return {"schedule_id": schedule_id, "minutes_before": value}
+
+
+# --------------------------------------------------------------------------- 정기 점검
+#
+# 새 메뉴를 만들지 않는다. 정기 점검은 '점검' 종류의 반복 일정으로 등록하고,
+# 여기서 그 날 회차의 완료만 표시한다(§6 정기 운영 점검).
+
+@router.get("/schedules/inspections", response_model=list[InspectionOut])
+def inspections(day: date | None = None, db: Session = Depends(get_db),
+                actor: User = Depends(require("schedule:read"))):
+    from app.core.time import today as _today
+    return svc.inspections_for_day(db, actor, day or _today())
+
+
+@router.post("/schedules/{schedule_id}/completions", response_model=InspectionOut)
+def complete_inspection(schedule_id: int, payload: InspectionDone,
+                        db: Session = Depends(get_db),
+                        actor: User = Depends(require("schedule:read")),
+                        ctx: RequestContext = Depends(get_context)):
+    svc.complete_inspection(db, actor, schedule_id, payload.occurrence_date,
+                                         payload.note, ctx)
+    rows = svc.inspections_for_day(db, actor, payload.occurrence_date)
+    return next(x for x in rows if x["schedule_id"] == schedule_id)
+
+
+@router.delete("/schedules/{schedule_id}/completions/{day}",
+               status_code=status.HTTP_204_NO_CONTENT)
+def reopen_inspection(schedule_id: int, day: date, db: Session = Depends(get_db),
+                      actor: User = Depends(require("schedule:read")),
+                      ctx: RequestContext = Depends(get_context)):
+    svc.reopen_inspection(db, actor, schedule_id, day, ctx)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/schedules", response_model=ScheduleOut, status_code=status.HTTP_201_CREATED)

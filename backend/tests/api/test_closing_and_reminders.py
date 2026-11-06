@@ -88,7 +88,7 @@ class TestClosingCheck:
     def test_all_clear_on_a_quiet_shift(self, analyst_client, crewless):
         out = analyst_client.get(f"{S}/closing-check").json()
         keys = [r["key"] for r in out["rows"]]
-        assert keys == ["unacked", "basket", "my_open", "overdue", "next_shift"]
+        assert keys == ["unacked", "basket", "my_open", "overdue", "inspections", "next_shift"]
         assert all("url" in r for r in out["rows"])
 
     def test_basket_row_counts_what_is_not_sent_yet(self, analyst_client, cid, crewless):

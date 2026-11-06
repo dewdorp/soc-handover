@@ -56,7 +56,7 @@ def test_handover_view_audit_optional(users, db):
         r = admin.post("/api/v1/handovers",json={"company_id":cid,"title":"감사검사"})
         assert r.status_code == 201, r.text
         hid = r.json()["id"]
-        assert admin.get(f"/api/v1/handovers/{hid}").status_code == 200
+        assert admin.post(f"/api/v1/handovers/{hid}/view").status_code == 204
         assert not db.scalars(select(AuditLog).where(
             AuditLog.action == actions.HANDOVER_VIEW)).all()
         row = db.get(SystemSetting, "audit.track_handover_views")

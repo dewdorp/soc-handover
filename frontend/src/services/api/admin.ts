@@ -10,6 +10,7 @@ export interface AuditQuery {
   user_id?: number | null
   username?: string
   actions?: string[]
+  hide_views?: boolean
   resource_type?: string
   resource_id?: string
   client_ip?: string

@@ -66,7 +66,7 @@ export default function ScopePicker({ visibility, groupIds, onChange, currentNam
 
       <label className="flex items-start gap-1.5 cursor-pointer">
         <input type="radio" name="scope" className="mt-1" checked={visibility === 'ALL'}
-               onChange={() => onChange({ visibility: 'ALL', group_ids: groupIds })} />
+               onChange={() => onChange({ visibility: 'ALL', group_ids: [] })} />
         <span className="flex-1">
           <span className="inline-flex items-center gap-1"><Globe size={12} /> 전체 공개 (그룹 미지정)</span>
           <span className="block text-sm text-ink-faint">그룹을 따로 지정하지 않은 인수인계는 로그인한 모든 사용자가 볼 수 있습니다.</span>

@@ -109,7 +109,7 @@ export interface HandoverComment {
   can_delete: boolean
 }
 
-export type EntityType = 'HANDOVER' | 'TASK'
+export type EntityType = 'HANDOVER' | 'TASK' | 'KNOWLEDGE'
 
 export interface AttachmentRow {
   id: number

@@ -214,6 +214,38 @@ try {
     }
     Ok '라이브러리 그대로 — 앱만 바꾸면 됩니다'
 
+    # 더 새 DB 에 더 옛 패치를 덮는 것을 막는다. alembic upgrade head 는 그 경우
+    # 아무 일도 하지 않아 조용히 지나가고, 앱은 없는 표를 찾다 깨진다.
+    Step 'DB 사전 점검'
+    Push-Location (Join-Path $Target 'backend')
+    try { $dbRev = Get-Revision $py } finally { Pop-Location }
+    if ($dbRev -eq '?') {
+        Fail 'DB 에 연결하지 못했습니다. PostgreSQL 이 켜져 있는지 확인한 뒤 다시 실행하십시오.'
+    }
+    if ($dbRev -ne '(없음)') {
+        $histFile = Join-Path $env:TEMP ("soc-patch-hist-{0}.txt" -f (Get-Date -Format 'HHmmss'))
+        Push-Location (Join-Path $Patch 'backend')
+        try {
+            # 패치가 아는 리비전 목록(이 패치로 올라갈 수 있는 지점들)
+            $h = Invoke-Quiet $py @('-m', 'alembic', 'history') 'patch-history'
+            if ($h.Code -eq 0) { Copy-Item $h.Out $histFile -Force }
+        } finally { Pop-Location }
+        if (Test-Path $histFile) {
+            $known = (Get-Content $histFile -Encoding UTF8 -ErrorAction SilentlyContinue) -join ' '
+            Remove-Item $histFile -Force -ErrorAction SilentlyContinue
+            if ($known -and ($known -notmatch [regex]::Escape($dbRev))) {
+                Fail ("지금 DB 구조($dbRev)가 이 패치보다 새롭습니다. 더 옛 패치를 덮으면 " +
+                      '앱이 깨집니다. 올바른(더 새) 패치 파일을 쓰십시오. 설치는 그대로입니다.')
+            }
+        }
+    }
+    Ok "DB 구조: $dbRev → 이 패치로 올릴 수 있습니다"
+    $envFile = Join-Path $Target '.env'
+    if (-not (Select-String -Path $envFile -Pattern '^\s*DATABASE_URL\s*=' -Quiet)) {
+        Fail "설정 파일에 DATABASE_URL 이 없습니다: $envFile"
+    }
+    Ok '설정(.env) 확인 — 패치는 이 파일을 바꾸지 않습니다'
+
     if (-not $Yes) {
         Write-Host ''
         Write-Host '  앱 · 화면만 바꿉니다. 데이터 · 설정 · 첨부 · 백업은 그대로입니다.'

@@ -387,6 +387,76 @@ INDEX: `(work_date, shift_code)`, `(off_user_id, work_date)`, `(on_user_id, work
 
 ---
 
+## 4-5. 운영 지식 (1.3.1)
+
+SOC 가 쓰는 절차 문서를 인계와 **같은 DB·같은 열람 규칙** 안에 둔다. 따로 둔 위키에
+절차가 있으면 야간에 아무도 안 본다.
+
+### knowledge_articles
+`id PK`, `category VARCHAR(50)`(운영 절차/탐지·분석/비상 대응/장비·솔루션/점검 체크리스트/참고 자료),
+`title VARCHAR(200)`, `body TEXT`, `visibility VARCHAR(20)`(ALL/GROUPS),
+`is_pinned BOOLEAN`, `review_due DATE NULL`, `version_no INT`,
+`created_by FK users`, `updated_by FK users NULL`, `is_deleted BOOLEAN`, `created_at`, `updated_at`
+INDEX `(is_deleted, updated_at)`, `(category, is_deleted)`
+
+### knowledge_groups
+`id PK`, `article_id FK CASCADE`, `group_id FK groups CASCADE`, UNIQUE `(article_id, group_id)`
+→ `visibility='GROUPS'` 일 때 여기 적힌 그룹 구성원과 **작성자**만 본다. 관리자 권한은
+  열람 근거가 아니다(knowledge_service.visible_clause 가 유일한 판정자).
+
+### knowledge_tags
+`id PK`, `article_id FK CASCADE`, `tag VARCHAR(40)`, UNIQUE `(article_id, tag)`, INDEX `(tag)`
+
+### knowledge_revisions
+`id PK`, `article_id FK CASCADE`, `version_no INT`, `category`, `title`, `body TEXT`,
+`visibility`, `tags VARCHAR(500)`, `change_note VARCHAR(300) NULL`,
+`changed_by FK users NULL`, `changed_at TIMESTAMPTZ`, UNIQUE `(article_id, version_no)`
+→ 판올림마다 **본문째로** 한 줄. 사고 조사에서 '그때 절차에 무엇이라고 적혀 있었는가'가
+  근거가 되므로 요약만 남기지 않는다. 복원은 지우지 않고 새 판으로 올린다.
+
+### knowledge_handover_links
+`id PK`, `article_id FK CASCADE`, `handover_id FK handovers CASCADE`, `created_by FK users NULL`,
+UNIQUE `(article_id, handover_id)`, INDEX `(handover_id)`
+→ 연결은 **열람 권한을 넓히지 않는다**. 읽는 사람이 볼 수 없는 인계는 목록에서 빠진다.
+
+첨부는 기존 `attachments` 를 쓴다(`entity_type='KNOWLEDGE'`). 읽기 판정은
+`attachment_service._guard_read` 가 이 모듈의 `get_or_404` 를 그대로 불러서 한다 —
+문서를 못 보는 사람은 첨부 번호를 알아도 받을 수 없다.
+
+---
+
+## 4-6. 과거 자료 전체 공개 전환 이력 (1.3.1)
+
+1.3.1 에서 '그룹 미지정 = 전체 공개'로 기본값이 바뀌었다. **이미 쌓인 자료는 업데이트를
+적용하는 것만으로 공개되지 않는다** — 관리자가 승인할 때만 바뀐다.
+
+### scope_public_migration
+`id PK`, `batch_id VARCHAR(32)`, `handover_id INT`, `had_unclassified BOOLEAN`,
+`converted_at TIMESTAMPTZ`, `converted_by INT NULL`, `reverted_at TIMESTAMPTZ NULL`,
+UNIQUE `(batch_id, handover_id)`, INDEX `(handover_id)`
+
+- 한 번의 승인 = 한 `batch_id`. 되돌리기도 묶음 단위.
+- 되돌리면 줄을 지우지 않고 `reverted_at` 을 찍는다(무엇을 언제 했는지가 증적이다).
+- 전환 뒤 사람이 직접 그룹을 지정한 건은 되돌리기가 건드리지 않는다(그 뜻을 존중한다).
+
+---
+
+## 6-1. 정기 점검 완료 (1.3.1)
+
+### schedule_completions
+`id PK`, `schedule_id FK schedules CASCADE`, `occurrence_date DATE`,
+`done_by FK users NULL`, `done_at TIMESTAMPTZ NULL`, `note VARCHAR(300) NULL`,
+`created_at`, `updated_at`, UNIQUE `(schedule_id, occurrence_date)`, INDEX `(occurrence_date)`
+
+- 정기 점검은 `event_type='INSPECTION'` 인 **반복 일정**으로 등록한다. 새 표를 만들지 않는다.
+- 완료를 일정에 컬럼으로 넣으면 한 번 끝낸 뒤 다음 회차도 끝난 것으로 보인다. 그래서
+  회차(그 날, KST)마다 한 줄 남긴다. 하루 두 번 도는 점검은 한 회차로 본다 —
+  교대 근무에서 알고 싶은 것은 '오늘 했나'이기 때문이다.
+- 담당자(`schedules.owner_id`)가 비어 있으면 근무자 누구나 완료할 수 있고, 누가 끝냈는지는
+  `done_by` 에 남는다.
+
+---
+
 ## 5. 교대 인수인계
 
 ### shift_handovers (세션)

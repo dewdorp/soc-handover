@@ -96,7 +96,7 @@ function SettingRow({ row }: { row: SystemSettingRow }) {
         <input type="date" className="input w-44" value={typeof value === 'string' ? value : ''}
                onChange={(e) => setValue(e.target.value)} aria-label={spec.label} />
       ) : spec.kind === 'fields' ? (
-        <div className="flex flex-wrap gap-x-3 gap-y-1">
+        <div role="group" aria-label={spec.label} className="flex flex-wrap gap-x-3 gap-y-1">
           {spec.choices?.map((c) => {
             const list = Array.isArray(value) ? value.map(String) : []
             return (

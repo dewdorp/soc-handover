@@ -10,8 +10,9 @@
 | 대시보드 | `/` | — (교대 마감 점검 · 인수 확인 · 내 업무 요약 · 내 일정 · 인수인계 현황) |
 | 인수인계 | `/handovers` | 인수인계 기록 · 인계 준비 · 인수 확인함 · 인계 이력 |
 | 내 업무 | `/my-work` | 내 담당 업무 · 내 메모 · 팀 할일 · 팀 일정 · 근무표 |
-| 일정 · 근무표 | `/schedules` | 팀 일정 · **근무표** |
-| 비밀번호 | `/credentials` | — (교대 공용 · 개인 목록) |
+| 일정 · 근무표 | `/schedules` | 팀 일정 · **정기 점검** · 근무표 |
+| 비밀번호 | `/credentials` | — (교대 공용 · 개인 목록 · 일괄 열람) |
+| 운영 지식 | `/knowledge` | — (절차 · 탐지 분석 · 비상 대응 · 장비 · 점검 · 참고) |
 | Excel Import/Export | `/import` | 올리기 → 열 맞추기 → 미리보기 → 반영 |
 | 통계 | `/stats` | — |
 | 감사로그 | `/audit` | — |
@@ -88,7 +89,53 @@
 | 제외 자료 | `docs/RAG.md` §4 | 같은 API (`excluded`) | `TestExcludedSourcesNeverLeak` |
 | 검증 예시 | `docs/RAG.md` §5 | `GET /rag/verification-examples` | `test_verification_examples_cover_the_boundaries` |
 
-## 3. 권한 한눈에
+### ⑥ 1.3.1 운영 편의성
+
+| 요구 | 화면 위치 | API | 시험 |
+|---|---|---|---|
+| 설정 화면 오류(`m.join is not a function`) | 설정 | `GET /settings` | `test_ops_patch_flows.py::test_settings_page_renders_every_category` |
+| 근무표 기준일이 날짜 칸으로 | 설정 → 근무표 | `PATCH /settings/roster.epoch_date` | 같은 시험(`type="date"` 확인) |
+| 값 하나가 화면 전체를 막지 않음 | 설정(줄 단위 울타리) | — | `test_one_bad_setting_value_does_not_blank_the_page` |
+| 저장 실패 원인 · 재시도 | 설정 각 줄 | `PATCH /settings/{key}` | `RowErrorBoundary` · 화면 시험 |
+| 감사 소음 줄이기 · 열람 기록 켜기 | 감사로그 · 설정 → 감사로그 | `audit.track_handover_views` | `test_handover_view_audit_optional`, `test_audit_simplification_keeps_the_evidence_that_matters` |
+| 막힌 열람은 남긴다 | 감사로그 | `POST /handovers/{id}/view` | `test_failed_view_is_still_recorded` |
+| 중요도별 빠른 보기 네 갈래 | 감사로그 → 행위 선택 | `GET /audit/catalog` (`views`) | `audit_service.ACTION_VIEWS` · 위 시험 |
+| 그룹 미지정 = 전체 공개 | 등록 창 · 상세(편집) | `visibility` 기본 `ALL` | `test_ungrouped_handover_public_and_explicit_group_restricted` |
+| 빈 그룹 목록으로 조용히 공개 금지 | — (서버) | `PATCH /handovers/{id}` | `test_empty_group_list_cannot_silently_publish_a_restricted_handover` |
+| 담당자가 그룹 밖이면 저장 전 경고 | 등록 창 · 상세(편집) | `POST /groups/scope-check` | `test_scope_check_warns_about_assignees_without_group_access` |
+| 과거 자료 전환(건수 · 목록 · 경고 · 승인 · 되돌리기) | 관리자 → 열람 그룹 | `/groups/public-migration/*` | `test_legacy_conversion_needs_preview_phrase_and_backup`, E2E `test_legacy_conversion_requires_typed_confirmation` |
+| 업데이트만으로는 공개되지 않음 | — (마이그레이션) | `c60e8b91f4a2` | `test_upgrade_1_2_to_1_3.py::test_upgrading_alone_publishes_nothing` |
+| 운영 지식(등록 · 분류 · 태그 · 검색 · 고정 · 재검토) | **운영 지식** `/knowledge` | `/knowledge` | `test_knowledge_article_groups_and_file_download` |
+| 개정 이력 · 판 비교 · 복원 | 운영 지식 → 문서 하단 | `/knowledge/{id}/revisions*` | `test_knowledge_revisions_compare_and_restore`, E2E |
+| 삭제 · 복원 | 운영 지식 → 문서 머리 | `DELETE`/`POST .../restore` | `test_knowledge_soft_delete_and_restore` |
+| 표준 양식(7절) | 운영 지식 → 새 문서 | `GET /knowledge/template` | `test_knowledge_template_and_keyword_suggestion` |
+| 첨부가 문서 권한을 상속 | 운영 지식 → 첨부 문서 | `/attachments?entity_type=KNOWLEDGE` | `test_knowledge_article_groups_and_file_download` |
+| 인계 ↔ 절차 연결 · 키워드 추천 | 인계 상세 '관련 운영 지식' · 운영 지식 '관련 인수인계' | `/knowledge/{id}/handovers`, `/knowledge/suggest` | `test_knowledge_links_do_not_widen_handover_access` |
+| 금고 일괄 열람(5분 · 연장 · 지금 잠그기) | 비밀번호 | `/credentials/vault/*` | `test_bulk_vault_unlock_restricts_personal_and_locks`, E2E `test_vault_bulk_view_extend_and_lock` |
+| 15분 상한 · 설정으로도 못 넘김 | 설정 → 비밀번호 | `credential.max_session_minutes` | `test_vault_session_cannot_be_configured_beyond_fifteen_minutes` |
+| 권한이 바뀌면 즉시 잠금 | 비밀번호(20초마다 서버 확인) | `GET /credentials/vault/status` | `test_vault_session_dies_when_groups_or_role_change` |
+| 남의 개인 비밀번호는 일괄로도 안 보임 | 비밀번호 | `/credentials/vault/secrets` | `test_bulk_vault_unlock_...`, E2E `test_vault_does_not_show_another_persons_personal_password` |
+| 정기 점검(주기 · 담당자 · 완료) | 대시보드 '오늘 점검' · 일정 → 정기 점검 | `/schedules/inspections`, `/schedules/{id}/completions` | `test_recurring_inspection_completion_per_occurrence`, E2E `test_inspection_checklist_completes_on_the_dashboard` |
+| 교대 마감 점검에 점검 포함 | 대시보드 | `GET /shift-handovers/closing-check` | `test_closing_check_counts_pending_inspections` |
+
+## 3. 넣지 않은 것과 그 이유
+
+요구 중 다음은 **일부러 넣지 않았다**. 메뉴와 할 일 목록이 늘어나는 값보다
+잃는 것이 크다고 판단한 것들이다.
+
+| 넣지 않은 것 | 이유 | 대신 쓰는 것 |
+|---|---|---|
+| '정기 점검' 별도 메뉴 | 할 일이 인계 · 할일 · 점검 셋으로 쪼개지면 야간에 혼자 보는 사람이 어느 목록을 봐야 하는지부터 헷갈린다 | `event_type=INSPECTION` 반복 일정 + 회차별 완료. 대시보드 '오늘 점검'과 교대 마감 점검에 함께 나온다 |
+| '빠른 링크' 모음 화면 | 왼쪽 메뉴가 이미 9개다. 링크를 모으는 화면을 또 두면 찾는 곳이 둘이 된다 | 왼쪽 메뉴 + 즐겨찾기(별표) + `Ctrl+K` 통합 검색 |
+| '즐겨찾기' 전용 메뉴 | 별표는 이미 인계 목록에서 걸고 거른다 | 인수인계 목록의 별표 필터 |
+| '내 알림만 보기' 별도 화면 | 알림은 본래 내 것만 온다(개인 단위로 만든다) | 상단 알림 종 · 팝업 |
+| 메모 → 인계 '초안' 상태 | 초안을 따로 두면 '아직 안 보낸 것'이 메모 · 초안 · 바구니 셋으로 늘어난다 | 내 메모에서 '인계로 올리기'(내용을 들고 등록 창을 연다) |
+| 비밀번호 그룹별 공개 | 야간 단독 근무자가 '내 그룹이 아니어서' 장비를 못 열면 그것이 곧 대응 지연이다. 적용 범위를 먼저 정해야 한다(SECURITY.md 10-3) | SHARED/PERSONAL + 관계사 필터 + 계정에 `credential:read` 를 주지 않기 |
+| 운영 지식 AI 요약 · 자동 분류 | 폐쇄망이고 모델이 없다. 추천은 규칙 기반으로 충분히 맞는다 | 제목 낱말 기반 추천(`/knowledge/suggest`) · 태그 · 검색 |
+
+---
+
+## 4. 권한 한눈에
 
 | 권한 | 누구 | 무엇을 |
 |---|---|---|

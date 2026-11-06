@@ -90,7 +90,8 @@ export default function PublicMigrationPanel() {
 
           <details className="text-sm">
             <summary className="cursor-pointer">공개될 자료 미리 보기 ({data.items.length}건{data.truncated && ' · 일부'})</summary>
-            <table className="w-full mt-2">
+            <div className="overflow-x-auto">
+            <table className="w-full mt-2 min-w-[26rem]">
               <thead className="text-ink-muted">
                 <tr><th className="text-left py-1">번호</th><th className="text-left">제목</th>
                     <th className="text-left">관계사</th><th className="text-left">작성자</th></tr>
@@ -106,6 +107,7 @@ export default function PublicMigrationPanel() {
                 ))}
               </tbody>
             </table>
+            </div>
             {data.truncated && <p className="text-xs text-ink-faint mt-1">목록이 길어 일부만 보여 줍니다. 전체 건수는 위에 적힌 수입니다.</p>}
           </details>
 
@@ -142,7 +144,8 @@ export default function PublicMigrationPanel() {
       {history.length > 0 && (
         <div className="pt-2 border-t border-surface-border">
           <h3 className="text-sm font-medium mb-1">전환 이력</h3>
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[26rem]">
             <thead className="text-ink-muted">
               <tr><th className="text-left py-1">시각</th><th className="text-left">승인자</th>
                   <th className="text-right">건수</th><th className="text-right">되돌림</th><th /></tr>
@@ -166,6 +169,7 @@ export default function PublicMigrationPanel() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

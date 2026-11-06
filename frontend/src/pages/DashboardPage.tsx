@@ -109,7 +109,6 @@ export default function DashboardPage() {
       <h1 className="text-xl font-semibold tracking-tight">근무 대시보드</h1>
       <Link className="btn" to="/shift"><Send size={14} /> 다음 교대에 인계하기</Link>
     </header>
-    <MySchedules />
     <div className="grid items-start gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
       <section className="card min-w-0 p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -135,6 +134,7 @@ export default function DashboardPage() {
         <div className="mt-3 grid gap-4 sm:grid-cols-2"><WorkBucket bucket="overdue" label="지연" /><WorkBucket bucket="today" label="오늘" /></div>
       </section>
     </div>
+    <MySchedules />
     <section aria-label="인수인계 현황">
       <h2 className="mb-2 text-lg font-semibold">인수인계 현황</h2>
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">

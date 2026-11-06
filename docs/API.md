@@ -326,6 +326,91 @@ GET    /admin/integrity-check [ADMIN]          버전 정합성/고아 레코드
 
 ---
 
+## 8-5. 운영 지식 (1.3.1)
+
+목록 · 상세 · 첨부 · 개정 이력이 **모두 같은 열람 판정**을 지난다. 볼 수 없는 문서는
+번호를 알아도 404 다(있다는 사실도 알려 주지 않는다).
+
+| Method | Path | 설명 |
+|---|---|---|
+| GET | `/knowledge` | 목록. `q`(제목·본문·태그) · `category` · `tag` · `review_due_only` · `include_deleted` · `offset` · `limit` |
+| GET | `/knowledge/categories` | 분류 목록 |
+| GET | `/knowledge/template` | 표준 양식(목적·범위 / 탐지·확인 / 분석 / 조치 / 보고·전파 / 후속 / 관련 문서) |
+| GET | `/knowledge/suggest` | `text` 또는 `handover_id` 로 관련 절차 추천(규칙 기반 — AI 아님) |
+| GET | `/knowledge/for-handover/{handover_id}` | 그 인계에 걸어 둔 절차 |
+| POST | `/knowledge` | 등록. `visibility=GROUPS` 면 `group_ids` 필수(내가 속한 그룹만) |
+| GET | `/knowledge/{id}` | 상세(삭제된 문서도 `is_deleted=true` 로 돌려준다 — 복원 화면에 필요) |
+| PATCH | `/knowledge/{id}` | 수정. `version_no` 필수(동시 편집 덮어쓰기 방지) · `change_note` 는 이력에 남는다 |
+| DELETE | `/knowledge/{id}` | 지운 표시(복원 가능) |
+| POST | `/knowledge/{id}/restore` | 지운 문서 되살리기 |
+| GET | `/knowledge/{id}/revisions` | 개정 이력 |
+| GET | `/knowledge/{id}/revisions/{version_no}` | 그 판의 본문(두 번 불러 나란히 비교) |
+| POST | `/knowledge/{id}/revisions/{version_no}/restore` | 옛 판 복원 — 지우지 않고 **새 판**으로 올린다 |
+| GET | `/knowledge/{id}/handovers` | 연결된 인계. **읽는 사람이 볼 수 있는 것만** |
+| POST | `/knowledge/{id}/handovers` | 연결(내가 볼 수 있는 인계만 걸 수 있다) |
+| DELETE | `/knowledge/{id}/handovers/{handover_id}` | 연결 끊기(작성자·근무 관리자) |
+
+첨부는 기존 `/attachments` 를 `entity_type=KNOWLEDGE` 로 쓴다. 읽기 권한은 문서를 그대로 상속한다.
+
+감사: `KNOWLEDGE_CREATE` · `KNOWLEDGE_UPDATE` · `KNOWLEDGE_DELETE` · `KNOWLEDGE_RESTORE` · `KNOWLEDGE_LINK`
+(UPDATE · DELETE 는 고위험 — 기록이 실패하면 업무도 되돌린다).
+
+---
+
+## 8-6. 공개 범위 — 저장 전 점검 · 과거 자료 전환 (1.3.1)
+
+| Method | Path | 설명 |
+|---|---|---|
+| POST | `/groups/scope-check` | `{visibility, group_ids, user_ids}` → 그 범위로 올리면 **누가 못 보는가**. 아무것도 바꾸지 않는다 |
+| GET | `/groups/public-migration` | 전환 대상 건수 · 미리보기 목록 · 경고 · 확인 문구 (`group:manage`) |
+| GET | `/groups/public-migration/batches` | 전환 이력(묶음별 건수 · 승인자 · 되돌림 수) |
+| POST | `/groups/public-migration/apply` | `{confirm, backup_confirmed}` — 문구가 틀리거나 백업 동의가 없으면 422 |
+| POST | `/groups/public-migration/batches/{batch_id}/revert` | 묶음 단위 되돌리기 |
+
+`scope-check` 응답의 `outsiders` 는 지정 그룹에 속하지 않은 담당자·전파 대상이다.
+**거절하지 않고 알린다** — 담당자는 그 일을 해야 하므로 글을 볼 수 있어야 하지만,
+그룹 제한이 그 사람에게만 풀린다는 사실을 쓰는 사람이 알아야 한다.
+
+감사: `SCOPE_PUBLIC_MIGRATE` · `SCOPE_PUBLIC_REVERT` (둘 다 고위험).
+
+---
+
+## 8-7. 비밀번호 금고 단기 열람 (1.3.1)
+
+본인 인증 한 번으로 **자기가 볼 수 있는** 비밀번호를 제한 시간 동안 목록으로 본다.
+
+| Method | Path | 설명 |
+|---|---|---|
+| POST | `/credentials/vault/unlock` | `{password}` → `{token, expires_in_seconds, remaining_absolute_seconds}` |
+| GET | `/credentials/vault/status` | 남은 시간. 서버가 판정한다(화면 시계를 믿지 않는다) |
+| GET | `/credentials/vault/secrets?ids=1&ids=2` | 지정 항목의 평문. 한 번에 200건까지(화면은 100건씩 나눠 부른다) |
+| POST | `/credentials/vault/extend` | 5분 연장. 연속 유지 상한(기본·최대 15분)을 넘기지 못한다 |
+| POST | `/credentials/vault/lock` | 지금 잠그기. 토큰이 없으면 그 사람의 세션을 모두 닫는다 |
+
+- 토큰은 `X-Vault-Token` 헤더로 보낸다. 서버는 **요청 사용자 · 비밀번호 해시 · IP ·
+  브라우저** 에 묶어 프로세스 메모리에만 둔다(DB · 쿠키에 쓰지 않는다).
+- `scope=PERSONAL` 은 등록한 사람에게만. **남의 개인 비밀번호는 일괄 열람에도 404** 다.
+- 로그아웃 · 비밀번호 변경/초기화 · 역할 변경 · 계정 비활성 · 그룹 소속 변경이 일어나면
+  세션이 그 자리에서 끊긴다.
+- `/api/v1/credentials` 아래 모든 응답에 `Cache-Control: no-store` (오류 응답 포함).
+- 감사: `CREDENTIAL_VAULT_UNLOCK` · `_DENIED` · `_BATCH_REVEAL`(실제로 연 항목 번호) ·
+  `_EXTEND` · `_LOCK`.
+
+---
+
+## 8-8. 정기 점검 (1.3.1)
+
+| Method | Path | 설명 |
+|---|---|---|
+| GET | `/schedules/inspections?day=YYYY-MM-DD` | 그 날 돌아야 하는 `INSPECTION` 반복 일정과 완료 여부 |
+| POST | `/schedules/{id}/completions` | `{occurrence_date, note}` 로 그 회차 완료 |
+| DELETE | `/schedules/{id}/completions/{day}` | 완료 되돌리기 |
+
+점검은 **일정**으로 등록한다(`event_type=INSPECTION` + `recurrence_rule`). 새 메뉴를 두지
+않은 이유는 MENU_MAP.md 에 적었다.
+
+---
+
 ## 9. AI — 범위에서 제외
 
 `/ai/*` 경로는 없다. AI 는 만들지 않기로 했다(ASSUMPTIONS E-01).

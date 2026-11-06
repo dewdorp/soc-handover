@@ -87,7 +87,35 @@ def main() -> int:
         leaked_notes = [n["title"] for n in notes if n["body"] and n["body"][:20] in blob]
         check("RAG 사례에 개인 메모가 없다", not leaked_notes, ", ".join(leaked_notes))
 
-        # --- 7. 못 보는 건은 404 로 답하는가(관리자 계정으로는 확인할 수 없으므로 안내만)
+        # --- 7. 1.3.1 — 공개 범위 전환 대기 · 금고 상한 · 감사 소음 · 정기 점검
+        pending = c.get("/groups/public-migration").json()
+        if pending.get("eligible"):
+            print(f"  [--] 그룹 미지정 과거 자료 {pending['eligible']}건(전환 대기) — "
+                  "관리자 → 열람 그룹에서 전체 공개로 바꿀지 정하십시오")
+        else:
+            check("그룹 미지정 과거 자료가 남아 있지 않다", True, "0건")
+
+        settings = {row["key"]: row["value"] for row in c.get("/settings").json()}
+        ttl = int(settings.get("credential.unlock_minutes") or 5)
+        hard = int(settings.get("credential.max_session_minutes") or 15)
+        check("금고 열람 시간이 상한 안에 있다", 1 <= ttl <= 10 and 5 <= hard <= 15,
+              f"열람 {ttl}분 / 상한 {hard}분")
+        print(f"  [--] 단순 열람 기록 "
+              f"{'켜짐' if settings.get('audit.track_handover_views') else '꺼짐'}"
+              " (설정 → 감사로그)")
+
+        checks = c.get("/schedules/inspections").json()
+        if checks:
+            done = sum(1 for x in checks if x["is_done"])
+            check("오늘 점검이 등록돼 있다", True, f"{len(checks)}건 중 {done}건 완료")
+        else:
+            print("  [--] 오늘 돌 정기 점검이 없습니다 — 일정에서 종류 '점검' + 반복으로 등록하십시오")
+
+        articles = c.get("/knowledge", params={"limit": 1}).json()
+        print(f"  [--] 운영 지식 문서 {'있음' if articles else '없음'}"
+              " (운영 지식 → 새 문서 → 표준 양식 넣기)")
+
+        # --- 8. 못 보는 건은 404 로 답하는가(관리자 계정으로는 확인할 수 없으므로 안내만)
         print("  [--] 다른 그룹 차단은 그 그룹에 속하지 않은 계정으로 로그인해 확인하십시오")
 
     print()

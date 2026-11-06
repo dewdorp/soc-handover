@@ -234,7 +234,9 @@ def test_credential_vault(login, server, page: Page):
     viewer.get_by_label("본인 계정 비밀번호").fill(ADMIN_PW)
     viewer.get_by_role("button", name=re.compile("보기")).click()
     expect(viewer.get_by_label("비밀번호 값")).to_have_value(secret, timeout=10000)
-    expect(viewer.get_by_text(re.compile("초 뒤에 저절로 닫힙니다"))).to_be_visible()
+    # 1.3.1 에서 개별 열람도 5분으로 늘고 연장이 생겼다(문구가 '분 초 뒤 잠깁니다')
+    expect(viewer.get_by_text(re.compile(r'초 뒤 잠깁니다'))).to_be_visible()
+    expect(viewer.get_by_role('button', name='5분 연장')).to_be_visible()
 
     viewer.get_by_role("button", name="닫기").click()
     expect(viewer).not_to_be_visible(timeout=10000)

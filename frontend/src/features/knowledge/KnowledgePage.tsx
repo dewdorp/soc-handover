@@ -361,7 +361,8 @@ function Revisions({ article, onRestored }: { article: KnowledgeArticle; onResto
       {open && (
         <div className="space-y-2">
           {list.isLoading && <p className="text-sm text-ink-muted">이력을 불러오는 중…</p>}
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm min-w-[22rem]">
             <thead className="text-ink-muted">
               <tr><th className="text-left py-1">판</th><th className="text-left">수정자</th>
                   <th className="text-left">시각</th><th className="text-left">사유</th><th/></tr>
@@ -384,6 +385,7 @@ function Revisions({ article, onRestored }: { article: KnowledgeArticle; onResto
               ))}
             </tbody>
           </table>
+          </div>
           {error && <p role="alert" className="text-sm text-state-urgent">{error}</p>}
           {compare != null && body.data && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">

@@ -80,8 +80,8 @@ class Handover(Base, TimestampMixin):
     is_recurring: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     #: 공개 범위 — GROUPS(handover_groups 에 적힌 그룹) / ALL(로그인한 모든 사람).
-    #: 기본값은 GROUPS 다. '전체 공개'는 쓴 사람이 명시적으로 고를 때만 된다.
-    visibility: Mapped[str] = mapped_column(String(20), nullable=False, default="GROUPS")
+    #: 그룹 미지정 글의 기본값은 ALL 이다. 그룹을 선택하면 GROUPS 로 제한한다.
+    visibility: Mapped[str] = mapped_column(String(20), nullable=False, default="ALL")
 
     current_version_no: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     ack_state_cache: Mapped[str] = mapped_column(String(20), nullable=False, default=ACK_NONE)

@@ -56,6 +56,9 @@ ACTION_LABELS: dict[str, str] = {
     actions.HANDOVER_SCOPE_CHANGE: "공개 범위 변경",
     actions.USER_CREATE: "사용자 등록", actions.USER_UPDATE: "사용자 수정", actions.ROLE_CHANGE: "권한 변경",
     actions.SETTING_CHANGE: "설정 변경",
+    actions.KNOWLEDGE_CREATE: "운영 지식 등록",
+    actions.KNOWLEDGE_UPDATE: "운영 지식 수정",
+    actions.KNOWLEDGE_DELETE: "운영 지식 삭제",
     actions.BACKUP: "백업", actions.RESTORE: "복구", actions.AUDIT_ARCHIVE: "감사로그 보관 정리",
 }
 
@@ -78,6 +81,7 @@ ACTION_GROUPS: dict[str, list[str]] = {
                actions.ATTACHMENT_UPLOAD, actions.ATTACHMENT_DOWNLOAD, actions.ATTACHMENT_DELETE],
     "비밀번호 보관": [actions.CREDENTIAL_CREATE, actions.CREDENTIAL_UPDATE, actions.CREDENTIAL_DELETE,
                 actions.CREDENTIAL_REVEAL, actions.CREDENTIAL_REVEAL_DENIED],
+    "운영 지식": [actions.KNOWLEDGE_CREATE, actions.KNOWLEDGE_UPDATE, actions.KNOWLEDGE_DELETE],
     "관리": [actions.USER_CREATE, actions.USER_UPDATE, actions.ROLE_CHANGE, actions.SETTING_CHANGE,
            actions.BACKUP, actions.RESTORE, actions.AUDIT_ARCHIVE],
 }

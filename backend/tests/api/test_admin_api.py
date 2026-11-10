@@ -173,16 +173,23 @@ class TestAuditCoverage:
             "to_user_ids": [ids["analyst"]["id"]], "note": "감사 확인용 의뢰"})
 
         # 근무표 — 조 편성 · 대근 · 취소
+        # 사람을 넣는 조는 '다음 근무 조'여야 한다. 첫 번째 조에 고정해 넣으면 그 조가
+        # 다음 근무가 아닌 날에는 대근을 만들 사람이 없어 아래가 조용히 건너뛰어졌다
+        # (날짜에 따라 붙었다 떨어지는 시험 — 2026-11-10 CI 에서 드러났다).
         rteams = admin.get("/api/v1/roster/teams").json()
-        admin.put(f"/api/v1/roster/teams/{rteams[0]['id']}/members",                          # ROSTER_TEAM_CHANGE
+        upcoming = admin.get("/api/v1/roster/next-shift").json()
+        on_duty = next(t for t in rteams if t["code"] == upcoming["team_code"])
+        admin.put(f"/api/v1/roster/teams/{on_duty['id']}/members",                            # ROSTER_TEAM_CHANGE
                   json={"user_ids": [ids["analyst"]["id"]], "leader_id": ids["analyst"]["id"]})
         duty = admin.get("/api/v1/roster/next-shift").json()
-        if duty["user_ids"]:
-            sub = admin.post("/api/v1/roster/overrides", json={                               # ROSTER_OVERRIDE
-                "work_date": duty["work_date"], "shift_code": duty["shift_code"],
-                "off_user_id": duty["user_ids"][0], "reason": "감사 확인"}).json()
-            admin.post(f"/api/v1/roster/overrides/{sub['id']}/cancel",                        # ..._CANCEL
-                       json={"reason": "되돌림"})
+        assert duty["user_ids"], f"다음 근무 조에 사람을 넣었는데 비어 있다: {duty}"
+        made = admin.post("/api/v1/roster/overrides", json={                                  # ROSTER_OVERRIDE
+            "work_date": duty["work_date"], "shift_code": duty["shift_code"],
+            "off_user_id": duty["user_ids"][0], "reason": "감사 확인"})
+        assert made.status_code == 201, made.text
+        cancel = admin.post(f"/api/v1/roster/overrides/{made.json()['id']}/cancel",          # ..._CANCEL
+                            json={"reason": "되돌림"})
+        assert cancel.status_code == 200, cancel.text
 
         # 비밀번호 금고 단기 열람 — 인증 실패 · 시작 · 일괄 열람 · 연장 · 잠금
         vault_cred = hong.post("/api/v1/credentials", json={

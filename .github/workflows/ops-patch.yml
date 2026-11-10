@@ -3,7 +3,6 @@ name: SOC Handover patch validation
 on:
   push:
     branches:
-      - 'patch/ops-usability-20261106'
       - 'review/ops-usability'
   workflow_dispatch:
 

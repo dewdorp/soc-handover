@@ -9,7 +9,8 @@ import { Copy, Eye, KeyRound } from 'lucide-react'
 import { ApiRequestError } from '@/services/api/client'
 import { credentialApi, type Credential, type RevealResult } from '@/services/api/credentials'
 
-const AUTO_CLOSE_SEC = 60
+const AUTO_CLOSE_SEC = 300
+const MAX_CLOSE_SEC = 900
 
 interface Props {
   credential: Credential
@@ -27,6 +28,8 @@ export default function RevealDialog({ credential, versionNo, onClose }: Props) 
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<RevealResult | null>(null)
   const [left, setLeft] = useState(AUTO_CLOSE_SEC)
+  const expiresAt = useRef(0)
+  const hardDeadline = useRef(0)
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
@@ -43,10 +46,9 @@ export default function RevealDialog({ credential, versionNo, onClose }: Props) 
   useEffect(() => {
     if (!result) return
     const timer = window.setInterval(() => {
-      setLeft((n) => {
-        if (n <= 1) { latestClose.current(); return 0 }
-        return n - 1
-      })
+      const remaining = Math.max(0, Math.ceil((expiresAt.current - Date.now()) / 1000))
+      setLeft(remaining)
+      if (!remaining) latestClose.current()
     }, 1000)
     return () => window.clearInterval(timer)
   }, [result])
@@ -58,6 +60,10 @@ export default function RevealDialog({ credential, versionNo, onClose }: Props) 
       setResult(versionNo == null
         ? await credentialApi.reveal(credential.id, password)
         : await credentialApi.revealVersion(credential.id, versionNo, password))
+      const at = Date.now()
+      expiresAt.current = at + AUTO_CLOSE_SEC * 1000
+      hardDeadline.current = at + MAX_CLOSE_SEC * 1000
+      setLeft(AUTO_CLOSE_SEC)
       setPassword('')
     } catch (err) {
       setError(err instanceof ApiRequestError ? err.message : '열지 못했습니다.')
@@ -116,7 +122,14 @@ export default function RevealDialog({ credential, versionNo, onClose }: Props) 
                 <Copy size={13} /> {copied ? '복사됨' : '복사'}
               </button>
             </div>
-            <p className="text-sm text-ink-faint tabular-nums">{left}초 뒤에 저절로 닫힙니다.</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm text-ink-faint tabular-nums">{Math.floor(left / 60)}분 {String(left % 60).padStart(2, '0')}초 뒤 잠깁니다.</p>
+              <button className="btn btn-sm" disabled={Date.now() >= hardDeadline.current - 1000}
+                onClick={() => {
+                  expiresAt.current = Math.min(hardDeadline.current, Math.max(Date.now(), expiresAt.current) + 5 * 60 * 1000)
+                  setLeft(Math.max(0, Math.ceil((expiresAt.current - Date.now()) / 1000)))
+                }}>5분 연장</button>
+            </div>
           </div>
         )}
 

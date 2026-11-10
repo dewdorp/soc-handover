@@ -353,8 +353,20 @@ def pending_acknowledgements(db: Session = Depends(get_db),
 def mark_viewed(handover_id: int, db: Session = Depends(get_db),
                 actor: User = Depends(require("handover:read")),
                 ctx: RequestContext = Depends(get_context)):
-    """상세 열람 감사 기록(§60 HANDOVER_VIEW). 조회 자체를 막지 않기 위해 별도 엔드포인트로 둔다."""
-    handover_service.get_or_404(db, handover_id, actor)
+    """상세 열람 감사 기록(§60 HANDOVER_VIEW). 조회 자체를 막지 않기 위해 별도 엔드포인트로 둔다.
+
+    성공한 열람은 기본으로 남기지 않는다(§2 감사 소음). 그러나 **막힌 열람은 늘 남긴다** —
+    남의 그룹 자료를 번호로 찔러 본 흔적이 조사의 출발점이기 때문이다.
+    """
+    from app.core.errors import NotFound
+    try:
+        handover_service.get_or_404(db, handover_id, actor)
+    except NotFound:
+        record(db, action=actions.HANDOVER_VIEW, ctx=ctx, user=actor, result="FAILURE",
+               resource_type="HANDOVER", resource_id=handover_id,
+               error_message="NOT_VISIBLE")
+        db.commit()        # 예외가 증적을 되돌리지 않게 먼저 확정한다
+        raise
     record(db, action=actions.HANDOVER_VIEW, ctx=ctx, user=actor,
            resource_type="HANDOVER", resource_id=handover_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

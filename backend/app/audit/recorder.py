@@ -11,7 +11,11 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app.audit.actions import CRITICAL_ACTIONS
+from app.audit.actions import CRITICAL_ACTIONS, HANDOVER_VIEW
+
+#: 기본으로 남기지 않는 '봤다' 기록. audit_service.VIEW_ONLY_ACTIONS 와 같아야 한다
+#: (감사 서비스를 여기서 불러오면 순환 import 가 된다).
+VIEW_ONLY_ACTIONS = frozenset({HANDOVER_VIEW})
 from app.core.context import RequestContext
 from app.core.time import now
 from app.models.common import AuditLog
@@ -60,6 +64,13 @@ def record(
     error_message: str | None = None,
     detail: dict | None = None,
 ) -> AuditLog | None:
+    # 평상시 '봤다' 기록은 기본으로 남기지 않는다(§2 감사 소음 줄이기).
+    # 실패한 열람 시도는 그대로 남는다 — 못 보게 막힌 흔적이 조사의 출발점이다.
+    # 과거 기록을 지우지 않고, 인증·권한·내보내기·비밀번호 증적은 건드리지 않는다.
+    if result == "SUCCESS" and action in VIEW_ONLY_ACTIONS:
+        from app.services import settings_service
+        if not bool(settings_service.get_value(db, "audit.track_handover_views")):
+            return None
     entry = AuditLog(
         event_uuid=uuid.uuid4().hex,
         occurred_at=now(),

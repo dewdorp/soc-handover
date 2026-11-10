@@ -1,0 +1,57 @@
+name: SOC Handover patch validation
+
+on:
+  push:
+    branches:
+      - 'review/ops-usability'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-package:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      APP_ENV: test
+      REMINDER_INTERVAL_MIN: '0'
+      PYTHONUTF8: '1'
+      PYTHONIOENCODING: 'utf-8'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install frontend deps and build
+        shell: pwsh
+        run: |
+          corepack enable
+          cd frontend
+          pnpm install --frozen-lockfile
+          pnpm run typecheck
+          pnpm run build
+      # 테스트는 골라내지 않는다. 한 가지라도 빼면 그 자리에 생긴 결함은 다음
+      # 패치까지 아무도 모른다 — 감사 행위 9종 누락이 실제로 그렇게 숨어 있었다.
+      - name: Set up Python and run API tests
+        shell: pwsh
+        run: |
+          python -m venv backend/.venv
+          & .\backend\.venv\Scripts\python.exe -m pip install --disable-pip-version-check -r backend/requirements.txt -r backend/requirements-dev.txt
+          cd backend
+          & .\.venv\Scripts\python.exe -m pytest tests/api tests/unit -q
+      - name: Build offline app patch
+        shell: powershell
+        run: |
+          .\package.ps1 -AppOnly -SkipFrontendBuild
+      - uses: actions/upload-artifact@v4
+        with:
+          name: soc-handover-ops-patch
+          path: |
+            build/dist/*-patch.zip
+            build/dist/*-patch.zip.sha256
+          if-no-files-found: error
+          retention-days: 14

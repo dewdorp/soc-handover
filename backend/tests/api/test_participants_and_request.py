@@ -55,6 +55,12 @@ def cert(db, users):
 
 
 def _make(client, cid, title="전파 확인용", **over) -> dict:
+    # 전파 권한 불확대 테스트는 특정 그룹에 게시한 글을 기준으로 한다.
+    if "visibility" not in over and "group_ids" not in over:
+        groups = client.get("/api/v1/groups/mine").json()
+        own = next((g["id"] for g in groups if g.get("is_default")), None)
+        if own is not None:
+            over = {**over, "visibility": "GROUPS", "group_ids": [own]}
     r = client.post(H, json={"company_id": cid, "title": title, "content": title,
                              "status_code": "IN_PROGRESS", **over})
     assert r.status_code == 201, r.text

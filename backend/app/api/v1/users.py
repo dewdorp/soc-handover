@@ -125,6 +125,12 @@ def update_user(user_id: int, payload: UserUpdate, db: Session = Depends(get_db)
         setattr(user, k, v)
     db.flush()
 
+    # 역할이 바뀌거나 계정을 끈 순간, 그 사람이 열어 둔 비밀번호 금고도 닫는다.
+    # 열람 권한을 뺐는데 화면에 평문이 남아 있으면 뺀 것이 아니다.
+    if role_changed or data.get("is_active") is False:
+        from app.services import vault_session_service
+        vault_session_service.revoke_user(user.id)
+
     record(db, action=actions.USER_UPDATE, ctx=ctx, user=actor, resource_type="USER",
            resource_id=user.id, before=before, after=data)
     if role_changed:
@@ -143,6 +149,8 @@ def reset_password(user_id: int, db: Session = Depends(get_db),
     if user is None:
         raise NotFound("사용자를 찾을 수 없습니다.")
 
+    from app.services import vault_session_service
+    vault_session_service.revoke_user(user.id)
     temp = secrets.token_urlsafe(12) + "!A1"
     user.password_hash = hash_password(temp)
     user.must_change_password = True

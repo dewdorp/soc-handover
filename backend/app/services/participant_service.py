@@ -260,6 +260,32 @@ def propagate_preview(db: Session, handover: Handover, *, group_ids: list[int],
         #: 전파는 공개 범위를 바꾸지 않는다 — 화면이 이 문구를 그대로 보여 준다.
         "visibility_note": ("전파는 사람을 거는 것입니다. 글의 공개 범위"
                             f"(현재 {handover.visibility})는 바뀌지 않습니다."),
+        #: 그룹 제한 글을 그 그룹 밖으로 전파할 때의 경고(§3). 막지는 않는다 —
+        #: 받는 사람이 일을 해야 전파하는 것이므로. 다만 누르기 전에 알아야 한다.
+        "outside_scope": _outside_scope_warning(db, handover, group_ids, found_groups),
+    }
+
+
+def _outside_scope_warning(db: Session, handover: Handover, group_ids: list[int],
+                           found_groups: dict[int, str]) -> dict[str, Any] | None:
+    """이 전파가 '그룹 제한을 그 그룹 밖으로' 넓히는지 — 넓힌다면 무엇을 누구에게인지."""
+    from app.models.group import VIS_GROUPS
+    from app.services import group_service
+
+    if handover.visibility != VIS_GROUPS:
+        return None
+    allowed = set(group_service.group_ids_of(handover))
+    outside = [gid for gid in group_ids if gid not in allowed]
+    if not outside:
+        return None
+    scope_names = group_service.group_names_of(db, handover)
+    outside_names = [found_groups[gid] for gid in outside if gid in found_groups]
+    return {
+        "scope_groups": scope_names,
+        "outside_groups": outside_names,
+        "message": (f"이 글은 {' · '.join(scope_names)}에만 공개돼 있습니다. "
+                    f"전파하면 {' · '.join(outside_names)} 구성원도 이 글을 읽게 됩니다"
+                    " — 글의 공개 범위는 그대로이고, 그 사람들에게만 열립니다."),
     }
 
 
@@ -274,11 +300,16 @@ def propagate(db: Session, handover: Handover, *, group_ids: list[int], role: st
         set_participants(db, handover,
                          [{"user_id": uid, "role": role} for uid in preview["add_user_ids"]],
                          actor=actor, ctx=ctx, note=label, replace=False)
+    after = {"groups": [g["name"] for g in preview["groups"]],
+             "role": role, "added": preview["add_count"],
+             "excluded": preview["excluded_count"],
+             "visibility": handover.visibility}
+    if preview.get("outside_scope"):
+        # 조사하는 사람이 '그룹 제한 글이 그 그룹 밖으로 나갔다'를 기록만 보고 알 수 있게
+        # 남긴다. 나중에 재구성하려면 그때의 공개 그룹을 따로 찾아야 한다.
+        after["outside_scope_groups"] = preview["outside_scope"]["outside_groups"]
+        after["scope_groups"] = preview["outside_scope"]["scope_groups"]
     record(db, action=actions.HANDOVER_PROPAGATE, ctx=ctx, user=actor,
-           resource_type="HANDOVER", resource_id=handover.id,
-           after={"groups": [g["name"] for g in preview["groups"]],
-                  "role": role, "added": preview["add_count"],
-                  "excluded": preview["excluded_count"],
-                  "visibility": handover.visibility})
+           resource_type="HANDOVER", resource_id=handover.id, after=after)
     return {**preview, "applied": True,
             "participants": list_for(db, handover)}

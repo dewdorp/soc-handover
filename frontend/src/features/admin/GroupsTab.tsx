@@ -8,6 +8,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Plus, Users, X } from 'lucide-react'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import PublicMigrationPanel from '@/features/admin/PublicMigrationPanel'
 import { useEscape } from '@/hooks/useHotkeys'
 import { adminApi } from '@/services/api/admin'
 import { ApiRequestError } from '@/services/api/client'
@@ -106,6 +107,9 @@ export default function GroupsTab() {
         <MovePanel summary={unclassified} groups={(groups ?? []).filter((g) => g.is_active && g.code !== 'UNCLASSIFIED')}
                    onDone={refresh} onError={fail} />
       )}
+
+      {/* 그룹으로 나누는 대신 '전부 공개'로 가는 길. 승인 없이는 아무것도 바뀌지 않는다. */}
+      <PublicMigrationPanel />
 
       {creating && <GroupForm onClose={() => setCreating(false)} onDone={() => { setCreating(false); refresh() }} onError={fail} />}
       {renaming && <GroupForm group={renaming} onClose={() => setRenaming(null)} onDone={() => { setRenaming(null); refresh() }} onError={fail} />}

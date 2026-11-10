@@ -10,6 +10,7 @@ export interface AuditQuery {
   user_id?: number | null
   username?: string
   actions?: string[]
+  hide_views?: boolean
   resource_type?: string
   resource_id?: string
   client_ip?: string
@@ -41,6 +42,8 @@ export interface AuditRow {
 
 export interface AuditCatalog {
   groups: { name: string; actions: { code: string; label: string }[] }[]
+  /** 중요도로 나눈 빠른 보기 — 중요 행위 · 인증·권한 · 데이터 변경 · 일반 열람 */
+  views: { name: string; actions: string[] }[]
   resource_types: string[]
   max_range_days: number
 }
@@ -63,7 +66,7 @@ export interface AdminUser {
 }
 
 export interface SettingSpec {
-  kind: 'bool' | 'int' | 'fields' | 'ext_list' | 'aliases'
+  kind: 'bool' | 'int' | 'date' | 'fields' | 'ext_list' | 'aliases'
   label: string
   min?: number
   max?: number
@@ -109,7 +112,7 @@ export interface HandoverComment {
   can_delete: boolean
 }
 
-export type EntityType = 'HANDOVER' | 'TASK'
+export type EntityType = 'HANDOVER' | 'TASK' | 'KNOWLEDGE'
 
 export interface AttachmentRow {
   id: number

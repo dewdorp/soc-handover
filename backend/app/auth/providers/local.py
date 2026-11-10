@@ -29,6 +29,13 @@ class LocalAuthProvider:
         return ExternalUser(username=u.username, display_name=u.display_name,
                             email=u.email, team=u.team)
 
+    def locked_now(self, username: str):
+        """방금 잠겼는지 — 잠긴 시각을 돌려준다. 안 잠겼으면 None."""
+        user = self._get(username)
+        if user is None or user.locked_until is None:
+            return None
+        return user.locked_until if user.locked_until > now() else None
+
     def authenticate(self, username: str, password: str) -> AuthResult:
         user = self._get(username)
         if user is None:

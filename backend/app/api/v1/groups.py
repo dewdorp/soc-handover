@@ -16,7 +16,10 @@ from app.core.db import get_db
 from app.models.user import User
 from app.schemas.group import (GroupCreate, GroupMemberOut, GroupOut, GroupUpdate,
                                MembershipUpdate, MoveResult, MoveUnclassified, MyGroupOut,
-                               UnclassifiedSummary)
+                               PublicMigrationApply, PublicMigrationBatch,
+                               PublicMigrationPreview, PublicMigrationResult,
+                               PublicMigrationRevertResult, ScopeCheckRequest,
+                               ScopeCheckResult, UnclassifiedSummary)
 from app.services import group_service
 
 router = APIRouter(tags=["groups"], dependencies=[Depends(require_password_changed)])
@@ -89,6 +92,54 @@ def move_unclassified(payload: MoveUnclassified, db: Session = Depends(get_db),
     return group_service.move_unclassified(db, to_group_id=payload.to_group_id,
                                            company_id=payload.company_id,
                                            limit=payload.limit, actor=actor, ctx=ctx)
+
+
+@router.post("/groups/scope-check", response_model=ScopeCheckResult)
+def scope_check(payload: ScopeCheckRequest, db: Session = Depends(get_db),
+                _: User = Depends(require("handover:read"))):
+    """저장 전에 '이 공개 범위로는 누가 못 보는가'를 알려 준다. 아무것도 바꾸지 않는다."""
+    return group_service.scope_check(db, visibility=payload.visibility,
+                                     group_ids=payload.group_ids, user_ids=payload.user_ids)
+
+
+# --------------------------------------------------------------------------- 전체 공개 전환
+#
+# 1.3.1 에서 '그룹 미지정 = 전체 공개'로 정책이 바뀌었다. 이미 쌓인 자료는 **올리는
+# 것만으로 공개되지 않는다**. 관리자가 아래 세 단계를 거쳐야 바뀐다.
+#   GET  .../public-migration          건수 · 목록 · 경고를 본다
+#   POST .../public-migration/apply    확인 문구와 백업 동의를 넣어 승인한다
+#   POST .../public-migration/revert   잘못 바꿨으면 묶음 단위로 되돌린다
+
+
+@router.get("/groups/public-migration", response_model=PublicMigrationPreview)
+def public_migration_preview(limit: int = 50, db: Session = Depends(get_db),
+                             _: User = Depends(require("group:manage"))):
+    """전환 대상 건수와 미리보기 목록. 아무것도 바꾸지 않는다."""
+    return group_service.public_migration_preview(db, limit=max(1, min(200, limit)))
+
+
+@router.get("/groups/public-migration/batches", response_model=list[PublicMigrationBatch])
+def public_migration_batches(db: Session = Depends(get_db),
+                             _: User = Depends(require("group:manage"))):
+    return group_service.public_migration_batches(db)
+
+
+@router.post("/groups/public-migration/apply", response_model=PublicMigrationResult)
+def public_migration_apply(payload: PublicMigrationApply, db: Session = Depends(get_db),
+                           actor: User = Depends(require("group:manage")),
+                           ctx: RequestContext = Depends(get_context)):
+    """관리자 승인으로 전환한다. 확인 문구가 틀리거나 백업 동의가 없으면 거절한다."""
+    return group_service.public_migration_apply(db, actor=actor, confirm=payload.confirm,
+                                                backup_confirmed=payload.backup_confirmed,
+                                                ctx=ctx)
+
+
+@router.post("/groups/public-migration/batches/{batch_id}/revert",
+             response_model=PublicMigrationRevertResult)
+def public_migration_revert(batch_id: str, db: Session = Depends(get_db),
+                            actor: User = Depends(require("group:manage")),
+                            ctx: RequestContext = Depends(get_context)):
+    return group_service.public_migration_revert(db, actor=actor, batch_id=batch_id, ctx=ctx)
 
 
 def _one(db: Session, group_id: int) -> dict:

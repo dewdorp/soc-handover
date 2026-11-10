@@ -1,9 +1,9 @@
 """일정(Calendar Event). Handover/Task 와 상호 연결된다(§42~§43)."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import (Boolean, ForeignKey, Index, Integer, String, Text,
+from sqlalchemy import (Boolean, Date, ForeignKey, Index, Integer, String, Text,
                         UniqueConstraint)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -73,3 +73,28 @@ class ScheduleReminder(Base, TimestampMixin):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"),
                                          nullable=False)
     minutes_before: Mapped[int | None] = mapped_column(Integer)
+
+
+class ScheduleCompletion(Base, TimestampMixin):
+    """정기 점검의 **회차별** 완료 표시.
+
+    '점검' 종류의 반복 일정 하나가 매일·매주 돌면서 회차를 만든다. 완료를 일정에
+    컬럼으로 넣으면 한 번 끝낸 뒤 다음 회차가 이미 끝난 것으로 보인다. 그래서 회차
+    (그 날)마다 한 줄 남긴다. 담당자가 비어 있는 점검은 근무자 누구나 끝낼 수 있고,
+    누가 끝냈는지는 여기 남는다.
+    """
+
+    __tablename__ = "schedule_completions"
+    __table_args__ = (
+        UniqueConstraint("schedule_id", "occurrence_date", name="uq_sched_completion"),
+        Index("ix_sched_completion_date", "occurrence_date"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    schedule_id: Mapped[int] = mapped_column(
+        ForeignKey("schedules.id", ondelete="CASCADE"), nullable=False)
+    #: 회차 = 그 날(KST). 하루 두 번 도는 점검은 한 회차로 본다.
+    occurrence_date: Mapped[date] = mapped_column(Date, nullable=False)
+    done_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
+    done_at: Mapped[datetime | None] = mapped_column(TZDateTime)
+    note: Mapped[str | None] = mapped_column(String(300))

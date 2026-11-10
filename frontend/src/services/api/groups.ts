@@ -35,6 +35,48 @@ export interface UnclassifiedSummary {
   by_company: { company_id: number; company_name: string; count: number }[]
 }
 
+/** 저장 전 점검 — '이 공개 범위로 올리면 누가 못 보는가' */
+export interface ScopeCheckResult {
+  visibility: string
+  group_names: string[]
+  public: boolean
+  outsiders: {
+    user_id: number
+    display_name: string
+    /** 어느 그룹에든 속해 있는가 — 어느 그룹인지는 서버가 알려 주지 않는다 */
+    has_any_group: boolean
+  }[]
+}
+
+/** 과거 '그룹 미지정' 자료를 전체 공개로 바꾸기 전에 보는 화면 */
+export interface PublicMigrationPreview {
+  eligible: number
+  visible_after: number
+  deleted_included: number
+  reader_count: number
+  confirm_phrase: string
+  truncated: boolean
+  warnings: string[]
+  items: {
+    id: number
+    title: string
+    created_at: string | null
+    is_important: boolean
+    company: string | null
+    author: string | null
+  }[]
+}
+
+export interface PublicMigrationBatch {
+  batch_id: string
+  count: number
+  converted_at: string | null
+  converted_by: number | null
+  converted_by_name: string | null
+  reverted: number
+  revertable: boolean
+}
+
 export const groupsApi = {
   mine: () => api.get<MyGroup[]>('/groups/mine'),
   list: (includeInactive = true) =>
@@ -54,4 +96,21 @@ export const groupsApi = {
   move: (body: { to_group_id: number; company_id?: number | null; limit?: number | null }) =>
     api.post<{ moved: number; remaining: number; to_group_id: number }>(
       '/groups/unclassified/move', body),
+
+  /** 저장 전에 '이 범위로는 누가 못 보는가'를 묻는다. 아무것도 바꾸지 않는다. */
+  scopeCheck: (body: { visibility?: string | null; group_ids: number[]; user_ids: number[] }) =>
+    api.post<ScopeCheckResult>('/groups/scope-check', body),
+
+  publicMigration: {
+    preview: (limit = 50) =>
+      api.get<PublicMigrationPreview>(`/groups/public-migration?limit=${limit}`),
+    batches: () => api.get<PublicMigrationBatch[]>('/groups/public-migration/batches'),
+    apply: (confirm: string, backupConfirmed: boolean) =>
+      api.post<{ batch_id: string; converted: number }>('/groups/public-migration/apply', {
+        confirm, backup_confirmed: backupConfirmed,
+      }),
+    revert: (batchId: string) =>
+      api.post<{ batch_id: string; restored: number; skipped: number }>(
+        `/groups/public-migration/batches/${batchId}/revert`, {}),
+  },
 }

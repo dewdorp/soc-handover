@@ -5,7 +5,8 @@ import { X } from 'lucide-react'
 import { useEscape } from '@/hooks/useHotkeys'
 import { ApiRequestError } from '@/services/api/client'
 import { handoverApi } from '@/services/api/handovers'
-import ScopePicker, { useMyGroups, type Visibility } from '@/features/handovers/ScopePicker'
+import ScopePicker, { type Visibility } from '@/features/handovers/ScopePicker'
+import ScopeWarning from '@/features/handovers/ScopeWarning'
 import { referenceApi } from '@/services/api/reference'
 import type { Company, HandoverStatus, Priority } from '@/types/api'
 
@@ -36,12 +37,9 @@ export default function CreateHandoverDialog(
     is_important: false,
   })
   const [scope, setScope] = useState<{ visibility: Visibility; group_ids: number[] }>(
-    { visibility: 'GROUPS', group_ids: [] })
-  const { data: myGroups } = useMyGroups()
+    { visibility: 'ALL', group_ids: [] })
   // 기본 그룹을 한 번만 채운다. 손대지 않고 올려도 서버가 같은 값을 쓰므로 결과는 같다.
-  const picked = scope.group_ids.length
-    ? scope.group_ids
-    : (myGroups?.filter((g) => g.is_default).map((g) => g.id) ?? [])
+  const picked = scope.group_ids
   const companyId = form.company_id ?? companies[0]?.id
   const [error, setError] = useState<string | null>(null)
 
@@ -149,6 +147,9 @@ export default function CreateHandoverDialog(
         </Labeled>
 
         <ScopePicker visibility={scope.visibility} groupIds={picked} onChange={setScope} />
+        {/* 담당자가 그 그룹 사람이 아니면 저장 전에 알려 준다(§3) */}
+        <ScopeWarning visibility={scope.visibility} groupIds={picked}
+                      userIds={[form.assignee_id ? Number(form.assignee_id) : null]} />
 
         <label className="flex items-center gap-1.5 cursor-pointer">
           <input type="checkbox" checked={form.is_important}

@@ -245,6 +245,12 @@ function PropagateDialog({ handoverId, onClose, onDone, onError }: {
               </p>
             )}
             <p className="text-sm text-state-check">{preview.data.visibility_note}</p>
+            {/* 그룹 제한 글을 그 그룹 밖으로 보낼 때는 누르기 전에 분명히 알린다(§3) */}
+            {preview.data.outside_scope && (
+              <p role="alert" className="text-sm rounded bg-state-urgent-soft/30 p-2">
+                {preview.data.outside_scope.message}
+              </p>
+            )}
           </div>
         )}
         {picked.length === 0 && (

@@ -5,23 +5,25 @@
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { format, parseISO } from 'date-fns'
+import RowErrorBoundary from '@/components/RowErrorBoundary'
 import { useCan } from '@/hooks/useAuth'
 import { adminApi, type SystemSettingRow } from '@/services/api/admin'
 import { ApiRequestError } from '@/services/api/client'
 
 const CATEGORY_LABEL: Record<string, string> = {
   handover: '인수인계', shift: '교대 인계', attachment: '첨부', export: '내보내기', retention: '보존',
-  import: 'Excel Import',
+  import: 'Excel Import', roster: '근무표', audit: '감사로그', credential: '비밀번호',
 }
 /** 자주 바꾸는 것부터. 목록에 없는 분류는 뒤에 붙는다. */
-const CATEGORY_ORDER = ['handover', 'shift', 'attachment', 'export', 'import', 'retention']
+const CATEGORY_ORDER = ['handover', 'shift', 'roster', 'credential', 'attachment', 'audit', 'export', 'import', 'retention']
 const rank = (c: string) => { const i = CATEGORY_ORDER.indexOf(c); return i < 0 ? CATEGORY_ORDER.length : i }
 
 export default function SettingsPage() {
   const can = useCan()
-  const { data, isLoading } = useQuery({ queryKey: ['settings'], queryFn: adminApi.settings, enabled: can('settings:manage') })
+  const { data, isLoading, isError, refetch } = useQuery({ queryKey: ['settings'], queryFn: adminApi.settings, enabled: can('settings:manage') })
   if (!can('settings:manage')) return <p className="p-4 text-ink-muted">관리자만 볼 수 있는 화면입니다.</p>
-  if (isLoading || !data) return <p className="p-4 text-ink-faint">불러오는 중…</p>
+  if (isLoading) return <p className="p-4 text-ink-faint">불러오는 중…</p>
+  if (isError || !Array.isArray(data)) return <div role="alert" className="p-4 text-state-urgent">설정을 불러오지 못했습니다. <button className="btn btn-sm" onClick={() => refetch()}>다시 시도</button></div>
   const groups = [...new Set(data.map((r) => r.category))].sort((a, b) => rank(a) - rank(b))
   return (
     <div className="h-full overflow-auto">
@@ -33,7 +35,11 @@ export default function SettingsPage() {
         {groups.map((g) => (
           <section key={g} className="card divide-y divide-surface-border/70">
             <h2 className="px-3 py-2 font-medium bg-surface-sunken/60">{CATEGORY_LABEL[g] ?? g}</h2>
-            {data.filter((r) => r.category === g).map((r) => <SettingRow key={r.key} row={r} />)}
+            {data.filter((r) => r.category === g).map((r) => (
+              <RowErrorBoundary key={r.key} label={r.spec?.label ?? r.key} raw={r.value}>
+                <SettingRow row={r} />
+              </RowErrorBoundary>
+            ))}
           </section>
         ))}
       </div>
@@ -53,7 +59,11 @@ function SettingRow({ row }: { row: SystemSettingRow }) {
       setValue(res.value); setNonce((n) => n + 1); setMessage({ text: '저장했습니다.', bad: false })
       qc.invalidateQueries({ queryKey: ['settings'] }); qc.invalidateQueries({ queryKey: ['features'] })
     },
-    onError: (err) => setMessage({ text: err instanceof ApiRequestError ? err.message : '저장하지 못했습니다.', bad: true }),
+    onError: (err) => {
+      // 켜고 끄는 값은 실패하면 서버 값으로 되돌린다 — 화면만 바뀐 채 두면 켠 줄 안다.
+      if (row.spec?.kind === 'bool') setValue(row.value)
+      setMessage({ text: err instanceof ApiRequestError ? err.message : '저장하지 못했습니다.', bad: true })
+    },
   })
   const spec = row.spec
   const dirty = JSON.stringify(value) !== JSON.stringify(row.value)
@@ -82,10 +92,13 @@ function SettingRow({ row }: { row: SystemSettingRow }) {
                  onChange={(e) => setValue(e.target.value === '' ? '' : Number(e.target.value))} aria-label={spec.label} />
           <span className="text-sm text-ink-muted">{spec.unit} · {spec.min?.toLocaleString()} ~ {spec.max?.toLocaleString()}</span>
         </div>
+      ) : spec.kind === 'date' ? (
+        <input type="date" className="input w-44" value={typeof value === 'string' ? value : ''}
+               onChange={(e) => setValue(e.target.value)} aria-label={spec.label} />
       ) : spec.kind === 'fields' ? (
-        <div className="flex flex-wrap gap-x-3 gap-y-1">
+        <div role="group" aria-label={spec.label} className="flex flex-wrap gap-x-3 gap-y-1">
           {spec.choices?.map((c) => {
-            const list = (value as string[]) ?? []
+            const list = Array.isArray(value) ? value.map(String) : []
             return (
               <label key={c.value} className="inline-flex items-center gap-1 text-sm">
                 <input type="checkbox" checked={list.includes(c.value)}
@@ -97,15 +110,18 @@ function SettingRow({ row }: { row: SystemSettingRow }) {
         </div>
       ) : spec.kind === 'ext_list' ? (
         <ExtEditor key={nonce} value={value} label={spec.label} onChange={setValue} />
-      ) : (
+       ) : spec.kind === 'aliases' ? (
         <AliasEditor key={nonce} value={value} onChange={setValue}
                      placeholder={row.key === 'import.status_aliases' ? 'DONE: 처리끝, 조치완료\nHOLD: 보류중' : 'content: 조치내역, 처리내용\nremark: 특이사항'} />
+      ) : (
+        <pre className="bg-surface-sunken p-2 text-xs whitespace-pre-wrap break-all">{JSON.stringify(value, null, 2)}</pre>
       )}
 
       {spec && spec.kind !== 'bool' && !row.is_secret && (
         <div className="flex items-center gap-2">
           <button className="btn btn-sm btn-primary" disabled={!dirty || save.isPending} onClick={() => { setMessage(null); save.mutate(value) }}>저장</button>
           {dirty && <button className="btn btn-sm" onClick={() => { setValue(row.value); setNonce((n) => n + 1); setMessage(null) }}>되돌리기</button>}
+          {message?.bad && <button className="btn btn-sm" onClick={() => { setMessage(null); save.mutate(value) }} disabled={save.isPending}>재시도</button>}
         </div>
       )}
       {message && <p role={message.bad ? 'alert' : 'status'} className={`text-sm ${message.bad ? 'text-state-urgent' : 'text-state-done'}`}>{message.text}</p>}
@@ -115,7 +131,7 @@ function SettingRow({ row }: { row: SystemSettingRow }) {
 
 /** 쉼표로 나눈 확장자 — 친 글자를 그대로 두고(쉼표 · 공백이 바로 지워지지 않게) 값만 목록으로 바꾼다. */
 function ExtEditor({ value, label, onChange }: { value: unknown; label: string; onChange: (v: unknown) => void }) {
-  const [text, setText] = useState(() => ((value as string[]) ?? []).join(', '))
+  const [text, setText] = useState(() => (Array.isArray(value) ? value.map(String) : []).join(', '))
   return (
     <input className="input w-full font-mono" value={text} aria-label={label}
            onChange={(e) => {
@@ -127,7 +143,12 @@ function ExtEditor({ value, label, onChange }: { value: unknown; label: string; 
 
 /** '이름: 별칭, 별칭' 한 줄에 하나 — JSON 을 직접 고치지 않게. */
 function AliasEditor({ value, onChange, placeholder }: { value: unknown; onChange: (v: unknown) => void; placeholder?: string }) {
-  const toText = (v: unknown) => Object.entries((v ?? {}) as Record<string, string[]>).map(([k, xs]) => `${k}: ${xs.join(', ')}`).join('\n')
+  const toText = (v: unknown) => {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) return ''
+    return Object.entries(v as Record<string, unknown>)
+      .map(([key, items]) => `${key}: ${(Array.isArray(items) ? items.map(String) : items == null ? [] : [String(items)]).join(', ')}`)
+      .join('\n')
+  }
   const [text, setText] = useState(() => toText(value))
   return (
     <textarea className="input w-full h-32 py-1 font-mono text-sm resize-y" value={text} aria-label="별칭" placeholder={placeholder}

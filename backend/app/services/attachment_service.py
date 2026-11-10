@@ -39,7 +39,7 @@ from app.models.user import User
 from app.services import settings_service
 
 log = logging.getLogger("app.attachment")
-ENTITY_TYPES = ("HANDOVER", "TASK")
+ENTITY_TYPES = ("HANDOVER", "TASK", "KNOWLEDGE")
 CHUNK = 1024 * 1024
 _UNSAFE = re.compile(r'[\x00-\x1f<>:"|?*]')
 
@@ -62,9 +62,10 @@ def _entity(db: Session, entity_type: str, entity_id: int, actor: User | None = 
 
     첨부는 원문의 일부다. 원문을 못 보는 사람이 파일 번호만 알아내 받아 가는 길을 막는다.
     """
-    model = {"HANDOVER": Handover, "TASK": Task}.get(entity_type)
+    from app.models.knowledge import KnowledgeArticle
+    model = {"HANDOVER": Handover, "TASK": Task, "KNOWLEDGE": KnowledgeArticle}.get(entity_type)
     if model is None:
-        raise ValidationFailed("첨부는 인수인계(HANDOVER) · 할일(TASK)에만 붙일 수 있습니다.")
+        raise ValidationFailed("첨부는 인수인계·할일·운영 지식에만 붙일 수 있습니다.")
     obj = db.get(model, entity_id)
     if obj is None or obj.is_deleted:
         raise NotFound("첨부할 대상을 찾을 수 없습니다.")
@@ -76,6 +77,10 @@ def _entity(db: Session, entity_type: str, entity_id: int, actor: User | None = 
 def _guard_read(db: Session, entity_type: str, obj, actor: User) -> None:
     from app.services import group_service
 
+    if entity_type == "KNOWLEDGE":
+        from app.services import knowledge_service
+        knowledge_service.get_or_404(db, actor, obj.id)
+        return
     if entity_type == "HANDOVER":
         group_service.assert_visible(db, obj, actor)
         return
@@ -87,6 +92,9 @@ def _guard_read(db: Session, entity_type: str, obj, actor: User) -> None:
 
 
 def _can_modify(actor: User, entity_type: str, obj) -> bool:
+    if entity_type == "KNOWLEDGE":
+        from app.services import knowledge_service
+        return knowledge_service.can_edit(actor, obj)
     if entity_type == "HANDOVER":
         return can_edit_handover(role_code=actor.role_code, user_id=actor.id,
                                  creator_id=obj.created_by, assignee_id=obj.assignee_id)

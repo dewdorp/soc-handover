@@ -13,6 +13,7 @@ from datetime import date, datetime, time, timedelta
 from typing import Any
 
 from sqlalchemy import false, func, or_, select
+from sqlalchemy import delete as sa_delete
 from sqlalchemy.orm import Session
 
 from app.audit import actions
@@ -23,7 +24,7 @@ from app.core.errors import Forbidden, NotFound, ValidationFailed, VersionConfli
 from app.core.time import KST, now, today
 from app.models.handover import Handover
 from app.models.reference import Company, HandoverStatus
-from app.models.schedule import Schedule, ScheduleReminder
+from app.models.schedule import Schedule, ScheduleCompletion, ScheduleReminder
 from app.models.task import TASK_CANCELED, TASK_CLOSED_STATES, TASK_DONE, Task
 from app.models.user import User
 from app.services import notification_service, recurrence
@@ -446,3 +447,86 @@ def to_out(actor: User, s: Schedule) -> dict[str, Any]:
         "series_end": series_end, "color": s.color, "version_no": s.version_no,
         "can_edit": can_edit(actor, s), "created_at": s.created_at, "updated_at": s.updated_at,
     }
+
+
+# --------------------------------------------------------------------------- 정기 점검 완료 처리
+#
+# SOC 의 정기 점검(근무 시작 점검 · 장비 상태 · SIEM/SOAR/NDR 수집 · 탐지 정책 이상 ·
+# 관계사별 주기 점검)은 이미 '점검' 종류의 반복 일정으로 등록할 수 있다. 모자랐던 것은
+# **회차별 완료 표시**다. 그래서 새 메뉴를 만들지 않고 일정에 '이 회차를 누가 언제
+# 끝냈는가'만 붙인다. 할 일 목록이 셋(인계 · 할일 · 점검)으로 쪼개지지 않게 하는 쪽이,
+# 야간에 혼자 보는 사람에게 낫다.
+
+def _occurrence_key(moment: datetime) -> date:
+    """회차는 '그 날'로 센다. 하루 두 번 도는 점검은 같은 회차로 묶인다 —
+    교대 근무에서 '오늘 점검 했나'가 알고 싶은 것이기 때문이다."""
+    return _aware(moment).astimezone(KST).date()
+
+
+def inspections_for_day(db: Session, actor: User, day: date) -> list[dict[str, Any]]:
+    """그 날 돌아야 하는 점검과 완료 여부. 담당자가 비면 근무자 누구나 끝낼 수 있다."""
+    start = datetime.combine(day, time.min, tzinfo=KST)
+    end = start + timedelta(days=1)
+    rows = occurrences_in(db, start, end)
+    out: list[dict[str, Any]] = []
+    for s, a, _b in rows:
+        if s.event_type != "INSPECTION":
+            continue
+        key = _occurrence_key(a)
+        done = db.scalar(select(ScheduleCompletion).where(
+            ScheduleCompletion.schedule_id == s.id,
+            ScheduleCompletion.occurrence_date == key))
+        who = db.scalar(select(User.display_name).where(
+            User.id == done.done_by)) if done and done.done_by else None
+        out.append({
+            "schedule_id": s.id, "title": s.title, "occurrence_date": key,
+            "start_at": a, "company": s.company.name if s.company else None,
+            "owner_id": s.owner_id,
+            "owner_name": s.owner.display_name if s.owner else None,
+            "recurrence_text": recurrence.describe(s.recurrence_rule) if s.recurrence_rule else None,
+            "is_done": done is not None,
+            "done_by_name": who, "done_at": done.done_at if done else None,
+            "note": done.note if done else None,
+            "is_mine": s.owner_id in (None, actor.id),
+        })
+    out.sort(key=lambda x: (x["is_done"], x["start_at"]))
+    return out
+
+
+def complete_inspection(db: Session, actor: User, schedule_id: int, day: date,
+                        note: str | None = None,
+                        ctx: RequestContext | None = None) -> dict[str, Any]:
+    s = get_or_404(db, schedule_id)
+    if s.event_type != "INSPECTION":
+        raise ValidationFailed("점검 종류의 일정만 완료 처리할 수 있습니다.",
+                               detail={"field": "event_type"})
+    row = db.scalar(select(ScheduleCompletion).where(
+        ScheduleCompletion.schedule_id == s.id, ScheduleCompletion.occurrence_date == day))
+    if row is None:
+        row = ScheduleCompletion(schedule_id=s.id, occurrence_date=day)
+        db.add(row)
+    row.done_by = actor.id
+    row.done_at = now()
+    row.note = (note or None)
+    db.flush()
+    record(db, action=actions.CALENDAR_UPDATE, ctx=ctx, user=actor,
+           resource_type="SCHEDULE", resource_id=s.id,
+           after={"inspection_done": day.isoformat(), "note": row.note})
+    return {"schedule_id": s.id, "occurrence_date": day, "is_done": True,
+            "done_by_name": actor.display_name, "done_at": row.done_at, "note": row.note}
+
+
+def reopen_inspection(db: Session, actor: User, schedule_id: int, day: date,
+                      ctx: RequestContext | None = None) -> None:
+    """잘못 누른 완료를 되돌린다. 기록은 감사로그에 남는다."""
+    s = get_or_404(db, schedule_id)
+    db.execute(sa_delete(ScheduleCompletion).where(
+        ScheduleCompletion.schedule_id == s.id, ScheduleCompletion.occurrence_date == day))
+    db.flush()
+    record(db, action=actions.CALENDAR_UPDATE, ctx=ctx, user=actor,
+           resource_type="SCHEDULE", resource_id=s.id,
+           after={"inspection_reopened": day.isoformat()})
+
+
+def pending_inspection_count(db: Session, actor: User, day: date) -> int:
+    return sum(1 for x in inspections_for_day(db, actor, day) if not x["is_done"])

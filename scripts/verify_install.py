@@ -42,8 +42,14 @@ def main() -> int:
         check("'미분류' 말고 실제 그룹이 있다", bool(named),
               " · ".join(g["name"] for g in named) or "없음 — 관리자 화면에서 만드십시오")
         left = c.get("/groups/unclassified/summary").json()
-        check("미분류로 남은 자료가 없다", left["total"] == 0,
-              f"{left['total']}건 남음 — 관리자 → 열람 그룹에서 옮기십시오")
+        # 1.3.1 부터 '미분류로 남아 있음'은 잘못이 아니라 **아직 안 정한 것**이다.
+        # 실제 그룹으로 옮기거나, 전체 공개로 전환하거나 — 둘 다 관리자가 정할 일이라
+        # 실패로 세지 않고 알리기만 한다.
+        if left["total"]:
+            print(f"  [--] '미분류'에 {left['total']}건 남아 있습니다 — 관리자 → 열람 그룹에서 "
+                  "실제 그룹으로 옮기거나 전체 공개로 전환할지 정하십시오")
+        else:
+            check("미분류로 남은 자료가 없다", True, "0건")
 
         # --- 2. 다른 그룹의 업무가 섞이지 않는가 (사람마다 보이는 수가 다른가)
         users = {u["display_name"]: u["id"] for u in c.get("/users/lookup?limit=100").json()}
@@ -87,7 +93,34 @@ def main() -> int:
         leaked_notes = [n["title"] for n in notes if n["body"] and n["body"][:20] in blob]
         check("RAG 사례에 개인 메모가 없다", not leaked_notes, ", ".join(leaked_notes))
 
-        # --- 7. 못 보는 건은 404 로 답하는가(관리자 계정으로는 확인할 수 없으므로 안내만)
+        # --- 7. 1.3.1 — 공개 범위 전환 대기 · 금고 상한 · 감사 소음 · 정기 점검
+        pending = c.get("/groups/public-migration").json()
+        if pending.get("eligible"):
+            print(f"  [--] 그 중 전체 공개로 전환할 수 있는 자료는 {pending['eligible']}건입니다"
+                  f"(전환하면 활성 계정 {pending['reader_count']}명이 읽습니다). "
+                  "미리보기에서 목록을 먼저 확인하십시오")
+
+        settings = {row["key"]: row["value"] for row in c.get("/settings").json()}
+        ttl = int(settings.get("credential.unlock_minutes") or 5)
+        hard = int(settings.get("credential.max_session_minutes") or 15)
+        check("금고 열람 시간이 상한 안에 있다", 1 <= ttl <= 10 and 5 <= hard <= 15,
+              f"열람 {ttl}분 / 상한 {hard}분")
+        print(f"  [--] 단순 열람 기록 "
+              f"{'켜짐' if settings.get('audit.track_handover_views') else '꺼짐'}"
+              " (설정 → 감사로그)")
+
+        checks = c.get("/schedules/inspections").json()
+        if checks:
+            done = sum(1 for x in checks if x["is_done"])
+            check("오늘 점검이 등록돼 있다", True, f"{len(checks)}건 중 {done}건 완료")
+        else:
+            print("  [--] 오늘 돌 정기 점검이 없습니다 — 일정에서 종류 '점검' + 반복으로 등록하십시오")
+
+        articles = c.get("/knowledge", params={"limit": 1}).json()
+        print(f"  [--] 운영 지식 문서 {'있음' if articles else '없음'}"
+              " (운영 지식 → 새 문서 → 표준 양식 넣기)")
+
+        # --- 8. 못 보는 건은 404 로 답하는가(관리자 계정으로는 확인할 수 없으므로 안내만)
         print("  [--] 다른 그룹 차단은 그 그룹에 속하지 않은 계정으로 로그인해 확인하십시오")
 
     print()

@@ -77,7 +77,7 @@ export default function ImportWizardPage() {
           const state = n < step ? 'done' : n === step ? 'current' : 'todo'
           return (
             <li key={label} aria-current={state === 'current' ? 'step' : undefined}
-                className={`flex items-center justify-center rounded-md px-1.5 py-1.5 font-medium ${state === 'current' ? 'bg-brand text-white'
+                className={`flex items-center justify-center rounded-md px-1.5 py-1.5 font-medium ${state === 'current' ? 'bg-brand text-on-accent'
                   : state === 'done' ? 'bg-brand-soft text-brand' : 'bg-surface-sunken text-ink-muted'}`}>
               {state === 'done' ? '✔' : `${'①②③④⑤⑥⑦⑧'[i]}`} {label}
             </li>

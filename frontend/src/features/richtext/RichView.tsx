@@ -114,12 +114,13 @@ function Marked({ text, marks }: { text: string; marks: RichMark[] }) {
       case 'code': out = <code className="inline-code">{out}</code>; break
       case 'textStyle': {
         const color = String(m.attrs?.color ?? '')
-        if (TEXT_COLOR.has(color)) out = <span style={{ color }}>{out}</span>
+        // 저장 값(hex)은 그대로 두고 보이는 색은 CSS 가 주간/야간에 맞춘다(index.css .rt-color)
+        if (TEXT_COLOR.has(color)) out = <span className="rt-color" data-color={color}>{out}</span>
         break
       }
       case 'highlight': {
         const color = String(m.attrs?.color ?? '#fef08a')
-        out = <mark style={{ backgroundColor: HIGHLIGHT.has(color) ? color : '#fef08a' }}>{out}</mark>
+        out = <mark data-color={HIGHLIGHT.has(color) ? color : '#fef08a'}>{out}</mark>
         break
       }
       case 'link': {

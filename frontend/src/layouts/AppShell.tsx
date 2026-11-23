@@ -8,6 +8,7 @@ import CommandPalette from '@/features/search/CommandPalette'
 import TaskCreateDialog from '@/features/tasks/TaskCreateDialog'
 import Sidebar from '@/layouts/Sidebar'
 import Topbar from '@/layouts/Topbar'
+import { useDisplaySync } from '@/features/display/useDisplay'
 import { useCan, useMe } from '@/hooks/useAuth'
 import { isTyping, keyCode, modalOpen } from '@/hooks/useHotkeys'
 import { referenceApi } from '@/services/api/reference'
@@ -66,6 +67,7 @@ export default function AppShell() {
 
   const { data: me, isLoading } = useMe()
   const location = useLocation()
+  const display = useDisplaySync(me?.id)
 
   if (isLoading) {
     return (
@@ -87,7 +89,7 @@ export default function AppShell() {
   return (
     <div className="h-full flex flex-col">
       <Topbar onToggleSidebar={() => setCollapsed((v) => !v)} onOpenSearch={() => setOverlay('palette')}
-              onOpenHelp={() => setOverlay('help')} />
+              onOpenHelp={() => setOverlay('help')} display={display} />
       <div className="flex-1 flex min-h-0">
         <Sidebar collapsed={collapsed} />
         <main className="flex-1 min-w-0 overflow-auto">

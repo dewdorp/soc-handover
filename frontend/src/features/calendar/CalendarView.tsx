@@ -239,7 +239,7 @@ function MonthGrid({ days, cursor, events, dragging, setDragging, onDropDay, onO
                  className={`min-h-[5.5rem] border-r border-b border-surface-border p-1 space-y-0.5 overflow-hidden cursor-pointer
                              ${dim ? 'bg-surface-sunken/60' : ''} ${over === key ? 'ring-2 ring-inset ring-brand bg-brand-soft' : ''}`}
                  aria-label={format(day, 'M월 d일')}>
-              <div className={`text-xs tabular-nums ${isSameDay(day, today) ? 'inline-grid place-items-center w-5 h-5 rounded-full bg-brand text-white' : dim ? 'text-ink-faint' : ''}`}>
+              <div className={`text-xs tabular-nums ${isSameDay(day, today) ? 'inline-grid place-items-center w-5 h-5 rounded-full bg-brand text-on-accent' : dim ? 'text-ink-faint' : ''}`}>
                 {format(day, 'd')}
               </div>
               {list.slice(0, MAX).map((ev) => (

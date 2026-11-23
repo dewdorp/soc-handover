@@ -142,7 +142,7 @@ function Swatch({ color, label }: { color: string; label: string }) {
 /** 막대 위 말풍선 — 마우스를 올리거나 키보드로 초점을 주면 보인다. */
 function Tip({ lines }: { lines: string[] }) {
   return (
-    <div role="tooltip" className="absolute z-10 left-1/2 -translate-x-1/2 bottom-full mb-1 whitespace-nowrap rounded bg-ink text-white text-xs px-2 py-1 shadow pointer-events-none">
+    <div role="tooltip" className="absolute z-10 left-1/2 -translate-x-1/2 bottom-full mb-1 whitespace-nowrap rounded bg-ink text-surface text-xs px-2 py-1 shadow pointer-events-none">
       {lines.map((l) => <div key={l}>{l}</div>)}
     </div>
   )

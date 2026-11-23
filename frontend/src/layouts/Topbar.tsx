@@ -5,6 +5,8 @@ import { Bell, BellOff, BellRing, Keyboard, LogOut, Menu, Search, ShieldAlert } 
 import { desktopEnabled, disableDesktop, enableDesktop } from '@/features/notifications/NotificationPopups'
 import { useFeatures, useLogout, useMe } from '@/hooks/useAuth'
 import { notificationApi } from '@/services/api/shift'
+import DisplayMenu from '@/features/display/DisplayMenu'
+import type { DisplayState } from '@/features/display/useDisplay'
 
 const ROLE_LABEL: Record<string, string> = {
   ADMIN: '관리자',
@@ -12,8 +14,8 @@ const ROLE_LABEL: Record<string, string> = {
   ANALYST: 'SOC 근무자',
 }
 
-export default function Topbar({ onToggleSidebar, onOpenSearch, onOpenHelp }: {
-  onToggleSidebar: () => void; onOpenSearch: () => void; onOpenHelp: () => void
+export default function Topbar({ onToggleSidebar, onOpenSearch, onOpenHelp, display }: {
+  onToggleSidebar: () => void; onOpenSearch: () => void; onOpenHelp: () => void; display: DisplayState
 }) {
   const { data: me } = useMe()
   const { data: features } = useFeatures()
@@ -52,7 +54,7 @@ export default function Topbar({ onToggleSidebar, onOpenSearch, onOpenHelp }: {
 
       <button
         className="min-w-0 flex-1 max-w-xl h-8 px-2 sm:px-2.5 rounded-md border border-surface-border
-                   bg-surface-sunken text-ink-faint flex items-center gap-2 hover:bg-white"
+                   bg-surface-sunken text-ink-faint flex items-center gap-2 hover:bg-surface"
         onClick={onOpenSearch} aria-label="통합 검색 (Ctrl+K)" title="인수인계 · 할일 · 일정을 한 번에 찾습니다"
       >
         <Search size={14} />
@@ -72,6 +74,8 @@ export default function Topbar({ onToggleSidebar, onOpenSearch, onOpenHelp }: {
         </span>
       )}
 
+      <DisplayMenu display={display} />
+
       <button className="btn btn-sm hidden sm:inline-flex" onClick={onOpenHelp} aria-label="키보드 단축키 (?)" title="키보드 단축키 (?)">
         <Keyboard size={15} />
       </button>
@@ -90,7 +94,7 @@ export default function Topbar({ onToggleSidebar, onOpenSearch, onOpenHelp }: {
         <Bell size={15} />
         {unreadCount > 0 && (
           <span className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full
-                           bg-state-urgent text-white text-xs leading-4 text-center">
+                           bg-state-urgent text-on-accent text-xs leading-4 text-center">
             {unreadCount}
           </span>
         )}

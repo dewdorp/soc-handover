@@ -84,7 +84,7 @@ export default function RosterPage() {
         <div className="flex rounded border border-surface-border overflow-hidden">
           {(['week', 'month'] as View[]).map((v) => (
             <button key={v} onClick={() => setView(v)}
-                    className={`px-2 h-7 text-sm ${view === v ? 'bg-brand text-white' : 'bg-surface'}`}>
+                    className={`px-2 h-7 text-sm ${view === v ? 'bg-brand text-on-accent' : 'bg-surface'}`}>
               {v === 'week' ? '주' : '월'}
             </button>
           ))}

@@ -127,6 +127,7 @@ soc-handover/
 | [docs/MENU_MAP.md](docs/MENU_MAP.md) | 요구 → 메뉴 위치 → API → 그 동작을 지키는 시험 |
 | [docs/RAG.md](docs/RAG.md) | (모델 없이) 사례 데이터 구조 · 접근 계약 · 검증 예시 |
 | [docs/RICH_TEXT.md](docs/RICH_TEXT.md) | 서식 있는 본문 — 편집기 선택 · 저장 방식 · 그림 권한 · 재확인 규칙 · 보안 (1.4.0) |
+| [docs/UI_COMFORT.md](docs/UI_COMFORT.md) | 편안한 화면 — 근무에 맞춘 밝기 · 글자 크기 · 색 대비 (1.4.1) |
 
 ---
 
@@ -170,6 +171,15 @@ soc-handover/
 | **본문 그림 권한** — 기존 첨부 저장소에 두고, 요청마다 그 글의 열람 판정. 관리자도 소속되지 않은 제한 그룹의 그림은 못 본다 | — |
 
 설계와 근거: [docs/RICH_TEXT.md](docs/RICH_TEXT.md) · 배포: [docs/RELEASE_1.4.0.md](docs/RELEASE_1.4.0.md) · 검증: [docs/VERIFICATION_1.4.0.md](docs/VERIFICATION_1.4.0.md)
+
+### 1.4.1 에서 더한 것
+
+| 내용 | 어디에 |
+|---|---|
+| **근무에 맞춘 화면** — 야간 교대 동안 저조도 화면(근무에 맞춤 · 밝게 · 어둡게). 색은 상태에만 쓰고, 모든 글자 대비 4.5:1 이상 | 상단 바 해/달 아이콘 |
+| **글자 크기** — 기본 1px 키움, 작게 · 보통 · 크게(글자만 커지고 배치는 그대로). 공용 PC 에서 사람마다 따로 저장 | 상단 바 해/달 아이콘 |
+
+설계와 근거: [docs/UI_COMFORT.md](docs/UI_COMFORT.md) · 배포: [docs/RELEASE_1.4.1.md](docs/RELEASE_1.4.1.md)
 
 ---
 

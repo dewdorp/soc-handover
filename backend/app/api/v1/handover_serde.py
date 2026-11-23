@@ -100,6 +100,7 @@ def detail(db: Session, h: Handover, actor: User) -> HandoverDetail:
         "my_ack_state": mine.state if mine else None,
         "is_starred": handover_service.is_starred(db, h.id, actor.id),
         "content": h.content,
+        "content_doc": h.content_doc,
         "remark": h.remark,
         "created_by": h.created_by,
         "updated_by": h.updated_by,

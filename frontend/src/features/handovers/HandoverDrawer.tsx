@@ -26,6 +26,9 @@ import { STATUS_LABEL, STATUS_TONE, taskApi } from '@/services/api/tasks'
 import { useMe } from '@/hooks/useAuth'
 import type { Company, HandoverStatus, Priority } from '@/types/api'
 import type { VersionConflictDetail } from '@/types/handover'
+import LazyRichEditor from '@/features/richtext/LazyRichEditor'
+import RichView from '@/features/richtext/RichView'
+import { useUnsavedGuard } from '@/hooks/useUnsavedGuard'
 
 type Tab = 'detail' | 'tasks' | 'schedules' | 'comments' | 'files' | 'versions' | 'timeline'
 
@@ -45,6 +48,9 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
   const [tab, setTab] = useState<Tab>('detail')
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState<Record<string, unknown>>({})
+  const [uploading, setUploading] = useState(false)
+  // 고치던 내용이 있으면 다른 화면으로 가기 전에 묻는다(표 · 스크린샷은 다시 만들기 어렵다)
+  const leaveGuard = useUnsavedGuard(editing && Object.keys(draft).length > 0, '고치던 인수인계')
   const [reason, setReason] = useState('')
   const [conflict, setConflict] = useState<VersionConflictDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -63,11 +69,16 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !conflict && !confirmDelete && !creatingTask) onClose()
+      if (e.key !== 'Escape' || conflict || confirmDelete || creatingTask) return
+      // 고치는 중이거나 글을 쓰는 중(본문 편집기 · 댓글 · 입력칸)이면 닫지 않는다 —
+      // Esc 한 번에 붙여 넣은 표 · 스크린샷이 사라지면 안 된다. 고치기는 '취소'로 끝낸다.
+      const target = e.target as HTMLElement | null
+      if (editing || target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return
+      onClose()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [onClose, conflict, confirmDelete, creatingTask])
+  }, [onClose, conflict, confirmDelete, creatingTask, editing])
 
   const canEdit = useMemo(() => {
     if (!row || !me) return false
@@ -162,9 +173,10 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
   const myAck = row.acknowledgements.find((a) => a.user_id === me?.id)
 
   return (
-    <aside className="w-full lg:w-[520px] max-lg:fixed max-lg:inset-x-0 max-lg:top-12 max-lg:bottom-0 max-lg:z-30 max-lg:shadow-xl
+    <aside className={`w-full ${editing ? 'lg:w-[780px]' : 'lg:w-[520px]'} max-lg:fixed max-lg:inset-x-0 max-lg:top-12 max-lg:bottom-0 max-lg:z-30 max-lg:shadow-xl
                       shrink-0 border-l border-surface-border bg-surface
-                      flex flex-col min-h-0" aria-label="인수인계 상세">
+                      flex flex-col min-h-0`} aria-label="인수인계 상세">
+      {leaveGuard}
       {/* 헤더 */}
       <div className="px-3 py-2 border-b border-surface-border space-y-1">
         <div className="flex items-center gap-2">
@@ -314,11 +326,12 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
             <section>
               <h3 className="text-ink-muted mb-1">내용</h3>
               {editing ? (
-                <textarea className="input w-full h-40 py-1 resize-y"
-                          value={String(field('content', row.content) ?? '')}
-                          onChange={(e) => set('content', e.target.value)} />
+                <LazyRichEditor key={`edit-${row.id}-${row.current_version_no}`}
+                                value={row.content_doc} fallbackText={row.content}
+                                onChange={(doc) => set('content_doc', doc)}
+                                onBusyChange={setUploading} ariaLabel="인수인계 내용" />
               ) : (
-                <p className="whitespace-pre-wrap break-words">{row.content || '(없음)'}</p>
+                <RichView doc={row.content_doc} text={row.content} />
               )}
             </section>
 
@@ -402,9 +415,9 @@ export default function HandoverDrawer({ handoverId, companies, statuses, priori
               취소
             </button>
             <span className="flex-1" />
-            <button className="btn btn-primary" disabled={save.isPending || !Object.keys(draft).length}
+            <button className="btn btn-primary" disabled={save.isPending || uploading || !Object.keys(draft).length}
                     onClick={() => save.mutate()}>
-              저장 (새 버전 v{row.current_version_no + 1})
+              {uploading ? '그림 올리는 중…' : `저장 (새 버전 v${row.current_version_no + 1})`}
             </button>
           </>
         ) : (

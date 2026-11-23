@@ -29,7 +29,7 @@ def _new_handover(page: Page, title: str, content: str = "E2E 점검용 내용")
     expect(dialog).to_be_visible()
     expect(dialog.get_by_label("관계사 *").locator("option")).not_to_have_count(0, timeout=15000)
     dialog.get_by_label("제목 *").fill(title)
-    dialog.get_by_label("내용").fill(content)
+    dialog.get_by_role("textbox", name="인수인계 내용").fill(content)
     dialog.get_by_role("button", name="등록").click()
     expect(dialog).not_to_be_visible(timeout=10000)
 

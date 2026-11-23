@@ -13,7 +13,7 @@ import { ApiRequestError } from '@/services/api/client'
 import type { DiffField, VersionSummary } from '@/types/handover'
 
 const FIELD_LABELS: Record<string, string> = {
-  company_id: '관계사', title: '제목', content: '내용', remark: '비고',
+  company_id: '관계사', title: '제목', content: '내용', content_doc: '내용 서식', remark: '비고',
   status_code: '상태', priority_code: '중요도', registered_date: '등록일',
   work_date: '수행일', completed_at: '완료시각', sender_id: '전달자',
   assignee_id: '담당자', checker_id: '확인자', is_important: '중요',
@@ -180,6 +180,7 @@ function render(value: unknown): string {
   if (value === null || value === undefined || value === '') return '(없음)'
   if (Array.isArray(value)) return value.length ? value.join(', ') : '(없음)'
   if (typeof value === 'boolean') return value ? '예' : '아니오'
+  if (typeof value === 'object') return '서식 있음'   // 서버가 요약을 주지 않은 옛 응답 대비
   return String(value)
 }
 

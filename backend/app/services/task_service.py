@@ -27,14 +27,24 @@ from app.models.reference import Company, Priority
 from app.models.task import (TASK_CLOSED_STATES, TASK_DONE, TASK_IN_PROGRESS, TASK_TODO,
                              TASK_WAITING, Task, TaskChecklist, TaskComment)
 from app.models.user import User
-from app.services import notification_service
+from app.core import richdoc
+from app.services import attachment_service, notification_service, rich_body
 
 BOARD_COLUMNS = (TASK_TODO, TASK_IN_PROGRESS, TASK_WAITING, TASK_DONE)
 #: 보드의 완료 칸은 최근 것만 — 끝난 일이 쌓여 보드를 덮지 않게.
 DONE_WINDOW_DAYS = 14
-TRACKED = ("title", "description", "status", "priority_code", "assignee_id", "company_id",
-           "start_date", "due_date")
+TRACKED = ("title", "description", "description_doc", "status", "priority_code", "assignee_id",
+           "company_id", "start_date", "due_date")
 EXCERPT = 500
+#: 설명 · 할일 댓글 순수 텍스트 상한(입력칸 20,000자와 같다)
+MAX_DESCRIPTION = 20_000
+
+
+def _audit_view(data: dict[str, Any]) -> dict[str, Any]:
+    """감사 기록에는 서식 구조를 통째로 넣지 않는다 — 요약만."""
+    if data.get("description_doc") is not None:
+        return {**data, "description_doc": richdoc.summary(data["description_doc"])}
+    return data
 
 
 # --------------------------------------------------------------------------- 권한 · 조회
@@ -144,12 +154,21 @@ def create(db: Session, actor: User, data: dict[str, Any],
     if data.get("handover_id") and not data.get("company_id"):
         data["company_id"] = db.get(Handover, data["handover_id"]).company_id
 
+    description_doc = data.pop("description_doc", None)
+    if description_doc is not None:
+        data["description"], description_doc = rich_body.prepare(
+            db, actor, text=None, doc=description_doc, entity_type="TASK", entity_id=None,
+            max_text=MAX_DESCRIPTION)
     task = Task(**data, creator_id=actor.id, version_no=1)
     task.board_order = _bottom_of(db, task.status)
     if task.status == TASK_DONE:
         task.completed_at = now()
     db.add(task)
     db.flush()
+    if description_doc is not None:
+        # 붙여 넣은 그림(초안)을 이 할일에 묶는다 — 번호가 생긴 뒤에야 할 수 있다.
+        task.description_doc = attachment_service.bind_inline(db, actor, description_doc,
+                                                              "TASK", task.id)
     for order, title in enumerate(checklist):
         db.add(TaskChecklist(task_id=task.id, title=title[:200], sort_order=order))
     db.flush()
@@ -157,7 +176,7 @@ def create(db: Session, actor: User, data: dict[str, Any],
 
     _notify_assignee(db, task, actor)
     record(db, action=actions.TASK_CREATE, ctx=ctx, user=actor, resource_type="TASK",
-           resource_id=task.id, after={**_snapshot(task), "handover_id": task.handover_id,
+           resource_id=task.id, after={**_audit_view(_snapshot(task)), "handover_id": task.handover_id,
                                        "checklist": len(checklist)})
     return task
 
@@ -173,6 +192,7 @@ def quick_add(db: Session, actor: User, handover_id: int, req: dict[str, Any],
     return create(db, actor, {
         "title": req.get("title") or handover.title,
         "description": req["description"] if req.get("description") is not None else (excerpt or None),
+        "description_doc": req.get("description_doc"),
         "priority_code": req.get("priority_code") or handover.priority_code,
         "assignee_id": req.get("assignee_id"),
         "company_id": handover.company_id,
@@ -190,6 +210,13 @@ def update(db: Session, actor: User, task_id: int, expected_version: int,
     _check_refs(db, priority_code=changes.get("priority_code"),
                 assignee_id=changes.get("assignee_id"), company_id=changes.get("company_id"))
 
+    if "description_doc" in changes:
+        if changes["description_doc"] is not None:
+            changes["description"], changes["description_doc"] = rich_body.prepare(
+                db, actor, text=None, doc=changes["description_doc"], entity_type="TASK",
+                entity_id=task.id, max_text=MAX_DESCRIPTION)
+    elif "description" in changes and changes["description"] != task.description:
+        changes["description_doc"] = None      # 서식 없는 글로 바뀌었다(옛 화면 · 옛 API)
     before = _snapshot(task)
     old_assignee, old_status = task.assignee_id, task.status
     for key, value in changes.items():
@@ -214,7 +241,8 @@ def update(db: Session, actor: User, task_id: int, expected_version: int,
     completed = task.status == TASK_DONE and old_status != TASK_DONE
     record(db, action=actions.TASK_COMPLETE if completed else actions.TASK_UPDATE, ctx=ctx,
            user=actor, resource_type="TASK", resource_id=task.id,
-           before={k: before[k] for k in changed}, after={k: after[k] for k in changed})
+           before=_audit_view({k: before[k] for k in changed}),
+           after=_audit_view({k: after[k] for k in changed}))
     return task
 
 
@@ -310,9 +338,14 @@ def list_comments(db: Session, task_id: int) -> list[TaskComment]:
                            .order_by(TaskComment.created_at, TaskComment.id)))
 
 
-def add_comment(db: Session, actor: User, task_id: int, body: str) -> TaskComment:
+def add_comment(db: Session, actor: User, task_id: int, body: str, *,
+                body_doc: dict[str, Any] | None = None) -> TaskComment:
     task = get_or_404(db, task_id)
-    comment = TaskComment(task_id=task.id, author_id=actor.id, body=body.strip())
+    text, doc = rich_body.prepare(db, actor, text=body, doc=body_doc, entity_type="TASK",
+                                  entity_id=task.id, max_text=MAX_DESCRIPTION)
+    if not text:
+        raise ValidationFailed("댓글 내용을 입력하십시오.")
+    comment = TaskComment(task_id=task.id, author_id=actor.id, body=text, body_doc=doc)
     db.add(comment)
     db.flush()
     for user_id in {task.assignee_id, task.creator_id} - {None, actor.id}:
@@ -431,7 +464,8 @@ def to_out(db: Session, actor: User, tasks: list[Task], *, detail: bool = False)
     out = []
     for t in tasks:
         row = {
-            "id": t.id, "title": t.title, "description": t.description, "status": t.status,
+            "id": t.id, "title": t.title, "description": t.description,
+            "description_doc": t.description_doc, "status": t.status,
             "priority": t.priority, "assignee": t.assignee, "creator": t.creator,
             "company": t.company,
             "handover": ({"id": t.handover.id, "title": t.handover.title,

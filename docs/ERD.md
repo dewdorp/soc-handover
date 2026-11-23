@@ -441,6 +441,32 @@ UNIQUE `(batch_id, handover_id)`, INDEX `(handover_id)`
 
 ---
 
+## 4-7. 서식 있는 본문 (1.4.0, 마이그레이션 `c3e8a1d74b52`)
+
+기존 텍스트 칼럼 옆에 서식 구조 칼럼을 더한다. **기존 칼럼의 뜻은 바뀌지 않는다** —
+텍스트 칼럼은 서버가 서식 구조에서 다시 뽑은 순수 텍스트이고, 검색 · Excel · RAG · 버전
+비교 · 옛 API 가 그대로 읽는다. 설계는 RICH_TEXT.md.
+
+| 표 | 텍스트(기존) | 새 칼럼 |
+|---|---|---|
+| handovers | `content` | `content_doc JSONB NULL` (버전 스냅숏 대상, 재확인 대상 아님) |
+| handover_comments | `body` | `body_doc JSONB NULL` |
+| knowledge_articles | `body` | `body_doc JSONB NULL` |
+| knowledge_revisions | `body` | `body_doc JSONB NULL` |
+| tasks | `description` | `description_doc JSONB NULL` |
+| task_comments | `body` | `body_doc JSONB NULL` |
+| attachments | — | `kind VARCHAR(10) NOT NULL DEFAULT 'FILE'` (`FILE` 일반 첨부 / `INLINE` 본문 그림), INDEX `ix_att_draft (entity_type, uploaded_by, created_at)` |
+
+- `*_doc` 이 NULL 이면 서식 없는 글. 마이그레이션은 칼럼만 더하고 **기존 행을 바꾸지 않는다**
+  (기존 첨부는 모두 `kind='FILE'`). 되돌리기(`downgrade`)는 새 칼럼 · 색인만 지운다.
+- 본문 그림은 아직 글 번호가 없을 때 `entity_type='DRAFT', entity_id=<올린 사람 id>` 로
+  저장되고, 글을 저장할 때 그 글(`HANDOVER` · `TASK` · `KNOWLEDGE`)로 옮겨진다.
+  댓글 그림은 그 인수인계(`HANDOVER`)에 묶여 인계의 열람 권한을 그대로 따른다.
+- `INLINE` 행은 첨부 목록에 나오지 않고 사람이 지우지 않는다(옛 판 복원 때 그림이 필요하다).
+  24시간 넘게 묶이지 않은 `DRAFT` 만 파일까지 지운다.
+
+---
+
 ## 6-1. 정기 점검 완료 (1.3.1)
 
 ### schedule_completions
@@ -516,7 +542,8 @@ INDEX: `(start_at, end_at)`, `(owner_id, start_at)`, `(handover_id)`, `(task_id)
 ## 7. 공통 / 운영
 
 ### attachments (polymorphic)
-`id PK`, `entity_type VARCHAR(20)` (HANDOVER/TASK), `entity_id BIGINT`, `original_name VARCHAR(255)`,
+`id PK`, `entity_type VARCHAR(20)` (HANDOVER/TASK/KNOWLEDGE, 저장 전 본문 그림은 DRAFT), `entity_id BIGINT`,
+`kind VARCHAR(10) DEFAULT 'FILE'` (FILE/INLINE — 1.4.0, 4-7 절), `original_name VARCHAR(255)`,
 `stored_name VARCHAR(100)` (UUID+ext), `rel_path VARCHAR(300)`, `mime VARCHAR(100)`, `size_bytes BIGINT`,
 `sha256 CHAR(64)`, `scan_status VARCHAR(20) DEFAULT 'NOT_SCANNED'`, `uploaded_by`, `uploaded_at`, `is_deleted`
 INDEX `(entity_type, entity_id)`

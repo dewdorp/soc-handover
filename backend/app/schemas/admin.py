@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class AuditSearch(BaseModel):
@@ -56,13 +56,22 @@ class SettingUpdate(BaseModel):
 
 
 class CommentBody(BaseModel):
-    body: str = Field(min_length=1, max_length=5_000)
+    """댓글. 서식 구조(body_doc)를 주면 body 는 서버가 그것에서 다시 뽑는다."""
+    body: str = Field(default="", max_length=5_000)
+    body_doc: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def _not_empty(self):
+        if not self.body.strip() and self.body_doc is None:
+            raise ValueError("댓글 내용을 입력하십시오.")
+        return self
 
 
 class HandoverCommentOut(BaseModel):
     id: int
     handover_id: int
     body: str
+    body_doc: dict[str, Any] | None = None
     author_id: int | None
     author: str | None
     created_at: datetime

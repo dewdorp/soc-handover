@@ -415,6 +415,48 @@ GET    /admin/integrity-check [ADMIN]          버전 정합성/고아 레코드
 
 ---
 
+## 8-9. 서식 있는 본문 · 본문 그림 (1.4.0)
+
+설계와 근거는 RICH_TEXT.md. 여기는 주고받는 형태만 적는다.
+
+### 본문 필드
+
+| 요청 · 응답 | 텍스트(기존) | 서식 구조(새) |
+|---|---|---|
+| `POST /handovers`, `PATCH /handovers/{id}`, `GET /handovers/{id}` | `content` | `content_doc` |
+| `POST /handovers/{id}/comments`, `PATCH /comments/{id}`, 댓글 목록 | `body` | `body_doc` |
+| `POST /knowledge`, `PATCH /knowledge/{id}`, 상세 · 판 본문 | `body` | `body_doc` |
+| 할일 등록 · 빠른 등록 · 수정 · 상세 | `description` | `description_doc` |
+| 할일 댓글 등록 · 목록 | `body` | `body_doc` |
+
+- `*_doc` 은 Tiptap/ProseMirror 문서 구조(JSON, 최상위 `{"type": "doc", "content": [...]}`).
+- `*_doc` 을 보내면 서버가 허용 목록으로 검사하고 **텍스트 필드는 서버가 다시 만든다**
+  (같이 보낸 텍스트는 무시). 목록 밖 노드 · 속성 · 링크 · 그림 주소면 `422 validation_error`
+  (`detail.field = "doc"`).
+- `*_doc` 을 보내지 않으면 지금처럼 텍스트 글이다. 응답의 `*_doc` 이 `null` 이면 서식 없는 글.
+- 인수인계를 `content` 만으로 고치면(글이 바뀐 경우) `content_doc` 은 `null` 이 된다.
+- 댓글 · 할일 · 운영 지식에서 `body` 와 `body_doc` 중 하나는 있어야 한다(둘 다 비면 422).
+
+### 본문 그림
+
+| Method | Path | 설명 |
+|---|---|---|
+| POST | `/attachments/inline` | multipart `file`. PNG · JPEG · GIF · WEBP(내용으로 판정), 20MB 이하. `201` 응답 `{id, url, name, mime, size}` — `url` 을 본문 그림 `src` 로 쓴다. 저장 전에는 올린 사람만 본다 |
+| GET | `/attachments/{id}/inline` | 그림 보기. 요청마다 그 글의 열람 판정. `Cache-Control: no-store` · `nosniff` · `CSP sandbox`. 감사에 남기지 않는다 |
+| GET | `/attachments/{id}/download` | 원본 받기(기존 경로). 감사 `ATTACHMENT_DOWNLOAD` |
+
+- 그림 `src` 는 `/api/v1/attachments/{id}/inline` 만 허용한다.
+- 글을 저장할 때 본문의 그림이 그 글에 묶인다. 남의 초안 · 볼 수 없는 글의 그림이면 422.
+- 본문 그림(`kind=INLINE`)은 첨부 목록(`GET /attachments?entity_type=…`)에 나오지 않고
+  `DELETE /attachments/{id}` 로 지울 수 없다(옛 버전 복원에 필요).
+
+### 감사 · 버전에 남는 모양
+
+본문 구조는 감사 before/after 에 그대로 넣지 않고 요약으로 바꾼다:
+`{"nodes": 41, "images": 2, "tables": 1, "code_blocks": 1}`. 버전 비교의 '내용 서식' 줄도 같은 요약이다.
+
+---
+
 ## 9. AI — 범위에서 제외
 
 `/ai/*` 경로는 없다. AI 는 만들지 않기로 했다(ASSUMPTIONS E-01).

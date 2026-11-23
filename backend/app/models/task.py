@@ -7,7 +7,7 @@ from sqlalchemy import (Boolean, Date, ForeignKey, Index, Integer, SmallInteger,
                         String, Text)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.models.base import Base, TimestampMixin, TZDateTime
+from app.models.base import Base, JSONType, TimestampMixin, TZDateTime
 
 TASK_TODO = "TODO"
 TASK_IN_PROGRESS = "IN_PROGRESS"
@@ -30,6 +30,7 @@ class Task(Base, TimestampMixin):
     company_id: Mapped[int | None] = mapped_column(ForeignKey("companies.id"))
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
+    description_doc: Mapped[dict | None] = mapped_column(JSONType)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default=TASK_TODO)
     priority_code: Mapped[str] = mapped_column(ForeignKey("priorities.code"),
                                                nullable=False, default="NORMAL")
@@ -78,4 +79,5 @@ class TaskComment(Base, TimestampMixin):
                                          nullable=False)
     author_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    body_doc: Mapped[dict | None] = mapped_column(JSONType)
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

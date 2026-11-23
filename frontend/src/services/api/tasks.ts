@@ -18,6 +18,8 @@ export interface Task {
   id: number
   title: string
   description: string | null
+  /** 서식 있는 설명. 없으면 서식 없는 옛 글 */
+  description_doc: import('@/features/richtext/doc').RichNode | null
   status: TaskStatus
   priority: Priority | null
   assignee: UserBrief | null
@@ -45,6 +47,7 @@ export interface TaskDetail extends Task {
 export interface TaskComment {
   id: number
   body: string
+  body_doc: import('@/features/richtext/doc').RichNode | null
   author_id: number | null
   author: string | null
   created_at: string
@@ -54,6 +57,7 @@ export interface TaskComment {
 export interface TaskInput {
   title: string
   description?: string | null
+  description_doc?: import('@/features/richtext/doc').RichDoc | null
   status?: TaskStatus
   priority_code?: string
   assignee_id?: number | null
@@ -147,7 +151,8 @@ export const taskApi = {
   removeChecklist: (id: number) => api.delete<void>(`/checklists/${id}`),
 
   comments: (taskId: number) => api.get<TaskComment[]>(`/tasks/${taskId}/comments`),
-  addComment: (taskId: number, body: string) => api.post<TaskComment>(`/tasks/${taskId}/comments`, { body }),
+  addComment: (taskId: number, input: { body?: string; body_doc?: import('@/features/richtext/doc').RichDoc | null }) =>
+    api.post<TaskComment>(`/tasks/${taskId}/comments`, input),
   removeComment: (id: number) => api.delete<void>(`/task-comments/${id}`),
 
   forHandover: (handoverId: number) => api.get<Task[]>(`/handovers/${handoverId}/tasks`),

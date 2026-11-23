@@ -17,8 +17,10 @@ import logging
 import mimetypes
 import re
 import shlex
+import shutil
 import subprocess
 import uuid
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, BinaryIO
 
@@ -237,7 +239,7 @@ def preview(db: Session, attachment_id: int, actor: User) -> tuple[Path, Attachm
 
 def download(db: Session, actor: User, attachment_id: int, ctx: RequestContext | None = None) -> tuple[Path, Attachment]:
     att = get_or_404(db, attachment_id)
-    _entity(db, att.entity_type, att.entity_id, actor)
+    _guard_attachment(db, att, actor)
     path = file_path(att)
     record(db, action=actions.ATTACHMENT_DOWNLOAD, ctx=ctx, user=actor, resource_type=att.entity_type,
            resource_id=att.entity_id, detail={"attachment_id": att.id, "name": att.original_name})
@@ -245,6 +247,9 @@ def download(db: Session, actor: User, attachment_id: int, ctx: RequestContext |
 
 
 def can_delete(db: Session, actor: User, att: Attachment) -> bool:
+    if att.kind == KIND_INLINE:
+        # 본문에서 지우면 본문에서만 사라진다. 파일은 옛 버전 복원을 위해 남긴다.
+        return False
     if att.uploaded_by == actor.id:
         return True
     try:
@@ -271,13 +276,14 @@ def list_for(db: Session, entity_type: str, entity_id: int,
     _entity(db, entity_type.upper(), entity_id, actor)
     return list(db.scalars(select(Attachment).where(
         Attachment.entity_type == entity_type.upper(), Attachment.entity_id == entity_id,
-        Attachment.is_deleted == false()).order_by(Attachment.created_at, Attachment.id)))
+        Attachment.is_deleted == false(), Attachment.kind == KIND_FILE)
+        .order_by(Attachment.created_at, Attachment.id)))
 
 
 def count_for(db: Session, entity_type: str, entity_id: int) -> int:
     return db.scalar(select(func.count()).select_from(Attachment).where(
         Attachment.entity_type == entity_type, Attachment.entity_id == entity_id,
-        Attachment.is_deleted == false())) or 0
+        Attachment.is_deleted == false(), Attachment.kind == KIND_FILE)) or 0
 
 
 def to_out(db: Session, actor: User, att: Attachment) -> dict[str, Any]:
@@ -287,3 +293,210 @@ def to_out(db: Session, actor: User, att: Attachment) -> dict[str, Any]:
             "scan_status": att.scan_status, "uploaded_by": uploader.display_name if uploader else None,
             "created_at": att.created_at, "can_delete": can_delete(db, actor, att),
             "is_image": is_image(att)}
+
+
+# --------------------------------------------------------------------------- 본문 그림(인라인)
+#
+# 본문 · 댓글에 붙여 넣은 스크린샷은 일반 첨부와 같은 저장소 · 같은 권한 판정을 쓰되
+# kind='INLINE' 으로 구분한다(첨부 목록에 나오지 않고, 본문에서만 보인다).
+#
+# 흐름
+#   ① 붙여 넣는 즉시 '초안'(entity_type='DRAFT', entity_id=올린 사람)으로 올린다.
+#      새 인계를 쓰는 중이라 아직 글 번호가 없어도 된다. 초안은 올린 사람만 본다.
+#   ② 글을 저장할 때 본문에 남아 있는 그림만 그 글에 묶는다(bind_inline).
+#   ③ 하루가 지나도 어디에도 묶이지 않은 초안은 지운다(purge_stale_drafts).
+#   묶인 그림은 본문에서 지워도 남긴다 — 옛 버전을 복원하면 다시 보여야 하기 때문이다.
+#   권한은 묶인 글을 그대로 따른다. 글을 못 보면 그림 주소를 알아도 404 다.
+
+DRAFT = "DRAFT"
+KIND_FILE = "FILE"
+KIND_INLINE = "INLINE"
+
+#: 본문에 끼울 수 있는 그림. 내용(앞부분)으로 판단한다 — 이름 · 확장자는 믿지 않는다.
+INLINE_TYPES: dict[str, str] = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif",
+                                "image/webp": "webp"}
+#: 그림 한 장 상한(MB). 일반 첨부 상한보다 크지 않게 한다.
+INLINE_MAX_MB = 20
+#: 한 사람이 저장하지 않은 채 쌓아 둘 수 있는 초안 그림 수 · 용량
+DRAFT_MAX_COUNT = 200
+DRAFT_MAX_BYTES = 300 * 1024 * 1024
+#: 이 시간이 지나도 묶이지 않은 초안은 지운다
+DRAFT_TTL = timedelta(hours=24)
+#: 정리를 너무 자주 돌리지 않는다(업로드마다 확인하되 이 간격 안에서는 한 번만)
+_PURGE_EVERY = timedelta(minutes=30)
+_last_purge: datetime | None = None
+
+
+def inline_url(att_id: int) -> str:
+    return f"/api/v1/attachments/{att_id}/inline"
+
+
+def _write_stream(stream: BinaryIO, max_bytes: int, max_mb: int) -> tuple[str, str, Path, str, int]:
+    """파일을 저장소에 쓴다. (하위 폴더, 저장 이름, 경로, sha256, 크기)."""
+    sub = now().strftime("%Y/%m")
+    stored = uuid.uuid4().hex
+    folder = settings.attachments_dir / sub
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / stored
+    digest, size = hashlib.sha256(), 0
+    try:
+        with open(path, "wb") as out:
+            while chunk := stream.read(CHUNK):
+                size += len(chunk)
+                if size > max_bytes:
+                    raise ValidationFailed(f"그림이 너무 큽니다. {max_mb}MB 까지 넣을 수 있습니다.")
+                digest.update(chunk)
+                out.write(chunk)
+        if size == 0:
+            raise ValidationFailed("빈 파일은 넣을 수 없습니다.")
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+    return sub, stored, path, digest.hexdigest(), size
+
+
+def upload_inline(db: Session, actor: User, file_name: str, stream: BinaryIO,
+                  ctx: RequestContext | None = None) -> Attachment:
+    """본문에 끼울 그림을 '초안'으로 올린다. 아직 글 번호가 없어도 된다."""
+    _maybe_purge(db)
+    pending = db.execute(
+        select(func.count(), func.coalesce(func.sum(Attachment.size_bytes), 0))
+        .where(Attachment.entity_type == DRAFT, Attachment.entity_id == actor.id,
+               Attachment.is_deleted == false())).one()
+    if pending[0] >= DRAFT_MAX_COUNT or pending[1] >= DRAFT_MAX_BYTES:
+        raise ValidationFailed("저장하지 않은 그림이 너무 많습니다. 쓰던 글을 저장하거나 "
+                               "닫은 뒤 다시 시도하십시오.")
+
+    general_mb = int(settings_service.get_value(db, "attachment.max_size_mb") or settings.UPLOAD_MAX_MB)
+    max_mb = max(1, min(INLINE_MAX_MB, general_mb))
+    sub, stored, path, sha, size = _write_stream(stream, max_mb * 1024 * 1024, max_mb)
+    try:
+        mime = image_type(path)
+        if mime not in INLINE_TYPES:
+            raise ValidationFailed("본문에는 PNG · JPG · GIF · WEBP 그림만 넣을 수 있습니다.")
+        status = scan(path)
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+
+    # 클립보드에서 온 그림은 이름이 'image.png' 뿐이거나 없다 — 내용에 맞춰 이름을 정한다.
+    base = safe_name(file_name or "")
+    stem = base.rsplit(".", 1)[0] if "." in base else (base if base != "file" else "")
+    name = f"{stem or now().strftime('screenshot-%Y%m%d-%H%M%S')}.{INLINE_TYPES[mime]}"
+    att = Attachment(entity_type=DRAFT, entity_id=actor.id, kind=KIND_INLINE,
+                     original_name=name, stored_name=stored, rel_path=f"{sub}/{stored}",
+                     mime=mime, size_bytes=size, sha256=sha, scan_status=status,
+                     uploaded_by=actor.id)
+    db.add(att)
+    db.flush()
+    record(db, action=actions.ATTACHMENT_UPLOAD, ctx=ctx, user=actor, resource_type=DRAFT,
+           resource_id=actor.id, after={"attachment_id": att.id, "name": name, "size": size,
+                                        "sha256": sha, "scan": status, "kind": KIND_INLINE})
+    return att
+
+
+def _guard_attachment(db: Session, att: Attachment, actor: User) -> None:
+    """이 사람이 이 첨부(본문 그림 포함)를 볼 수 있는가 — 보기 · 받기가 같은 판정을 쓴다.
+
+    저장 전 그림(DRAFT)은 올린 사람만. 그 밖은 주인 글의 열람 판정을 그대로 따른다.
+    """
+    if att.entity_type == DRAFT:
+        if att.entity_id != actor.id or att.uploaded_by != actor.id:
+            raise NotFound("첨부파일을 찾을 수 없습니다.")
+        return
+    _entity(db, att.entity_type, att.entity_id, actor)
+
+
+def inline(db: Session, attachment_id: int, actor: User) -> tuple[Path, Attachment, str]:
+    """본문 그림 내보내기. 매 요청마다 권한을 다시 판정한다(권한 회수가 곧바로 먹게)."""
+    att = get_or_404(db, attachment_id)
+    if att.kind != KIND_INLINE:
+        raise NotFound("첨부파일을 찾을 수 없습니다.")
+    _guard_attachment(db, att, actor)
+    path = file_path(att)
+    mime = image_type(path)
+    if mime not in INLINE_TYPES:
+        raise NotFound("첨부파일을 찾을 수 없습니다.")
+    return path, att, mime
+
+
+def bind_inline(db: Session, actor: User, doc: dict[str, Any] | None,
+                entity_type: str, entity_id: int) -> dict[str, Any] | None:
+    """저장하는 본문의 그림을 그 글에 묶는다. 바뀐 그림 번호를 반영한 본문을 돌려준다.
+
+    · 이미 이 글에 묶인 그림          → 그대로
+    · 내가 올린 초안                  → 이 글에 묶는다
+    · 다른 글의 그림(복사 · 붙여넣기) → 내가 그 글을 볼 수 있을 때만 **복사본**을 만들어 묶는다.
+      원본을 옮기면 원래 글에서 그림이 사라지고, 번호만 가리키게 두면 권한이 어긋난다.
+    · 그 밖(남의 초안 · 볼 수 없는 글의 그림 · 지워진 그림) → 거절
+    """
+    if not doc:
+        return doc
+    from app.core import richdoc
+
+    mapping: dict[int, int] = {}
+    for att_id in richdoc.image_ids(doc):
+        att = db.get(Attachment, att_id)
+        if att is None or att.is_deleted or att.kind != KIND_INLINE:
+            raise ValidationFailed("본문의 그림 중 찾을 수 없는 것이 있습니다. 그림을 다시 넣어 주십시오.",
+                                   detail={"field": "doc", "attachment_id": att_id})
+        if att.entity_type == entity_type and att.entity_id == entity_id:
+            continue
+        if att.entity_type == DRAFT:
+            if att.entity_id != actor.id or att.uploaded_by != actor.id:
+                raise ValidationFailed("다른 사람이 올린 저장 전 그림은 쓸 수 없습니다.",
+                                       detail={"field": "doc", "attachment_id": att_id})
+            att.entity_type, att.entity_id = entity_type, entity_id
+            continue
+        try:
+            _entity(db, att.entity_type, att.entity_id, actor)
+        except (NotFound, Forbidden) as exc:
+            raise ValidationFailed("볼 수 없는 글의 그림은 넣을 수 없습니다.",
+                                   detail={"field": "doc", "attachment_id": att_id}) from exc
+        mapping[att_id] = _copy_inline(db, actor, att, entity_type, entity_id).id
+    db.flush()
+    return richdoc.rewrite_images(doc, mapping) if mapping else doc
+
+
+def _copy_inline(db: Session, actor: User, src: Attachment, entity_type: str,
+                 entity_id: int) -> Attachment:
+    source = file_path(src)
+    sub = now().strftime("%Y/%m")
+    stored = uuid.uuid4().hex
+    folder = settings.attachments_dir / sub
+    folder.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(source, folder / stored)
+    copy = Attachment(entity_type=entity_type, entity_id=entity_id, kind=KIND_INLINE,
+                      original_name=src.original_name, stored_name=stored,
+                      rel_path=f"{sub}/{stored}", mime=src.mime, size_bytes=src.size_bytes,
+                      sha256=src.sha256, scan_status=src.scan_status, uploaded_by=actor.id)
+    db.add(copy)
+    db.flush()
+    return copy
+
+
+def purge_stale_drafts(db: Session, *, older_than: timedelta = DRAFT_TTL) -> int:
+    """하루가 지나도 어디에도 묶이지 않은 초안 그림을 지운다(파일까지)."""
+    cutoff = now() - older_than
+    rows = list(db.scalars(select(Attachment).where(
+        Attachment.entity_type == DRAFT, Attachment.is_deleted == false(),
+        Attachment.created_at < cutoff)))
+    for att in rows:
+        try:
+            file_path(att).unlink(missing_ok=True)
+        except NotFound:
+            pass
+        att.is_deleted = True
+    if rows:
+        db.flush()
+        log.info("purged %d stale draft image(s)", len(rows))
+    return len(rows)
+
+
+def _maybe_purge(db: Session) -> None:
+    global _last_purge
+    stamp = now()
+    if _last_purge is not None and stamp - _last_purge < _PURGE_EVERY:
+        return
+    _last_purge = stamp
+    purge_stale_drafts(db)

@@ -36,7 +36,8 @@ def _new_handover(page: Page, title: str, content: str = "E2E 점검용 내용")
     # 관계사 목록이 도착해야 기본값이 잡힌다 — 비어 있을 때 누르면 '존재하지 않는 관계사'로 거절당한다
     expect(dialog.get_by_label("관계사 *").locator("option")).not_to_have_count(0, timeout=15000)
     dialog.get_by_label("제목 *").fill(title)
-    dialog.get_by_label("내용").fill(content)
+    # 1.4.0: 내용은 서식 편집기다(textarea 가 아니다) — 편집기가 늦게 뜨므로 기다린다
+    dialog.get_by_role("textbox", name="인수인계 내용").fill(content)
     dialog.get_by_role("button", name="등록").click()
     expect(dialog).not_to_be_visible(timeout=10000)
 
@@ -68,7 +69,7 @@ def test_handover_version_and_restore(login, server):
     expect(drawer.get_by_text("최초 내용")).to_be_visible()
 
     drawer.get_by_role("button", name="수정").click()
-    drawer.locator("textarea").first.fill("고친 내용")   # 첫 번째가 내용, 두 번째가 비고
+    drawer.get_by_role("textbox", name="인수인계 내용").fill("고친 내용")
     drawer.get_by_role("button", name=re.compile("^저장")).click()
     expect(drawer.get_by_text("고친 내용")).to_be_visible(timeout=10000)
 

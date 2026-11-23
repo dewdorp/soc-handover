@@ -120,6 +120,16 @@ def main() -> int:
         print(f"  [--] 운영 지식 문서 {'있음' if articles else '없음'}"
               " (운영 지식 → 새 문서 → 표준 양식 넣기)")
 
+        # --- 7-1. 1.4.0 — 서식 있는 본문 · 본문 그림 (읽기만)
+        first = c.get("/handovers", params={"size": 1}).json().get("items") or []
+        if first:
+            detail = c.get(f"/handovers/{first[0]['id']}").json()
+            check("인계 상세가 서식 칸(content_doc)을 돌려준다", "content_doc" in detail,
+                  "옛 글은 비어 있는 것이 정상" if detail.get("content_doc") is None else "서식 있음")
+        missing = c.get("/attachments/999999999/inline")
+        check("본문 그림 경로가 있고, 없는 번호는 404", missing.status_code == 404,
+              f"HTTP {missing.status_code}")
+
         # --- 8. 못 보는 건은 404 로 답하는가(관리자 계정으로는 확인할 수 없으므로 안내만)
         print("  [--] 다른 그룹 차단은 그 그룹에 속하지 않은 계정으로 로그인해 확인하십시오")
 

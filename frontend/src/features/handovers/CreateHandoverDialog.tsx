@@ -1,5 +1,5 @@
 /** 인수인계 등록. 필수는 관계사·제목뿐이고 나머지는 나중에 채울 수 있게 둔다. */
-import { FormEvent, useState } from 'react'
+import { FormEvent, useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { X } from 'lucide-react'
 import { useEscape } from '@/hooks/useHotkeys'
@@ -7,6 +7,9 @@ import { ApiRequestError } from '@/services/api/client'
 import { handoverApi } from '@/services/api/handovers'
 import ScopePicker, { type Visibility } from '@/features/handovers/ScopePicker'
 import ScopeWarning from '@/features/handovers/ScopeWarning'
+import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import LazyRichEditor from '@/features/richtext/LazyRichEditor'
+import { isEmptyDoc, type RichDoc } from '@/features/richtext/doc'
 import { referenceApi } from '@/services/api/reference'
 import type { Company, HandoverStatus, Priority } from '@/types/api'
 
@@ -28,7 +31,9 @@ interface Props {
 export default function CreateHandoverDialog(
   { draft, companies, statuses, priorities, onClose, onCreated }: Props,
 ) {
-  useEscape(onClose)
+  const [doc, setDoc] = useState<RichDoc | null>(null)
+  const [uploading, setUploading] = useState(false)
+  const [askClose, setAskClose] = useState(false)
   const [form, setForm] = useState({
     company_id: null as number | null,
     title: draft?.title ?? '', content: draft?.content ?? '', remark: '',
@@ -43,6 +48,18 @@ export default function CreateHandoverDialog(
   const companyId = form.company_id ?? companies[0]?.id
   const [error, setError] = useState<string | null>(null)
 
+  // 표 · 스크린샷을 붙여 넣은 글이 실수로 닫혀 사라지지 않게 — 닫기 전에 묻는다.
+  const dirty = Boolean(form.title.trim() || form.remark.trim() || form.tags.trim()
+    || (doc && !isEmptyDoc(doc)))
+  const requestClose = () => { if (dirty) setAskClose(true); else onClose() }
+  useEscape(requestClose)
+  useEffect(() => {
+    if (!dirty) return
+    const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [dirty])
+
   const { data: users } = useQuery({
     queryKey: ['user-lookup'], queryFn: () => referenceApi.userLookup(), staleTime: 60_000,
   })
@@ -51,7 +68,8 @@ export default function CreateHandoverDialog(
     mutationFn: (selectedCompany: number) => handoverApi.create({
       company_id: selectedCompany,
       title: form.title.trim(),
-      content: form.content,
+      // 편집기에서 손댄 글은 서식 구조로, 손대지 않은 초안(개인 메모에서 넘어온 글)은 글 그대로.
+      ...(doc ? { content_doc: doc } : { content: form.content }),
       remark: form.remark || null,
       status_code: form.status_code,
       priority_code: form.priority_code,
@@ -80,16 +98,20 @@ export default function CreateHandoverDialog(
       setError('관계사 목록에서 사용할 항목을 확인해 주세요.')
       return
     }
+    if (uploading) {
+      setError('그림을 올리는 중입니다. 끝난 뒤 등록하십시오.')
+      return
+    }
     create.mutate(companyId)
   }
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/30 p-4"
          role="dialog" aria-modal="true" aria-labelledby="create-title">
-      <form onSubmit={submit} className="card w-[560px] max-w-full shadow-xl p-4 space-y-2.5">
+      <form onSubmit={submit} className="card w-[880px] max-w-full max-h-[94vh] overflow-y-auto shadow-xl p-4 space-y-2.5">
         <div className="flex items-center">
           <h2 id="create-title" className="font-medium text-md flex-1">인수인계 등록</h2>
-          <button type="button" onClick={onClose} aria-label="닫기"
+          <button type="button" onClick={requestClose} aria-label="닫기"
                   className="text-ink-faint hover:text-ink"><X size={16} /></button>
         </div>
 
@@ -136,10 +158,11 @@ export default function CreateHandoverDialog(
                  onChange={(e) => set('title', e.target.value)} />
         </Labeled>
 
-        <Labeled label="내용">
-          <textarea className="input w-full h-28 py-1 resize-y" value={form.content}
-                    onChange={(e) => set('content', e.target.value)} />
-        </Labeled>
+        <div className="space-y-0.5" role="group" aria-label="내용">
+          <span className="text-ink-muted">내용</span>
+          <LazyRichEditor value={null} fallbackText={form.content} onChange={setDoc}
+                          onBusyChange={setUploading} ariaLabel="인수인계 내용" />
+        </div>
 
         <Labeled label="비고">
           <input className="input w-full" value={form.remark}
@@ -163,10 +186,18 @@ export default function CreateHandoverDialog(
         )}
 
         <div className="flex justify-end gap-2 pt-1">
-          <button type="button" className="btn" onClick={onClose}>취소</button>
-          <button className="btn btn-primary" disabled={create.isPending || companyId == null}>등록</button>
+          <button type="button" className="btn" onClick={requestClose}>취소</button>
+          <button className="btn btn-primary" disabled={create.isPending || uploading || companyId == null}>
+            {create.isPending ? '등록하는 중…' : uploading ? '그림 올리는 중…' : '등록'}
+          </button>
         </div>
       </form>
+      {askClose && (
+        <ConfirmDialog title="작성 중인 인수인계를 닫을까요?" confirmLabel="닫기" danger
+                       onConfirm={() => { setAskClose(false); onClose() }} onCancel={() => setAskClose(false)}>
+          아직 등록하지 않았습니다. 닫으면 쓴 내용과 붙여 넣은 그림이 사라집니다.
+        </ConfirmDialog>
+      )}
     </div>
   )
 }

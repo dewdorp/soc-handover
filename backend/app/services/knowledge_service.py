@@ -22,7 +22,7 @@ from app.models.handover import Handover
 from app.models.knowledge import (KnowledgeArticle, KnowledgeGroup, KnowledgeHandoverLink,
                                   KnowledgeRevision, KnowledgeTag)
 from app.models.user import User
-from app.services import group_service
+from app.services import attachment_service, group_service, rich_body
 
 CATEGORIES = ("운영 절차", "탐지·분석", "비상 대응", "장비·솔루션",
               "점검 체크리스트", "참고 자료")
@@ -164,7 +164,7 @@ def _snapshot(db: Session, row: KnowledgeArticle, actor: User,
         return
     db.add(KnowledgeRevision(
         article_id=row.id, version_no=row.version_no, category=row.category,
-        title=row.title, body=row.body, visibility=row.visibility,
+        title=row.title, body=row.body, body_doc=row.body_doc, visibility=row.visibility,
         tags=", ".join(tags_of(row)), change_note=(change_note or None),
         changed_by=actor.id, changed_at=now()))
     db.flush()
@@ -193,7 +193,8 @@ def revision_body(db: Session, actor: User, article_id: int, version_no: int) ->
     if rev is None:
         raise NotFound("해당 판의 이력이 없습니다.")
     return {"version_no": rev.version_no, "title": rev.title, "category": rev.category,
-            "body": rev.body, "tags": rev.tags, "visibility": rev.visibility,
+            "body": rev.body, "body_doc": rev.body_doc, "tags": rev.tags,
+            "visibility": rev.visibility,
             "change_note": rev.change_note, "changed_at": rev.changed_at}
 
 
@@ -210,6 +211,7 @@ def restore_revision(db: Session, actor: User, article_id: int, version_no: int,
     _snapshot(db, row, actor, "복원 전 상태")
     row.title = rev.title
     row.body = rev.body
+    row.body_doc = rev.body_doc
     row.category = rev.category
     row.version_no = row.version_no + 1
     row.updated_by = actor.id
@@ -332,6 +334,7 @@ def to_out(db: Session, actor: User, row: KnowledgeArticle) -> dict[str, Any]:
     overdue = bool(row.review_due and row.review_due <= date.today())
     return {
         "id": row.id, "category": row.category, "title": row.title, "body": row.body,
+        "body_doc": row.body_doc,
         "visibility": row.visibility, "group_ids": sorted(x.group_id for x in row.group_links),
         "group_names": sorted(db.scalars(select(Group.name).where(
             Group.id.in_([x.group_id for x in row.group_links]))).all())
@@ -384,13 +387,17 @@ def create(db: Session, actor: User, data: dict[str, Any],
     title = (data.get("title") or "").strip()
     if not title:
         raise ValidationFailed("제목을 입력하십시오.", detail={"field": "title"})
+    body, body_doc = rich_body.prepare(db, actor, text=data.get("body"), doc=data.get("body_doc"),
+                                       entity_type="KNOWLEDGE", entity_id=None)
     row = KnowledgeArticle(
-        title=title, category=data["category"], body=data.get("body") or "",
+        title=title, category=data["category"], body=body, body_doc=body_doc,
         is_pinned=bool(data.get("is_pinned")), review_due=data.get("review_due"),
         created_by=actor.id, updated_by=actor.id, version_no=1,
     )
     db.add(row)
     db.flush()
+    if row.body_doc:
+        row.body_doc = attachment_service.bind_inline(db, actor, row.body_doc, "KNOWLEDGE", row.id)
     _apply_tags(db, row, _clean_tags(data.get("tags")))
     _scope(db, row, actor, data.get("visibility") or VIS_ALL, data.get("group_ids") or [])
     _snapshot(db, row, actor, data.get("change_note") or "최초 등록")
@@ -419,13 +426,20 @@ def edit(db: Session, actor: User, article_id: int, changes: dict[str, Any],
         gids = [x.group_id for x in row.group_links]
     tags = _clean_tags(changes["tags"]) if changes.get("tags") is not None else None
 
+    if "body_doc" in changes and changes["body_doc"] is not None:
+        changes["body"], changes["body_doc"] = rich_body.prepare(
+            db, actor, text=None, doc=changes["body_doc"], entity_type="KNOWLEDGE",
+            entity_id=row.id)
+    elif changes.get("body") is not None and changes["body"] != row.body:
+        changes["body_doc"] = None             # 서식 없는 글로 바뀌었다(옛 화면 · 옛 API)
+
     # 바꾸기 전 모습을 먼저 남긴다 — 남기기 전에 덮어쓰면 비교할 대상이 사라진다.
     _snapshot(db, row, actor, None)
 
     # 판 번호 비교와 갱신을 한 SQL 문으로 처리해 동시 편집 덮어쓰기를 막는다.
     vals = {k: v for k, v in changes.items()
-            if k in ("category", "body", "is_pinned", "review_due")
-            and (v is not None or k == "review_due")}
+            if k in ("category", "body", "body_doc", "is_pinned", "review_due")
+            and (v is not None or k in ("review_due", "body_doc"))}
     vals.update(title=title, updated_by=actor.id, version_no=expected + 1)
     result = db.execute(update(KnowledgeArticle).where(
         KnowledgeArticle.id == article_id, KnowledgeArticle.version_no == expected

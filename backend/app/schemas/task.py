@@ -20,6 +20,8 @@ TaskStatus = Literal["TODO", "IN_PROGRESS", "WAITING", "DONE", "CANCELED"]
 class TaskCreate(BaseModel):
     title: str = Field(min_length=1, max_length=300)
     description: str | None = Field(default=None, max_length=20_000)
+    #: 서식 있는 설명. 주면 description 은 서버가 이것에서 다시 뽑는다.
+    description_doc: dict[str, Any] | None = None
     status: TaskStatus = "TODO"
     priority_code: str = Field(default="NORMAL", max_length=20)
     assignee_id: int | None = None          # 비우면 만든 사람
@@ -40,6 +42,7 @@ class QuickAddRequest(BaseModel):
     """인수인계에서 바로 만들기(FR-D-06). 비운 칸은 인수인계에서 채운다."""
     title: str | None = Field(default=None, max_length=300)
     description: str | None = Field(default=None, max_length=20_000)
+    description_doc: dict[str, Any] | None = None
     priority_code: str | None = Field(default=None, max_length=20)
     assignee_id: int | None = None
     due_date: date | None = None
@@ -50,6 +53,7 @@ class TaskUpdate(BaseModel):
     expected_version: int = Field(ge=1)
     title: str | None = Field(default=None, min_length=1, max_length=300)
     description: str | None = Field(default=None, max_length=20_000)
+    description_doc: dict[str, Any] | None = None
     status: TaskStatus | None = None
     priority_code: str | None = Field(default=None, max_length=20)
     assignee_id: int | None = None
@@ -98,7 +102,14 @@ class ChecklistUpdate(BaseModel):
 
 
 class CommentCreate(BaseModel):
-    body: str = Field(min_length=1, max_length=5_000)
+    body: str = Field(default="", max_length=5_000)
+    body_doc: dict[str, Any] | None = None
+
+    @model_validator(mode="after")
+    def _not_empty(self):
+        if not self.body.strip() and self.body_doc is None:
+            raise ValueError("댓글 내용을 입력하십시오.")
+        return self
 
 
 class TaskSearchRequest(BaseModel):
@@ -139,6 +150,7 @@ class TaskOut(BaseModel):
     id: int
     title: str
     description: str | None
+    description_doc: dict[str, Any] | None = None
     status: str
     priority: PriorityOut | None
     assignee: UserBrief | None
@@ -179,6 +191,7 @@ class BoardOut(BaseModel):
 class CommentOut(BaseModel):
     id: int
     body: str
+    body_doc: dict[str, Any] | None = None
     author_id: int | None
     author: str | None
     created_at: datetime

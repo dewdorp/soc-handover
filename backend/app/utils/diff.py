@@ -54,12 +54,27 @@ def word_diff(before: str | None, after: str | None) -> list[dict[str, str]]:
     return ops
 
 
+def _doc_label(doc: Any) -> str | None:
+    from app.core import richdoc
+    if not doc:
+        return None
+    s = richdoc.summary(doc) or {}
+    parts = [f"표 {s['tables']}" if s.get("tables") else "",
+             f"그림 {s['images']}" if s.get("images") else "",
+             f"로그·코드 {s['code_blocks']}" if s.get("code_blocks") else ""]
+    return "서식 있음" + (f" ({' · '.join(p for p in parts if p)})" if any(parts) else "")
+
+
 def field_diff(before: dict[str, Any], after: dict[str, Any],
                fields: list[str]) -> list[dict[str, Any]]:
     """필드별 before/after. 장문 필드에는 word-diff ops 를 덧붙인다."""
     out: list[dict[str, Any]] = []
     for name in fields:
         b, a = before.get(name), after.get(name)
+        if name.endswith("_doc"):
+            # 서식 구조는 통째로 보내지 않는다 — 글의 차이는 content 의 단어 비교가 보여 주고,
+            # 여기서는 '무엇이 몇 개 있었는지'만 알린다(표 · 그림 · 로그 블록 수).
+            b, a = _doc_label(b), _doc_label(a)
         entry: dict[str, Any] = {"field": name, "before": b, "after": a}
         if name in LONG_TEXT_FIELDS and (isinstance(b, str) or isinstance(a, str)):
             entry["ops"] = word_diff(b if isinstance(b, str) else "",

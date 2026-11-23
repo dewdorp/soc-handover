@@ -11,6 +11,9 @@ import { Link } from 'react-router-dom'
 import { Trash2, X } from 'lucide-react'
 import Attachments from '@/components/Attachments'
 import ConfirmDialog from '@/components/ui/ConfirmDialog'
+import LazyRichEditor from '@/features/richtext/LazyRichEditor'
+import RichView from '@/features/richtext/RichView'
+import { isEmptyDoc, type RichDoc } from '@/features/richtext/doc'
 import LinkedSchedules from '@/features/calendar/LinkedSchedules'
 import { useMe } from '@/hooks/useAuth'
 import { ApiRequestError } from '@/services/api/client'
@@ -37,6 +40,8 @@ export default function TaskDrawer({ taskId, onClose }: { taskId: number; onClos
   const [notice, setNotice] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState({ title: '', description: '' })
+  const [draftDoc, setDraftDoc] = useState<RichDoc | null>(null)
+  const [uploading, setUploading] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   const { data: task, isLoading, error: loadError } = useQuery({
@@ -48,10 +53,16 @@ export default function TaskDrawer({ taskId, onClose }: { taskId: number; onClos
 
   useEffect(() => { setEditing(false); setNotice(null) }, [taskId])
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !confirmDelete) onClose() }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || confirmDelete) return
+      // 글을 쓰는 중(설명 편집기 · 댓글 · 입력칸)이면 닫지 않는다 — Esc 한 번에 쓴 글이 사라지지 않게
+      const target = e.target as HTMLElement | null
+      if (editing || target?.closest('input, textarea, select, [contenteditable="true"], [role="dialog"]')) return
+      onClose()
+    }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [onClose, confirmDelete])
+  }, [onClose, confirmDelete, editing])
 
   const refresh = () => { for (const key of TASK_QUERY_KEYS) qc.invalidateQueries({ queryKey: [key] }) }
   const fail = (err: unknown, what: string) => {
@@ -103,7 +114,7 @@ export default function TaskDrawer({ taskId, onClose }: { taskId: number; onClos
           <span className="flex-1" />
           <span className="text-ink-faint tabular-nums text-sm">v{task.version_no}</span>
           {canEdit && !editing && (
-            <button className="btn btn-sm" onClick={() => { setDraft({ title: task.title, description: task.description ?? '' }); setEditing(true) }}>
+            <button className="btn btn-sm" onClick={() => { setDraft({ title: task.title, description: task.description ?? '' }); setDraftDoc(null); setEditing(true) }}>
               편집
             </button>
           )}
@@ -183,19 +194,21 @@ export default function TaskDrawer({ taskId, onClose }: { taskId: number; onClos
         <section className="space-y-1">
           <h3 className="text-ink-muted text-sm">내용</h3>
           {editing ? (
-            <textarea className="input w-full h-32 py-1 resize-y" value={draft.description}
-                      onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))} aria-label="내용" />
+            <LazyRichEditor value={task.description_doc} fallbackText={task.description} onChange={setDraftDoc}
+                            onBusyChange={setUploading} ariaLabel="할일 내용" />
           ) : (
-            <p className="whitespace-pre-wrap break-words">{task.description || <span className="text-ink-faint">(없음)</span>}</p>
+            <RichView doc={task.description_doc} text={task.description} />
           )}
           {editing && (
             <div className="flex justify-end gap-2">
               <button className="btn btn-sm" onClick={() => setEditing(false)}>취소</button>
-              <button className="btn btn-sm btn-primary" disabled={save.isPending || !draft.title.trim()}
+              <button className="btn btn-sm btn-primary" disabled={save.isPending || uploading || !draft.title.trim()}
                       onClick={() => {
                         const changes: TaskChanges = {}
                         if (draft.title.trim() !== task.title) changes.title = draft.title.trim()
-                        if ((draft.description || null) !== (task.description || null)) changes.description = draft.description || null
+                        // 손댄 경우에만 서식 구조를 보낸다 — 손대지 않은 옛 글은 그대로 둔다
+                        if (draftDoc) changes.description_doc = isEmptyDoc(draftDoc) ? null : draftDoc
+                        if (draftDoc && isEmptyDoc(draftDoc)) changes.description = null
                         if (Object.keys(changes).length) save.mutate(changes)
                         else setEditing(false)
                       }}>저장</button>
@@ -272,10 +285,16 @@ function Checklist({ task, canEdit, onChanged }: { task: TaskDetail; canEdit: bo
 
 function Comments({ taskId, onChanged }: { taskId: number; onChanged: () => void }) {
   const qc = useQueryClient()
-  const [body, setBody] = useState('')
+  const [doc, setDoc] = useState<RichDoc | null>(null)
+  const [composerKey, setComposerKey] = useState(0)
+  const [uploading, setUploading] = useState(false)
   const { data } = useQuery({ queryKey: ['task-comments', taskId], queryFn: () => taskApi.comments(taskId) })
   const after = () => { qc.invalidateQueries({ queryKey: ['task-comments', taskId] }); onChanged() }
-  const add = useMutation({ mutationFn: () => taskApi.addComment(taskId, body.trim()), onSuccess: () => { setBody(''); after() } })
+  const add = useMutation({
+    mutationFn: () => taskApi.addComment(taskId, { body_doc: doc }),
+    onSuccess: () => { setDoc(null); setComposerKey((k) => k + 1); after() },
+  })
+  const canPost = Boolean(doc && !isEmptyDoc(doc)) && !uploading && !add.isPending
   const remove = useMutation({ mutationFn: (id: number) => taskApi.removeComment(id), onSuccess: after })
 
   return (
@@ -290,17 +309,20 @@ function Comments({ taskId, onChanged }: { taskId: number; onChanged: () => void
               <span className="flex-1" />
               {c.can_delete && <button className="hover:text-state-urgent" onClick={() => remove.mutate(c.id)} aria-label="댓글 지우기"><X size={12} /></button>}
             </div>
-            <p className="whitespace-pre-wrap break-words">{c.body}</p>
+            <RichView doc={c.body_doc} text={c.body} />
           </li>
         ))}
       </ul>
-      <form className="space-y-1" onSubmit={(e) => { e.preventDefault(); if (body.trim()) add.mutate() }}>
-        <textarea className="input w-full h-14 py-1 resize-y" value={body} placeholder="댓글 (담당자·만든 사람에게 알림)"
-                  onChange={(e) => setBody(e.target.value)} aria-label="댓글" />
+      <div className="space-y-1">
+        <LazyRichEditor key={composerKey} variant="compact" value={null} onChange={setDoc}
+                        onBusyChange={setUploading} onSubmitShortcut={() => { if (canPost) add.mutate() }}
+                        ariaLabel="할일 댓글" placeholder="댓글 (담당자·만든 사람에게 알림) — 스크린샷은 Ctrl+V" />
         <div className="flex justify-end">
-          <button className="btn btn-sm" disabled={!body.trim() || add.isPending}>댓글 달기</button>
+          <button className="btn btn-sm" disabled={!canPost} onClick={() => add.mutate()}>
+            {uploading ? '그림 올리는 중…' : '댓글 달기'}
+          </button>
         </div>
-      </form>
+      </div>
     </section>
   )
 }

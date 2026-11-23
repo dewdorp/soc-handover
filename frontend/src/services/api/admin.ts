@@ -99,10 +99,16 @@ export interface ShiftInput { code: string; name: string; start_time: string; en
 
 // ------------------------------------------------------------------ 댓글 · 첨부
 
+export interface CommentInput {
+  body?: string
+  body_doc?: import('@/features/richtext/doc').RichDoc | null
+}
+
 export interface HandoverComment {
   id: number
   handover_id: number
   body: string
+  body_doc: import('@/features/richtext/doc').RichNode | null
   author_id: number | null
   author: string | null
   created_at: string
@@ -178,8 +184,9 @@ export const adminApi = {
   backups: () => api.get<BackupStatus>('/backups'),
 
   comments: (handoverId: number) => api.get<HandoverComment[]>(`/handovers/${handoverId}/comments`),
-  addComment: (handoverId: number, body: string) => api.post<HandoverComment>(`/handovers/${handoverId}/comments`, { body }),
-  editComment: (id: number, body: string) => api.patch<HandoverComment>(`/handover-comments/${id}`, { body }),
+  /** 서식 구조를 주면 서버가 본문 텍스트를 그것에서 다시 뽑는다 */
+  addComment: (handoverId: number, input: CommentInput) => api.post<HandoverComment>(`/handovers/${handoverId}/comments`, input),
+  editComment: (id: number, input: CommentInput) => api.patch<HandoverComment>(`/handover-comments/${id}`, input),
   deleteComment: (id: number) => api.delete<void>(`/handover-comments/${id}`),
 
   attachments: (entityType: EntityType, entityId: number) =>

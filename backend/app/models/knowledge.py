@@ -6,7 +6,7 @@ from datetime import date, datetime
 from sqlalchemy import (Boolean, Date, DateTime, ForeignKey, Index, Integer, String, Text,
                         UniqueConstraint)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from app.models.base import Base, TimestampMixin
+from app.models.base import Base, JSONType, TimestampMixin
 
 
 class KnowledgeArticle(Base, TimestampMixin):
@@ -19,6 +19,7 @@ class KnowledgeArticle(Base, TimestampMixin):
     category: Mapped[str] = mapped_column(String(50), nullable=False, default="운영 절차")
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    body_doc: Mapped[dict | None] = mapped_column(JSONType)
     visibility: Mapped[str] = mapped_column(String(20), nullable=False, default="ALL")
     is_pinned: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     review_due: Mapped[date | None] = mapped_column(Date)
@@ -85,6 +86,7 @@ class KnowledgeRevision(Base):
     category: Mapped[str] = mapped_column(String(50), nullable=False, default="")
     title: Mapped[str] = mapped_column(String(200), nullable=False, default="")
     body: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    body_doc: Mapped[dict | None] = mapped_column(JSONType)
     visibility: Mapped[str] = mapped_column(String(20), nullable=False, default="ALL")
     tags: Mapped[str] = mapped_column(String(500), nullable=False, default="")
     #: 무엇을 왜 바꿨는지. 비워 둘 수 있지만 적어 두면 뒤에 보는 사람이 덜 묻는다.

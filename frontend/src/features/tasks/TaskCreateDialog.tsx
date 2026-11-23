@@ -12,6 +12,8 @@ import { useEscape } from '@/hooks/useHotkeys'
 import { ApiRequestError } from '@/services/api/client'
 import { referenceApi } from '@/services/api/reference'
 import { TASK_QUERY_KEYS, taskApi, type TaskDetail, type TaskInput } from '@/services/api/tasks'
+import LazyRichEditor from '@/features/richtext/LazyRichEditor'
+import { isEmptyDoc, type RichDoc } from '@/features/richtext/doc'
 
 interface Props {
   handover?: { id: number; title: string; company?: string | null }
@@ -26,6 +28,8 @@ export default function TaskCreateDialog({ handover, onClose, onCreated }: Props
   const { data: users } = useQuery({ queryKey: ['user-lookup'], queryFn: () => referenceApi.userLookup(), staleTime: 60_000 })
   const { data: companies } = useQuery({ queryKey: ['companies'], queryFn: referenceApi.companies, staleTime: 60_000, enabled: !handover })
   const { data: priorities } = useQuery({ queryKey: ['priorities'], queryFn: referenceApi.priorities, staleTime: 300_000 })
+  const [doc, setDoc] = useState<RichDoc | null>(null)
+  const [uploading, setUploading] = useState(false)
   const [form, setForm] = useState({
     title: '', description: '', assignee_id: '', due_date: '', priority_code: '', company_id: '', checklist: '',
   })
@@ -41,7 +45,7 @@ export default function TaskCreateDialog({ handover, onClose, onCreated }: Props
         checklist,
       }
       if (form.title.trim()) body.title = form.title.trim()
-      if (form.description.trim()) body.description = form.description.trim()
+      if (doc && !isEmptyDoc(doc)) body.description_doc = doc
       if (form.priority_code) body.priority_code = form.priority_code
       if (handover) return taskApi.quickAdd(handover.id, body)
       return taskApi.create({
@@ -119,11 +123,12 @@ export default function TaskCreateDialog({ handover, onClose, onCreated }: Props
           )}
         </div>
 
-        <Labeled label="내용">
-          <textarea className="input w-full h-20 py-1 resize-y" value={form.description}
-                    placeholder={handover ? '(비우면 인수인계 내용 앞부분)' : ''}
-                    onChange={(e) => set('description', e.target.value)} />
-        </Labeled>
+        <div className="space-y-0.5" role="group" aria-label="내용">
+          <span className="text-ink-muted text-sm">내용</span>
+          <LazyRichEditor variant="compact" value={null} onChange={setDoc} onBusyChange={setUploading}
+                          ariaLabel="할일 내용"
+                          placeholder={handover ? '(비우면 인수인계 내용 앞부분) — 스크린샷은 Ctrl+V' : '내용 — 스크린샷은 Ctrl+V'} />
+        </div>
         <Labeled label="체크리스트 (한 줄에 하나)">
           <textarea className="input w-full h-16 py-1 resize-y" value={form.checklist}
                     placeholder={'차단 목록 확인\n고객사 통보'} onChange={(e) => set('checklist', e.target.value)} />
@@ -132,7 +137,7 @@ export default function TaskCreateDialog({ handover, onClose, onCreated }: Props
         {error && <p role="alert" className="text-sm text-state-urgent bg-red-50 border border-red-200 rounded px-2 py-1">{error}</p>}
         <div className="flex justify-end gap-2">
           <button type="button" className="btn" onClick={onClose}>취소</button>
-          <button className="btn btn-primary" disabled={create.isPending}>만들기</button>
+          <button className="btn btn-primary" disabled={create.isPending || uploading}>{uploading ? '그림 올리는 중…' : '만들기'}</button>
         </div>
       </form>
     </div>

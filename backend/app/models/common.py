@@ -26,6 +26,9 @@ class Attachment(Base, TimestampMixin):
     scan_status: Mapped[str] = mapped_column(String(20), nullable=False, default="NOT_SCANNED")
     uploaded_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    #: FILE = 첨부 목록의 파일, INLINE = 본문 · 댓글에 끼운 그림(첨부 목록에 나오지 않는다)
+    kind: Mapped[str] = mapped_column(String(10), nullable=False, default="FILE",
+                                      server_default="FILE")
 
 
 class SavedView(Base, TimestampMixin):

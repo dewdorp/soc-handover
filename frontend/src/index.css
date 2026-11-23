@@ -63,3 +63,111 @@
     @apply bg-brand text-white font-semibold hover:bg-brand hover:text-white;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * 서식 있는 본문 — 보기(.rich-view)와 편집기(.rich-content .ProseMirror)가 같은 모양을 쓴다.
+ * 표 · 로그 · 긴 주소가 화면을 밀어내지 않게: 표와 코드는 자기 상자 안에서만 가로로 민다.
+ * ------------------------------------------------------------------------- */
+@layer components {
+  .rich-view,
+  .rich-content .ProseMirror,
+  .rich-preview {
+    @apply text-base leading-relaxed break-words;
+    overflow-wrap: anywhere;
+  }
+  .rich-view > * + *,
+  .rich-content .ProseMirror > * + *,
+  .rich-preview .rich-view > * + * {
+    @apply mt-2;
+  }
+  .rich-view h3, .rich-content .ProseMirror h2 { @apply text-lg font-semibold mt-3; }
+  .rich-view h4, .rich-content .ProseMirror h3 { @apply text-md font-semibold mt-2; }
+  .rich-view ul, .rich-content .ProseMirror ul { @apply list-disc pl-5; }
+  .rich-view ol, .rich-content .ProseMirror ol { @apply list-decimal pl-5; }
+  .rich-view blockquote, .rich-content .ProseMirror blockquote {
+    @apply border-l-4 border-surface-border pl-3 text-ink-muted;
+  }
+  .rich-view hr, .rich-content .ProseMirror hr { @apply border-surface-border my-3; }
+  .rich-view a, .rich-content .ProseMirror a { @apply text-brand underline; }
+  .rich-view .inline-code, .rich-content .ProseMirror code:not(pre code) {
+    @apply font-mono text-sm bg-surface-sunken rounded px-1;
+  }
+
+  /* 체크리스트 */
+  .rich-view ul.task-list, .rich-content .ProseMirror ul[data-type='taskList'] { @apply list-none pl-0; }
+  .rich-view li.task-item, .rich-content .ProseMirror li[data-type='taskItem'] { @apply flex items-start gap-2; }
+  .rich-content .ProseMirror li[data-type='taskItem'] > label { @apply mt-1 select-none; }
+  .rich-content .ProseMirror li[data-type='taskItem'] > div { @apply flex-1; }
+  .rich-view li.task-item > input { @apply mt-1.5; }
+  .rich-view li.task-item[data-checked='true'] > div { @apply text-ink-muted line-through; }
+
+  /* 표 — 넓으면 상자 안에서만 가로로 민다. 칸 글은 자동 줄바꿈 */
+  .rich-view .table-wrap, .rich-content .ProseMirror .tableWrapper { @apply overflow-x-auto max-w-full my-2; }
+  .rich-view table, .rich-content .ProseMirror table { @apply border-collapse text-sm; min-width: 50%; table-layout: auto; }
+  .rich-view th, .rich-view td, .rich-content .ProseMirror th, .rich-content .ProseMirror td {
+    @apply border border-surface-border px-2 py-1 align-top;
+    min-width: 4rem;
+    overflow-wrap: anywhere;
+  }
+  .rich-view th, .rich-content .ProseMirror th { @apply bg-surface-sunken font-semibold text-left; }
+  .rich-view td > p, .rich-view th > p, .rich-content .ProseMirror td > p, .rich-content .ProseMirror th > p { @apply m-0; }
+  .rich-content .ProseMirror table { position: relative; }
+  .rich-content .ProseMirror .selectedCell::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none; background: rgb(37 99 235 / 0.12);
+  }
+  .rich-content .ProseMirror td, .rich-content .ProseMirror th { position: relative; }
+  .rich-content .ProseMirror .column-resize-handle {
+    position: absolute; right: -2px; top: 0; bottom: 0; width: 4px; background: rgb(37 99 235 / 0.5);
+    pointer-events: none;
+  }
+  .rich-content .ProseMirror.resize-cursor { cursor: col-resize; }
+
+  /* 로그 · 코드 */
+  .code-block { @apply border border-surface-border rounded-md overflow-hidden my-2 bg-slate-900; }
+  .code-block .code-head { @apply flex items-center gap-2 px-2 py-1 text-xs text-slate-300 bg-slate-800; }
+  .code-block .code-head button { @apply inline-flex items-center gap-1 rounded px-1.5 py-0.5 hover:bg-slate-700; }
+  .code-block pre, .rich-content .ProseMirror pre {
+    @apply font-mono text-sm text-slate-100 p-3 overflow-x-auto;
+    tab-size: 4;
+  }
+  .code-block pre.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .code-block pre:not(.wrap) { white-space: pre; }
+  .rich-content .ProseMirror pre { @apply bg-slate-900 rounded-md my-2; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .rich-content .ProseMirror pre code { @apply bg-transparent p-0 text-slate-100; }
+
+  /* 그림 */
+  .rich-figure { @apply my-2 max-w-full; }
+  .rich-figure img { @apply block max-w-full h-auto rounded border border-surface-border; }
+  .rich-figure figcaption { @apply text-sm text-ink-muted mt-1; }
+  .rich-figure .img-failed { @apply flex items-center gap-2 text-sm text-ink-muted border border-dashed border-surface-border rounded p-3; }
+  .rich-content .ProseMirror img { @apply max-w-full h-auto rounded border border-surface-border my-2; }
+  .rich-content .ProseMirror img.ProseMirror-selectednode { @apply ring-2 ring-brand; }
+
+  /* 편집기 틀 */
+  .rich-editor { @apply border border-surface-border rounded-md bg-surface; }
+  .rich-editor:focus-within { @apply border-brand; }
+  .rich-content .ProseMirror { @apply px-3 py-2 outline-none; min-height: 12rem; }
+  /* 바깥 틀이 이미 포커스를 보여 준다 — 안쪽 고리까지 그리면 테두리가 두 겹이 된다 */
+  .rich-content .ProseMirror:focus-visible { @apply ring-0 ring-offset-0; }
+  .rich-editor.compact .rich-content .ProseMirror { min-height: 5rem; }
+  .rich-preview { @apply px-3 py-2; min-height: 12rem; }
+  .rich-editor.compact .rich-preview { min-height: 5rem; }
+  .rich-content .ProseMirror p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder); @apply text-ink-faint pointer-events-none float-left h-0;
+  }
+  .rt-toolbar { @apply relative flex flex-wrap items-center gap-0.5 border-b border-surface-border px-1 py-1 bg-surface-sunken/60 rounded-t-md; }
+  .rt-tool {
+    @apply inline-flex items-center gap-1 h-7 min-w-7 px-1.5 rounded text-ink-muted hover:bg-surface hover:text-ink
+           disabled:opacity-40 disabled:pointer-events-none;
+  }
+  .rt-tool.is-active { @apply bg-brand/10 text-brand; }
+  .rt-sep { @apply mx-1 h-5 w-px bg-surface-border; }
+  .rt-label { @apply inline-flex items-center gap-1 text-xs text-ink-muted px-1; }
+  .rt-swatch { @apply h-5 w-5 rounded border border-surface-border; }
+  .rt-more, .rt-popover {
+    @apply w-full flex flex-wrap items-center gap-1 pt-1 mt-1 border-t border-surface-border text-sm;
+  }
+  .rt-context { @apply flex flex-wrap items-center gap-1 border-b border-surface-border px-2 py-1 bg-brand/5 text-sm; }
+  .rich-status { @apply flex flex-wrap items-center gap-2 border-t border-surface-border px-2 py-1 text-sm; }
+  .rich-editor-loading { @apply border border-surface-border rounded-md px-3 py-6 text-sm text-ink-faint; }
+}

@@ -59,6 +59,8 @@ export interface HandoverDetail extends HandoverListItem {
   comment_count: number
   attachment_count: number
   content: string
+  /** 서식 있는 본문. 없으면 서식 없는 옛 글 — content 를 그대로 보여 준다 */
+  content_doc: import('@/features/richtext/doc').RichNode | null
   remark: string | null
   created_by: number | null
   updated_by: number | null

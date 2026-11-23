@@ -154,7 +154,7 @@ def test_knowledge_write_revise_compare_and_restore(login, page: Page, server):
 
     page.get_by_role("button", name="새 문서").click()
     page.get_by_role("button", name="표준 양식 넣기").click()
-    expect(page.get_by_label("절차 · 참고 내용")).to_contain_text("탐지 · 확인 기준", timeout=10000)
+    expect(page.get_by_role("textbox", name="운영 지식 본문")).to_contain_text("탐지 · 확인 기준", timeout=10000)
     page.get_by_label("제목").fill("랜섬웨어 의심 트래픽 대응 절차")
     page.get_by_label("태그").fill("랜섬웨어, 야간")
     page.get_by_role("button", name="저장").click()
@@ -163,7 +163,7 @@ def test_knowledge_write_revise_compare_and_restore(login, page: Page, server):
     expect(page.get_by_role("button", name="#랜섬웨어").first).to_be_visible()
 
     page.get_by_role("button", name="수정").click()
-    page.get_by_label("절차 · 참고 내용").fill("2판: 차단 기준을 /24 로 올린다")
+    page.get_by_role("textbox", name="운영 지식 본문").fill("2판: 차단 기준을 /24 로 올린다")
     page.get_by_label(re.compile("수정 사유")).fill("차단 범위 조정")
     page.get_by_role("button", name="저장").click()
     expect(page.get_by_text("저장했습니다.")).to_be_visible(timeout=15000)

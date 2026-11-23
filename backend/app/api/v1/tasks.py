@@ -122,7 +122,8 @@ def delete_checklist(item_id: int, db: Session = Depends(get_db),
 
 def _comment_out(db: Session, actor: User, comment) -> dict:
     author = db.get(User, comment.author_id) if comment.author_id else None
-    return {"id": comment.id, "body": comment.body, "author_id": comment.author_id,
+    return {"id": comment.id, "body": comment.body, "body_doc": comment.body_doc,
+            "author_id": comment.author_id,
             "author": author.display_name if author else None, "created_at": comment.created_at,
             "can_delete": svc.can_delete_comment(actor, comment)}
 
@@ -137,7 +138,8 @@ def list_comments(task_id: int, db: Session = Depends(get_db),
              status_code=status.HTTP_201_CREATED)
 def add_comment(task_id: int, payload: CommentCreate, db: Session = Depends(get_db),
                 actor: User = Depends(require("task:create"))):
-    return _comment_out(db, actor, svc.add_comment(db, actor, task_id, payload.body))
+    return _comment_out(db, actor, svc.add_comment(db, actor, task_id, payload.body,
+                                                   body_doc=payload.body_doc))
 
 
 @router.delete("/task-comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)

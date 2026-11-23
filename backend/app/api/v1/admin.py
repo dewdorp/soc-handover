@@ -72,14 +72,16 @@ def list_comments(handover_id: int, db: Session = Depends(get_db),
 def add_comment(handover_id: int, payload: CommentBody, db: Session = Depends(get_db),
                 actor: User = Depends(require("handover:comment")),
                 ctx: RequestContext = Depends(get_context)):
-    return comment_service.to_out(db, actor, comment_service.create(db, actor, handover_id, payload.body, ctx))
+    return comment_service.to_out(db, actor, comment_service.create(
+        db, actor, handover_id, payload.body, ctx, body_doc=payload.body_doc))
 
 
 @router.patch("/handover-comments/{comment_id}", response_model=HandoverCommentOut)
 def edit_comment(comment_id: int, payload: CommentBody, db: Session = Depends(get_db),
                  actor: User = Depends(require("handover:comment")),
                  ctx: RequestContext = Depends(get_context)):
-    return comment_service.to_out(db, actor, comment_service.update(db, actor, comment_id, payload.body, ctx))
+    return comment_service.to_out(db, actor, comment_service.update(
+        db, actor, comment_id, payload.body, ctx, body_doc=payload.body_doc))
 
 
 @router.delete("/handover-comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -118,6 +120,38 @@ def download_attachment(attachment_id: int, db: Session = Depends(get_db),
     headers = {"Content-Disposition": f"attachment; filename*=UTF-8''{quote(att.original_name)}",
                "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store"}
     return FileResponse(path, media_type="application/octet-stream", headers=headers)
+
+
+@router.post("/attachments/inline", status_code=status.HTTP_201_CREATED)
+def upload_inline_image(file: UploadFile = File(...), db: Session = Depends(get_db),
+                        actor: User = Depends(require("handover:read")),
+                        ctx: RequestContext = Depends(get_context)):
+    """본문 · 댓글에 끼울 그림(스크린샷 붙여넣기 · 끌어다 놓기 · 파일 선택).
+
+    아직 글 번호가 없어도 된다 — '초안'으로 올려 두고, 글을 저장할 때 그 글에 묶인다.
+    초안은 올린 사람만 볼 수 있고, 하루 안에 묶이지 않으면 지워진다.
+    """
+    att = attachment_service.upload_inline(db, actor, file.filename or "", file.file, ctx)
+    return {"id": att.id, "url": attachment_service.inline_url(att.id), "name": att.original_name,
+            "mime": att.mime, "size": att.size_bytes}
+
+
+@router.get("/attachments/{attachment_id}/inline")
+def inline_image(attachment_id: int, db: Session = Depends(get_db),
+                 actor: User = Depends(require("handover:read"))):
+    """본문 그림을 보여 준다. **요청마다** 그 글을 볼 수 있는지 다시 판정한다.
+
+    브라우저 · 중계 서버에 남기지 않는다(no-store) — 권한을 거둔 뒤에 캐시로 보이면
+    거둔 것이 아니다. 내용은 그림인지 파일 앞부분으로 다시 확인하고(nosniff),
+    혹시 모를 경우에 대비해 스스로 아무것도 불러오지 못하게(CSP sandbox) 한다.
+    열람은 감사에 남기지 않는다(본문을 여는 것과 같다). 원본 받기는 /download 로, 감사에 남는다.
+    """
+    path, att, mime = attachment_service.inline(db, attachment_id, actor)
+    headers = {"Content-Disposition": f"inline; filename*=UTF-8''{quote(att.original_name)}",
+               "X-Content-Type-Options": "nosniff",
+               "Content-Security-Policy": "default-src 'none'; img-src 'self'; sandbox",
+               "Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"}
+    return FileResponse(path, media_type=mime, headers=headers)
 
 
 @router.get("/attachments/{attachment_id}/preview")

@@ -31,7 +31,7 @@ CHANGE_IMPORT = "IMPORT"
 
 #: 버전 스냅샷에 담기는 업무 필드(이 목록이 diff/복원/재확인 판정의 기준이다)
 VERSIONED_FIELDS = (
-    "company_id", "title", "content", "remark", "status_code", "priority_code",
+    "company_id", "title", "content", "content_doc", "remark", "status_code", "priority_code",
     "registered_date", "work_date", "completed_at", "sender_id", "sender_name_raw",
     "assignee_id", "assignee_name_raw", "checker_id", "checker_name_raw",
     "is_important", "is_pinned", "is_recurring", "tags", "visibility", "group_ids",
@@ -57,6 +57,9 @@ class Handover(Base, TimestampMixin):
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), nullable=False)
     title: Mapped[str] = mapped_column(String(300), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    #: 서식 있는 본문 구조(core/richdoc). 비어 있으면 서식 없는 옛 글 — content 를 그대로 보여 준다.
+    #: content 는 늘 이 구조에서 다시 뽑은 순수 텍스트다(검색 · Excel · RAG 가 읽는다).
+    content_doc: Mapped[dict | None] = mapped_column(JSONType)
     remark: Mapped[str | None] = mapped_column(Text)
 
     status_code: Mapped[str] = mapped_column(ForeignKey("handover_statuses.code"),
@@ -204,6 +207,7 @@ class HandoverComment(Base, TimestampMixin):
     handover_id: Mapped[int] = mapped_column(ForeignKey("handovers.id"), nullable=False)
     author_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"))
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    body_doc: Mapped[dict | None] = mapped_column(JSONType)
     is_edited: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     edited_at: Mapped[datetime | None] = mapped_column(TZDateTime)
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

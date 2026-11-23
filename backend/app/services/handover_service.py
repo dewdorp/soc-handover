@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.audit import actions
 from app.audit.recorder import record
 from app.auth.rbac import can_edit_handover, has_permission
+from app.core import richdoc
 from app.core.context import RequestContext
 from app.core.db import dialect_name
 from app.core.errors import Conflict, Forbidden, NotFound, ValidationFailed, VersionConflict
@@ -28,13 +29,14 @@ from app.models.handover import (CHANGE_CREATE, CHANGE_DELETE, CHANGE_RESTORE, C
                                  HandoverComment, HandoverStar, HandoverTag, HandoverVersion)
 from app.models.reference import Company, HandoverStatus, Priority, Tag
 from app.models.user import User
-from app.services import ack_service
+from app.services import ack_service, attachment_service
 from app.utils.diff import field_diff
 from app.utils.fingerprint import fingerprint as make_fingerprint
 
 #: 알림·감사 문구에 쓰는 필드 이름(화면의 fieldLabel 과 같은 뜻)
 FIELD_NAMES: dict[str, str] = {
-    "company_id": "관계사", "title": "제목", "content": "내용", "remark": "비고",
+    "company_id": "관계사", "title": "제목", "content": "내용", "content_doc": "내용 서식",
+    "remark": "비고",
     "status_code": "상태", "priority_code": "중요도", "registered_date": "등록일",
     "work_date": "수행일", "completed_at": "완료시각", "sender_id": "전달자",
     "assignee_id": "담당자", "checker_id": "확인자", "is_important": "중요",
@@ -59,6 +61,50 @@ def _jsonable(value: Any) -> Any:
 
 def tag_names(handover: Handover) -> list[str]:
     return sorted(link.tag.name for link in handover.tag_links if link.tag is not None)
+
+
+# --------------------------------------------------------------------------- 서식 있는 본문
+
+def _prepare_body(data: dict[str, Any], *, current_content: str | None) -> None:
+    """본문을 저장 형태로 맞춘다(data 를 고친다).
+
+    · content_doc 을 보냈으면 허용 목록으로 검사하고, content 는 **서버가 그것에서 다시
+      뽑는다** — 클라이언트가 보낸 텍스트는 믿지 않는다(검색 · Excel · RAG 가 이것을 읽는다).
+    · content 만 보냈고 글이 바뀌었으면 서식 없는 글로 바꾼다(옛 API · Excel 가져오기).
+      글이 그대로면 서식을 지우지 않는다 — 다른 필드만 고친 옛 클라이언트가 표를 날리면 안 된다.
+    """
+    if "content_doc" in data:
+        doc = data["content_doc"]
+        if doc is None:
+            return
+        doc = richdoc.validate(doc)
+        data["content_doc"] = doc
+        data["content"] = richdoc.to_text(doc)
+    elif "content" in data and data["content"] != current_content:
+        data["content_doc"] = None
+
+
+def reack_fields(changed: list[str], before: dict[str, Any], after: dict[str, Any]) -> list[str]:
+    """재확인 판정에 넘길 필드 — '글 · 표 · 그림이 바뀔 때만'(2026-11-23 결정).
+
+    content(순수 텍스트)는 표 칸 · 목록까지 담으므로 글 · 표가 바뀌면 이미 바뀐다.
+    그림과 링크 주소는 텍스트에 다 드러나지 않으므로 따로 비교해 content 변경으로 친다.
+    굵게 · 색 · 제목 크기 · 그림/열 너비만 바뀌면 content_doc 만 바뀌고, content_doc 은
+    재확인 필드가 아니므로 재확인이 일어나지 않는다.
+    """
+    fields = list(changed)
+    if "content_doc" in fields and "content" not in fields and (
+            richdoc.media_signature(before.get("content_doc"))
+            != richdoc.media_signature(after.get("content_doc"))):
+        fields.append("content")
+    return fields
+
+
+def _audit_view(data: dict[str, Any] | None) -> dict[str, Any] | None:
+    """감사 기록에는 본문 구조를 통째로 넣지 않는다 — 요약(요소 · 그림 · 표 수)만."""
+    if data and data.get("content_doc") is not None:
+        return {**data, "content_doc": richdoc.summary(data["content_doc"])}
+    return data
 
 
 def snapshot(handover: Handover) -> dict[str, Any]:
@@ -254,6 +300,7 @@ def create_handover(db: Session, payload: dict[str, Any], actor: User,
                    priority_code=payload.get("priority_code"),
                    user_ids={f: payload.get(f) for f in _USER_FIELDS})
 
+    _prepare_body(payload, current_content=None)
     handover = Handover(**payload)
     handover.current_version_no = 1
     handover.created_by = actor.id
@@ -261,6 +308,10 @@ def create_handover(db: Session, payload: dict[str, Any], actor: User,
     db.add(handover)
     db.flush()
 
+    if handover.content_doc:
+        # 붙여 넣은 그림(초안)을 이 글에 묶는다 — 글 번호가 생긴 뒤에야 할 수 있다.
+        handover.content_doc = attachment_service.bind_inline(
+            db, actor, handover.content_doc, "HANDOVER", handover.id)
     _apply_tags(db, handover, tags)
     # 그룹을 명시하지 않으면 전체 공개한다(기존 그룹 지정 기록은 보존).
     group_service.apply_scope(db, handover, visibility=visibility, group_ids=group_ids,
@@ -274,7 +325,7 @@ def create_handover(db: Session, payload: dict[str, Any], actor: User,
                  changed_fields=list(VERSIONED_FIELDS), change_reason=None,
                  actor=actor, ctx=ctx)
     record(db, action=actions.HANDOVER_CREATE, ctx=ctx, user=actor,
-           resource_type="HANDOVER", resource_id=handover.id, after=after)
+           resource_type="HANDOVER", resource_id=handover.id, after=_audit_view(after))
     _notify_people(db, handover, actor, before={})
     return handover
 
@@ -353,6 +404,10 @@ def update_handover(db: Session, handover_id: int, changes: dict[str, Any],
                    priority_code=changes.get("priority_code"),
                    user_ids={f: changes.get(f) for f in _USER_FIELDS if f in changes})
 
+    _prepare_body(changes, current_content=handover.content)
+    if changes.get("content_doc"):
+        changes["content_doc"] = attachment_service.bind_inline(
+            db, actor, changes["content_doc"], "HANDOVER", handover.id)
     before = snapshot(handover)
     for field, value in changes.items():
         setattr(handover, field, value)
@@ -377,10 +432,12 @@ def update_handover(db: Session, handover_id: int, changes: dict[str, Any],
     _add_version(db, handover, change_type=CHANGE_UPDATE,
                  before_data={f: before[f] for f in changed}, after_data=after,
                  changed_fields=changed, change_reason=change_reason, actor=actor, ctx=ctx)
-    reack = ack_service.invalidate_on_change(db, handover, changed, actor.id)
+    reack = ack_service.invalidate_on_change(db, handover, reack_fields(changed, before, after),
+                                             actor.id)
     record(db, action=actions.HANDOVER_UPDATE, ctx=ctx, user=actor,
            resource_type="HANDOVER", resource_id=handover.id,
-           before={f: before[f] for f in changed}, after={f: after[f] for f in changed},
+           before=_audit_view({f: before[f] for f in changed}),
+           after=_audit_view({f: after[f] for f in changed}),
            detail={"version_no": handover.current_version_no, "reack_triggered_by": reack})
     if "visibility" in changed or "group_ids" in changed:
         # 공개 범위는 내용과 달리 '누가 볼 수 있는가'를 바꾼다. 닫아낸 것도 따로 남긴다.
@@ -516,10 +573,12 @@ def restore_version(db: Session, handover_id: int, version_no: int, *,
                  before_data={f: before[f] for f in changed}, after_data=after,
                  changed_fields=changed, change_reason=change_reason.strip(),
                  actor=actor, ctx=ctx, restored_from=version_no)
-    reack = ack_service.invalidate_on_change(db, handover, changed, actor.id)
+    reack = ack_service.invalidate_on_change(db, handover, reack_fields(changed, before, after),
+                                             actor.id)
     record(db, action=actions.HANDOVER_RESTORE, ctx=ctx, user=actor,
            resource_type="HANDOVER", resource_id=handover.id,
-           before={f: before[f] for f in changed}, after={f: after[f] for f in changed},
+           before=_audit_view({f: before[f] for f in changed}),
+           after=_audit_view({f: after[f] for f in changed}),
            detail={"restored_from_version": version_no,
                    "version_no": handover.current_version_no,
                    "reason": change_reason.strip(), "reack_triggered_by": reack})

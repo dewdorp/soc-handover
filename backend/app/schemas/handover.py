@@ -24,6 +24,8 @@ class HandoverCreate(BaseModel):
     company_id: int
     title: str = Field(min_length=1, max_length=300)
     content: str = Field(default="", max_length=100_000)
+    #: 서식 있는 본문(편집기 문서 구조). 주면 content 는 서버가 이것에서 다시 뽑는다.
+    content_doc: dict[str, Any] | None = None
     remark: str | None = Field(default=None, max_length=100_000)
     status_code: str = Field(default="NEW", max_length=20)
     priority_code: str = Field(default="NORMAL", max_length=20)
@@ -52,6 +54,8 @@ class HandoverUpdate(BaseModel):
     company_id: int | None = None
     title: str | None = Field(default=None, min_length=1, max_length=300)
     content: str | None = Field(default=None, max_length=100_000)
+    #: 서식 있는 본문. content 만 보내는 옛 클라이언트는 서식 없는 글로 바꾼다(글이 바뀐 경우만).
+    content_doc: dict[str, Any] | None = None
     remark: str | None = Field(default=None, max_length=100_000)
     status_code: str | None = Field(default=None, max_length=20)
     priority_code: str | None = Field(default=None, max_length=20)
@@ -158,6 +162,8 @@ class HandoverListItem(BaseModel):
 
 class HandoverDetail(HandoverListItem):
     content: str
+    #: 서식 있는 본문. None 이면 서식 없는 옛 글 — content 를 그대로 보여 준다.
+    content_doc: dict[str, Any] | None = None
     remark: str | None
     created_by: int | None
     updated_by: int | None

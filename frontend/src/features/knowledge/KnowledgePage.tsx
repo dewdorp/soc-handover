@@ -10,6 +10,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link, useSearchParams } from 'react-router-dom'
 import { BookOpen, FilePlus, History, Link2, Pin, RotateCcw, Search, Trash2 } from 'lucide-react'
 import Attachments from '@/components/Attachments'
+import LazyRichEditor from '@/features/richtext/LazyRichEditor'
+import RichView from '@/features/richtext/RichView'
+import { isEmptyDoc, outlineToDoc, type RichDoc } from '@/features/richtext/doc'
+import { useUnsavedGuard } from '@/hooks/useUnsavedGuard'
 import { useMyGroups } from '@/features/handovers/ScopePicker'
 import { ApiRequestError } from '@/services/api/client'
 import {
@@ -42,6 +46,10 @@ export default function KnowledgePage() {
     return Number.isFinite(id) && id > 0 ? id : null
   })
   const [draft, setDraft] = useState<KnowledgeInput | null>(null)
+  const [touched, setTouched] = useState(false)
+  const [editorKey, setEditorKey] = useState(0)
+  const [uploading, setUploading] = useState(false)
+  const leaveGuard = useUnsavedGuard(draft !== null && touched, '작성 중인 운영 지식 문서')
   const [tagText, setTagText] = useState('')
   const [editingId, setEditingId] = useState<number | null>(null)
   const [message, setMessage] = useState('')
@@ -72,7 +80,7 @@ export default function KnowledgePage() {
     onSuccess: (article) => {
       qc.invalidateQueries({ queryKey: ['knowledge'] })
       qc.setQueryData(['knowledge-detail', article.id], article)
-      setSelected(article.id); setDraft(null); setEditingId(null); setMessage('저장했습니다.')
+      setSelected(article.id); setDraft(null); setEditingId(null); setTouched(false); setMessage('저장했습니다.')
     },
     onError: (err) => setMessage(errorText(err)),
   })
@@ -99,28 +107,36 @@ export default function KnowledgePage() {
     setEditingId(row?.id ?? null)
     setTagText(row ? row.tags.join(', ') : '')
     setDraft(row ? {
-      category: row.category, title: row.title, body: row.body,
+      category: row.category, title: row.title, body: row.body, body_doc: row.body_doc as RichDoc | null,
       visibility: row.visibility, group_ids: [...row.group_ids], tags: [...row.tags],
       is_pinned: row.is_pinned, review_due: row.review_due, version_no: row.version_no,
       change_note: '',
     } : blank())
     setMessage('')
+    setTouched(false)
+    setEditorKey((k) => k + 1)
   }
   const onSave = () => {
+    if (uploading) { setMessage('그림을 올리는 중입니다. 끝난 뒤 저장하십시오.'); return }
     if (!draft?.title.trim()) { setMessage('제목을 입력하십시오.'); return }
     if (draft.visibility === 'GROUPS' && !draft.group_ids.length) {
       setMessage('그룹을 고르거나 전체 공개를 선택하십시오.'); return
     }
     save.mutate({ ...draft, title: draft.title.trim(), tags: parseTags(tagText) })
   }
-  const set = (v: Partial<KnowledgeInput>) => setDraft((d) => d ? { ...d, ...v } : d)
+  const set = (v: Partial<KnowledgeInput>) => { setTouched(true); setDraft((d) => d ? { ...d, ...v } : d) }
   const useTemplate = async () => {
-    try { set({ body: (await knowledgeApi.template()).body }) }
-    catch (err) { setMessage(errorText(err)) }
+    const hasBody = draft && ((draft.body_doc && !isEmptyDoc(draft.body_doc)) || (!draft.body_doc && draft.body.trim()))
+    if (hasBody && !window.confirm('지금 쓴 내용을 표준 양식으로 바꿀까요? 쓴 내용은 사라집니다.')) return
+    try {
+      set({ body_doc: outlineToDoc((await knowledgeApi.template()).body), body: '' })
+      setEditorKey((k) => k + 1)
+    } catch (err) { setMessage(errorText(err)) }
   }
 
   return (
     <div className="p-3 sm:p-4 space-y-3 h-full overflow-auto">
+      {leaveGuard}
       <header className="flex items-start justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold flex gap-2 items-center"><BookOpen size={18} /> 운영 지식</h1>
@@ -194,8 +210,10 @@ export default function KnowledgePage() {
               <label className="space-y-1 block"><span className="text-sm">태그 (쉼표로 구분)</span>
                 <input className="input w-full" placeholder="랜섬웨어, 방화벽, 월간점검" aria-label="태그"
                        value={tagText} onChange={(e) => setTagText(e.target.value)}/></label>
-              <label className="space-y-1 block"><span className="text-sm">절차 · 참고 내용</span>
-                <textarea className="input w-full min-h-[240px] resize-y" value={draft.body} onChange={(e) => set({ body: e.target.value })}/></label>
+              <div className="space-y-1"><span className="text-sm">절차 · 참고 내용</span>
+                <LazyRichEditor key={editorKey} value={draft.body_doc} fallbackText={draft.body}
+                                onChange={(doc) => set({ body_doc: doc })} onBusyChange={setUploading}
+                                ariaLabel="운영 지식 본문" /></div>
               <div className="flex gap-2 flex-wrap items-center">
                 <button className="btn btn-sm" onClick={useTemplate}>표준 양식 넣기</button>
                 <span className="text-xs text-ink-faint">목적·범위 / 탐지·확인 / 분석 / 조치 / 보고·전파 / 후속 확인 / 관련 문서</span>
@@ -219,8 +237,8 @@ export default function KnowledgePage() {
               </fieldset>
               <label className="text-sm"><input type="checkbox" checked={draft.is_pinned} onChange={(e) => set({ is_pinned: e.target.checked })}/> 목록 상단에 고정</label>
               <div className="flex gap-2 justify-end">
-                <button className="btn" onClick={() => { setDraft(null); setEditingId(null) }}>취소</button>
-                <button className="btn btn-primary" disabled={save.isPending} onClick={onSave}>저장</button>
+                <button className="btn" onClick={() => { setDraft(null); setEditingId(null); setTouched(false) }}>취소</button>
+                <button className="btn btn-primary" disabled={save.isPending || uploading} onClick={onSave}>{uploading ? '그림 올리는 중…' : '저장'}</button>
               </div>
               <p className="text-xs text-ink-faint">첨부파일은 문서 저장 후 추가할 수 있습니다. 첨부는 이 문서의 열람 권한을 그대로 따릅니다.</p>
             </div>
@@ -265,7 +283,7 @@ export default function KnowledgePage() {
                     onClick={() => { if (window.confirm('이 문서를 삭제하시겠습니까? 되살릴 수 있습니다.')) remove.mutate(detail.data.id) }}><Trash2 size={13}/></button>
                 </div>}
               </div>
-              <pre className="whitespace-pre-wrap break-words text-sm font-sans leading-relaxed min-h-32">{detail.data.body || '본문이 없습니다.'}</pre>
+              <RichView doc={detail.data.body_doc} text={detail.data.body} empty="본문이 없습니다." className="min-h-32" />
 
               <div className="pt-3 border-t border-surface-border">
                 <h3 className="font-semibold mb-2">첨부 문서</h3>
@@ -391,11 +409,11 @@ function Revisions({ article, onRestored }: { article: KnowledgeArticle; onResto
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               <div className="min-w-0">
                 <h4 className="text-sm font-medium">v{body.data.version_no} (과거)</h4>
-                <pre className="whitespace-pre-wrap break-words text-xs bg-surface-sunken rounded p-2 max-h-72 overflow-auto">{body.data.body || '(본문 없음)'}</pre>
+                <div className="bg-surface-sunken rounded p-2 max-h-96 overflow-auto"><RichView doc={body.data.body_doc} text={body.data.body} empty="(본문 없음)" /></div>
               </div>
               <div className="min-w-0">
                 <h4 className="text-sm font-medium">v{article.version_no} (현재)</h4>
-                <pre className="whitespace-pre-wrap break-words text-xs bg-surface-sunken rounded p-2 max-h-72 overflow-auto">{article.body || '(본문 없음)'}</pre>
+                <div className="bg-surface-sunken rounded p-2 max-h-96 overflow-auto"><RichView doc={article.body_doc} text={article.body} empty="(본문 없음)" /></div>
               </div>
             </div>
           )}

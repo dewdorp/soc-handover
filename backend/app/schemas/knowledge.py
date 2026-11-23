@@ -1,6 +1,6 @@
 """운영 지식 API 스키마."""
 from datetime import date, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -12,6 +12,8 @@ class ArticleCreate(BaseModel):
     category: Category = "운영 절차"
     title: str = Field(min_length=1, max_length=200)
     body: str = Field(default="", max_length=100000)
+    #: 서식 있는 본문. 주면 body 는 서버가 이것에서 다시 뽑는다.
+    body_doc: dict[str, Any] | None = None
     visibility: Visibility = "ALL"
     group_ids: list[int] = Field(default_factory=list, max_length=30)
     tags: list[str] = Field(default_factory=list, max_length=20)
@@ -24,6 +26,7 @@ class ArticleUpdate(BaseModel):
     category: Category | None = None
     title: str | None = Field(default=None, min_length=1, max_length=200)
     body: str | None = Field(default=None, max_length=100000)
+    body_doc: dict[str, Any] | None = None
     visibility: Visibility | None = None
     group_ids: list[int] | None = Field(default=None, max_length=30)
     tags: list[str] | None = Field(default=None, max_length=20)
@@ -38,6 +41,7 @@ class ArticleOut(BaseModel):
     category: str
     title: str
     body: str
+    body_doc: dict[str, Any] | None = None
     visibility: str
     group_ids: list[int]
     group_names: list[str] = []
@@ -74,6 +78,7 @@ class RevisionBody(BaseModel):
     title: str
     category: str
     body: str
+    body_doc: dict[str, Any] | None = None
     tags: str = ""
     visibility: str
     change_note: str | None = None

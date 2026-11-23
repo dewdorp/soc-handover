@@ -5,6 +5,7 @@
  * 볼 수 없는 문서는 목록에도 없고, 번호로 직접 불러도 404 다.
  */
 import { api } from './client'
+import type { RichDoc, RichNode } from '@/features/richtext/doc'
 
 export type KnowledgeCategory = '운영 절차' | '탐지·분석' | '비상 대응' | '장비·솔루션' | '점검 체크리스트' | '참고 자료'
 
@@ -13,6 +14,8 @@ export interface KnowledgeArticle {
   category: KnowledgeCategory
   title: string
   body: string
+  /** 서식 있는 본문. 없으면 서식 없는 옛 글 */
+  body_doc: RichNode | null
   visibility: 'ALL' | 'GROUPS'
   group_ids: number[]
   group_names: string[]
@@ -35,6 +38,7 @@ export interface KnowledgeInput {
   category: KnowledgeCategory
   title: string
   body: string
+  body_doc?: RichDoc | null
   visibility: 'ALL' | 'GROUPS'
   group_ids: number[]
   tags: string[]
@@ -62,6 +66,7 @@ export interface KnowledgeRevisionBody {
   title: string
   category: string
   body: string
+  body_doc: RichNode | null
   tags: string
   visibility: string
   change_note: string | null

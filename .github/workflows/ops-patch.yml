@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - 'review/ops-usability'
+      - 'feature/rich-text'
   workflow_dispatch:
 
 permissions:

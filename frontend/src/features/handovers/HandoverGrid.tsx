@@ -85,10 +85,14 @@ interface Props {
 export default function HandoverGrid(props: Props) {
   const [openFilter, setOpenFilter] = useState<string | null>(null)
   const columns = COLUMNS.filter((c) => !props.state.hidden.includes(c.key))
+  // '크게'에서만: 표가 화면 폭에 갇혀 열이 눌리지 않게 고정 폭 열의 합 + 제목 칸만큼 넓어진다
+  // (넘치면 가로 스크롤). 작게 · 보통은 --grid-min-scale 이 0 이라 지금까지와 같다.
+  const fixed = columns.reduce((sum, c) => sum + (parseInt(c.width, 10) || 0), 0)
 
   return (
     <div className="flex-1 min-h-0 overflow-auto border-t border-surface-border">
-      <table className="w-full border-collapse text-base">
+      <table className="w-full border-collapse text-base"
+             style={{ minWidth: `calc(${fixed + TITLE_MIN}px * var(--grid-min-scale, 0))` }}>
         <thead className="sticky top-0 z-20 bg-surface-sunken">
           <tr>
             {columns.map((col) => (
@@ -121,6 +125,13 @@ export default function HandoverGrid(props: Props) {
   )
 }
 
+/** '크게'에서 제목 칸이 이보다 좁아지면 가로 스크롤을 쓴다(px, 글자 크기 배율을 곱한다). */
+const TITLE_MIN = 200
+
+/** 열 너비는 글자 크기 설정(--text-scale)을 따른다 — '크게'로 해도 머리글 · 값이 잘리지 않게. */
+const scaled = (px: string) => (px.endsWith('px') ? `calc(${px} * var(--text-scale, 1))` : px)
+const scaledLeft = (px: number | undefined) => (px === undefined ? undefined : `calc(${px}px * var(--text-scale, 1))`)
+
 /** 좌측 고정 컬럼의 left 오프셋. 앞선 고정 컬럼들의 폭 합. */
 function pinnedLeft(columns: ColumnDef[], key: string): number | undefined {
   let offset = 0
@@ -143,7 +154,7 @@ Props & {
   const canFilter = Boolean(field && field.name !== 'is_starred')
 
   return (
-    <th style={{ width: col.width, left: col.pinned ? left : undefined }}
+    <th style={{ width: scaled(col.width), left: col.pinned ? scaledLeft(left) : undefined }}
         className={`relative px-1.5 py-1 font-medium text-ink-muted text-left border-b
                     border-surface-border select-none whitespace-nowrap
                     ${col.pinned ? 'sticky z-10 bg-surface-sunken' : ''}`}>
@@ -192,7 +203,7 @@ function Row({ row, columns, density, selected, cursor, onSelect, onToggleStar }
         <td key={col.key}
             className={`px-1.5 truncate ${col.align === 'center' ? 'text-center' : ''}
                         ${col.pinned ? `sticky z-[1] ${selected ? 'bg-brand-soft' : 'bg-surface'}` : ''}`}
-            style={{ width: col.width, left: col.pinned ? pinnedLeft(columns, col.key) : undefined }}>
+            style={{ width: scaled(col.width), left: col.pinned ? scaledLeft(pinnedLeft(columns, col.key)) : undefined }}>
           <Cell col={col} row={row} onToggleStar={onToggleStar} />
         </td>
       ))}

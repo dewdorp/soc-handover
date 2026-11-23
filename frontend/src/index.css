@@ -2,7 +2,103 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---------------------------------------------------------------------------
+ * 화면 색 — 주간(:root)과 야간(data-theme=dark). 값은 'R G B' (투명도 수식어를 쓰려고).
+ * 야간은 검정이 아니라 지금의 청록을 어둡게 내린 색이다. 글자색은 모두 패널 · 바탕 위에서
+ * 4.5:1 이상(docs/UI_COMFORT.md). 색은 상태(긴급 · 지연 · 확인 필요)에만 쓴다.
+ * ------------------------------------------------------------------------- */
 @layer base {
+  :root {
+    color-scheme: light;
+    --text-scale: 1;
+
+    --surface: 255 255 255;
+    --surface-sunken: 242 246 246;
+    --surface-raised: 255 255 255;
+    --surface-border: 216 226 228;
+    --surface-nav: 25 52 62;
+    --ink: 24 50 58;
+    --ink-muted: 80 100 108;
+    --ink-faint: 92 112 119;
+    --brand: 8 104 94;
+    --brand-soft: 227 243 239;
+    --on-accent: 255 255 255;
+
+    --state-urgent: 181 38 55;
+    --state-urgent-soft: 253 232 234;
+    --state-high: 163 69 11;
+    --state-normal: 71 85 105;
+    --state-low: 93 112 121;
+    --state-open: 37 99 235;
+    --state-progress: 9 105 123;
+    --state-check: 137 86 13;
+    --state-wait: 88 103 124;
+    --state-done: 17 114 75;
+
+    --red-50: 254 242 242;
+    --red-100: 254 226 226;
+    --red-200: 254 202 202;
+    --red-900: 127 29 29;
+    --amber-50: 255 251 235;
+    --amber-100: 254 243 199;
+    --amber-200: 253 230 138;
+    --amber-300: 252 211 77;
+    --amber-500: 245 158 11;
+    --amber-800: 146 64 14;
+    --amber-900: 120 53 15;
+    --green-50: 240 253 244;
+    --green-100: 220 252 231;
+    --green-200: 187 247 208;
+    --green-900: 20 83 45;
+  }
+
+  :root[data-text-size='small'] { --text-scale: 0.93; }
+  /* --grid-min-scale: '크게'에서만 목록 표가 열 너비 합만큼 넓어진다(HandoverGrid) */
+  :root[data-text-size='large'] { --text-scale: 1.12; --grid-min-scale: 1.12; }
+
+  :root[data-theme='dark'] {
+    color-scheme: dark;
+
+    --surface: 18 34 42;
+    --surface-sunken: 12 23 27;
+    --surface-raised: 23 42 50;
+    --surface-border: 41 65 74;
+    --surface-nav: 8 20 26;
+    --ink: 214 224 223;
+    --ink-muted: 166 184 188;
+    --ink-faint: 143 165 170;
+    --brand: 77 188 170;
+    --brand-soft: 21 58 54;
+    --on-accent: 4 32 27;
+
+    --state-urgent: 255 143 153;
+    --state-urgent-soft: 74 29 37;
+    --state-high: 245 164 98;
+    --state-normal: 170 182 196;
+    --state-low: 151 169 177;
+    --state-open: 140 178 255;
+    --state-progress: 92 199 217;
+    --state-check: 230 188 108;
+    --state-wait: 160 173 189;
+    --state-done: 102 211 159;
+
+    --red-50: 43 22 26;
+    --red-100: 58 27 33;
+    --red-200: 110 47 56;
+    --red-900: 255 196 202;
+    --amber-50: 42 33 18;
+    --amber-100: 58 45 21;
+    --amber-200: 95 72 34;
+    --amber-300: 125 95 44;
+    --amber-500: 240 180 76;
+    --amber-800: 243 207 134;
+    --amber-900: 247 220 163;
+    --green-50: 16 41 30;
+    --green-100: 21 56 42;
+    --green-200: 36 92 68;
+    --green-900: 189 242 214;
+  }
+
   html,
   body,
   #root {
@@ -11,8 +107,9 @@
 
   body {
     @apply bg-surface-sunken text-ink text-base antialiased;
+    /* 맑은 고딕을 그대로 쓴다 — 현장 Windows PC 의 ClearType 힌팅 덕에 13~16px 에서
+       웹 글꼴보다 선명하고, 외부 폰트 CDN 을 쓰지 않는다(오프라인 내부망 운영 전제). */
     font-family: 'Malgun Gothic', 'Segoe UI', system-ui, -apple-system, sans-serif;
-    /* 외부 폰트 CDN을 쓰지 않는다(오프라인 내부망 운영 전제) */
   }
 
   *:focus-visible {
@@ -32,7 +129,7 @@
   }
 
   .btn-primary {
-    @apply bg-brand text-white border-brand hover:bg-brand/90;
+    @apply bg-brand text-on-accent border-brand hover:bg-brand/90;
   }
 
   .btn-sm {
@@ -60,7 +157,7 @@
   }
 
   .nav-item-active {
-    @apply bg-brand text-white font-semibold hover:bg-brand hover:text-white;
+    @apply bg-brand text-on-accent font-semibold hover:bg-brand hover:text-on-accent;
   }
 }
 
@@ -170,4 +267,40 @@
   .rt-context { @apply flex flex-wrap items-center gap-1 border-b border-surface-border px-2 py-1 bg-brand/5 text-sm; }
   .rich-status { @apply flex flex-wrap items-center gap-2 border-t border-surface-border px-2 py-1 text-sm; }
   .rich-editor-loading { @apply border border-surface-border rounded-md px-3 py-6 text-sm text-ink-faint; }
+}
+
+/* ---------------------------------------------------------------------------
+ * 서식 본문의 글자색 · 강조색 — 저장 값(hex, 서버 허용 목록)은 그대로 두고 **보이는 색만**
+ * 주간/야간에 맞춘다. 읽기 화면은 data-color, 편집기(Tiptap)는 style · data-color 를 잡는다.
+ * 주간 주황 · 초록은 흰 바탕 대비가 3.5:1 아래라 한 단계 진하게 보인다.
+ * ------------------------------------------------------------------------- */
+:root {
+  --rt-dc2626: #dc2626; --rt-ea580c: #c2410c; --rt-16a34a: #15803d;
+  --rt-2563eb: #2563eb; --rt-7c3aed: #7c3aed; --rt-6b7280: #6b7280;
+  --rt-hl-fef08a: #fef08a; --rt-hl-fecaca: #fecaca; --rt-hl-bbf7d0: #bbf7d0; --rt-hl-bfdbfe: #bfdbfe;
+}
+:root[data-theme='dark'] {
+  --rt-dc2626: #ff8f99; --rt-ea580c: #f5a462; --rt-16a34a: #66d39f;
+  --rt-2563eb: #8cb2ff; --rt-7c3aed: #c3a6ff; --rt-6b7280: #a9b4bf;
+  --rt-hl-fef08a: #5c5420; --rt-hl-fecaca: #5f2b33; --rt-hl-bbf7d0: #22513a; --rt-hl-bfdbfe: #24426a;
+}
+.rt-color[data-color='#dc2626'], .ProseMirror [style*='#dc2626'] { color: var(--rt-dc2626) !important; }
+.rt-color[data-color='#ea580c'], .ProseMirror [style*='#ea580c'] { color: var(--rt-ea580c) !important; }
+.rt-color[data-color='#16a34a'], .ProseMirror [style*='#16a34a'] { color: var(--rt-16a34a) !important; }
+.rt-color[data-color='#2563eb'], .ProseMirror [style*='#2563eb'] { color: var(--rt-2563eb) !important; }
+.rt-color[data-color='#7c3aed'], .ProseMirror [style*='#7c3aed'] { color: var(--rt-7c3aed) !important; }
+.rt-color[data-color='#6b7280'], .ProseMirror [style*='#6b7280'] { color: var(--rt-6b7280) !important; }
+mark[data-color] { color: inherit; border-radius: 2px; padding: 0 1px; }
+mark[data-color='#fef08a'] { background-color: var(--rt-hl-fef08a) !important; }
+mark[data-color='#fecaca'] { background-color: var(--rt-hl-fecaca) !important; }
+mark[data-color='#bbf7d0'] { background-color: var(--rt-hl-bbf7d0) !important; }
+mark[data-color='#bfdbfe'] { background-color: var(--rt-hl-bfdbfe) !important; }
+
+/* 야간에는 왼쪽 메뉴의 선택 칸을 칠하지 않는다 — 어두운 화면에서 가장 밝은 덩어리가 되어
+   계속 시선을 끈다. 옅은 바탕 + 왼쪽 띠로 위치만 알린다. */
+:root[data-theme='dark'] .nav-item-active,
+:root[data-theme='dark'] .nav-item-active:hover {
+  background-color: rgb(var(--brand) / 0.16);
+  color: rgb(var(--brand));
+  box-shadow: inset 3px 0 0 rgb(var(--brand));
 }

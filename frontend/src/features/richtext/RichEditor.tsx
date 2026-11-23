@@ -299,6 +299,8 @@ function Toolbar({ editor, compact, preview, onPreview, onPickImage }: {
       )}
       {tableForm && !off && <TableForm onInsert={(rows, cols, header) => {
         chain().insertTable({ rows, cols, withHeaderRow: header }).run()
+        // focus() 는 다음 화면 갱신 때 커서를 돌려준다 — 그 사이 친 첫 글자가 사라지지 않게 바로 옮긴다
+        editor.view.focus()
         setTableForm(false)
       }} onCancel={() => setTableForm(false)} />}
       {linkForm && !off && <LinkForm editor={editor} onDone={() => setLinkForm(false)} />}
@@ -329,7 +331,7 @@ function LinkForm({ editor, onDone }: { editor: Editor; onDone: () => void }) {
   const [error, setError] = useState('')
   const apply = () => {
     const url = href.trim()
-    if (!url) { editor.chain().focus().extendMarkRange('link').unsetLink().run(); onDone(); return }
+    if (!url) { editor.chain().focus().extendMarkRange('link').unsetLink().run(); editor.view.focus(); onDone(); return }
     const full = /^[a-z]+:/i.test(url) ? url : `https://${url}`
     if (!isSafeLink(full)) { setError('http · https · mailto 주소만 링크로 걸 수 있습니다.'); return }
     if (editor.state.selection.empty && !editor.isActive('link')) {
@@ -337,6 +339,7 @@ function LinkForm({ editor, onDone }: { editor: Editor; onDone: () => void }) {
     } else {
       editor.chain().focus().extendMarkRange('link').setLink({ href: full }).run()
     }
+    editor.view.focus()   // 표 넣기와 같다 — 주소 칸을 닫자마자 치는 글자가 편집기로 가게
     onDone()
   }
   return (

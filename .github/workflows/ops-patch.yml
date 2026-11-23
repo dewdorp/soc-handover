@@ -5,6 +5,7 @@ on:
     branches:
       - 'review/ops-usability'
       - 'feature/rich-text'
+      - 'feature/comfort-ui'
   workflow_dispatch:
 
 permissions:
